@@ -1,4 +1,5 @@
 from copilot.ingestion.models import ChunkKind, DocumentChunk, Evidence, OcrPage, OcrTextItem, PageRecord, SourceDocument, TextSpan
+from copilot.ingestion.cleaning import clean_document
 
 
 def test_chunk_requires_citation_evidence() -> None:
@@ -47,3 +48,112 @@ def test_ocr_result_preserves_page_confidence_and_boxes() -> None:
     )
     assert result.items[0].page == 11
     assert result.items[0].confidence == 0.98
+
+
+def test_cleaning_removes_repeated_boundary_and_page_number_but_keeps_warning() -> None:
+    document = {
+        "source_file": "manual.pdf",
+        "pdf_type": "text",
+        "page_count": 3,
+        "ocr_required_pages": [],
+        "pages": [
+            {"page_number": 1, "text": "# Manual\n\n## Contents\n1", "spans": []},
+            {"page_number": 2, "text": "## Contents\n\n**WARNING:** Do not open the cover.\n2", "spans": []},
+            {"page_number": 3, "text": "## Contents\n\nFollow the procedure.\n3", "spans": []},
+        ],
+    }
+    cleaned, counts = clean_document(document)
+    assert "## Contents" not in cleaned["pages"][1]["text"]
+    assert "WARNING" in cleaned["pages"][1]["text"]
+    assert counts["page_number"] == 3
+    assert "raw_text" not in cleaned["pages"][1]
+
+
+def test_cleaning_compacts_table_of_contents_dot_leaders() -> None:
+    document = {
+        "pages": [{"page_number": 1, "text": "Safety precautions........................................................................7", "spans": []}]
+    }
+    cleaned, _ = clean_document(document)
+    assert cleaned["pages"][0]["text"] == "Safety precautions 7"
+    assert cleaned["pages"][0]["normalizations"]["dot_leaders"] == 1
+
+
+def test_cleaning_removes_formatting_noise_and_keeps_semantic_text() -> None:
+    document = {
+        "source_file": "manual.pdf",
+        "pages": [{
+            "page_number": 1,
+            "text": "<u>Reset</u> the router.\n**[Support**](https://example.test**)\n**WARNING:** Unplug it first.",
+            "spans": [{"text": "Reset"}],
+        }],
+    }
+    cleaned, _ = clean_document(document)
+    page = cleaned["pages"][0]
+    assert "<u>" not in page["text"]
+    assert "**[Support](https://example.test)**" in page["text"]
+    assert "WARNING" in page["text"]
+    assert "spans" not in page
+    assert page["span_count"] == 1
+
+
+def test_cleaning_excludes_toc_and_duplicate_pages_without_dropping_page_identity() -> None:
+    toc = "# Contents\nSafety ........ 7\nSetup ........ 9\nTroubleshooting ........ 12"
+    document = {
+        "pages": [
+            {"page_number": 1, "text": toc, "spans": []},
+            {"page_number": 2, "text": "# Reset\nPress and hold Reset.", "spans": []},
+            {"page_number": 3, "text": "# Reset\nPress and hold Reset.", "spans": []},
+        ]
+    }
+    cleaned, counts = clean_document(document)
+    assert cleaned["pages"][0]["exclusion_reason"] == "table_of_contents"
+    assert cleaned["pages"][0]["text"] == ""
+    assert cleaned["pages"][2]["exclusion_reason"] == "duplicate_page"
+    assert cleaned["pages"][2]["page_number"] == 3
+    assert counts["duplicate_page"] == 1
+
+
+def test_cleaning_removes_repeated_running_title_but_preserves_repeated_warning() -> None:
+    pages = []
+    for page_number in range(1, 4):
+        pages.append({
+            "page_number": page_number,
+            "text": "**Router Model AX1 User Manual**\n**WARNING:** Disconnect power.\nBody %d" % page_number,
+            "spans": [],
+        })
+    cleaned, _ = clean_document({"pages": pages})
+    assert "Router Model AX1" in cleaned["pages"][0]["text"]
+    assert all("Router Model AX1" not in page["text"] for page in cleaned["pages"][1:])
+    assert all("WARNING" in page["text"] for page in cleaned["pages"])
+
+
+def test_cleaning_does_not_mistake_late_cross_references_for_contents() -> None:
+    references = "\n".join(f'- “Procedure {index}” on page {index}' for index in range(1, 10))
+    document = {
+        "pages": [
+            {"page_number": 1, "text": "# Introduction\nManual body.", "spans": []},
+            {"page_number": 96, "text": references, "spans": []},
+        ]
+    }
+    cleaned, _ = clean_document(document)
+    assert cleaned["pages"][1]["excluded_from_chunking"] is False
+    assert "Procedure 1" in cleaned["pages"][1]["text"]
+
+
+def test_cleaning_removes_underscore_leaders_and_layout_only_lines() -> None:
+    document = {
+        "pages": [{
+            "page_number": 1,
+            "text": "Heading________________20\n.\n--------------------\n•\nKeep this warning.",
+            "spans": [],
+        }]
+    }
+    cleaned, counts = clean_document(document)
+    text = cleaned["pages"][0]["text"]
+    assert "Heading 20" in text
+    assert "________________" not in text
+    assert "\n.\n" not in f"\n{text}\n"
+    assert "----------------" not in text
+    assert "•" in text
+    assert counts["standalone_artifact"] == 1
+    assert counts["layout_rule"] == 1

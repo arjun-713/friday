@@ -31,7 +31,11 @@ data/manuals/printers/<manual>.pdf   -> data/raw/printers/<manual>.json
 
 The reproducible runner is `scripts/parse_text_pdfs.py`; it writes the corpus report to `data/raw/parse_report.json`.
 
-`scripts/parse_native_pdfs.py` is the active corpus runner. It processes all 24 manuals without OCR and writes per-document `ocr_required_pages` metadata. The PP-OCR benchmark adapter remains available as an optional experiment, but is not part of the default ingestion flow.
+`scripts/parse_native_pdfs.py` is the active corpus runner. It processes all 21 retained manuals without OCR and writes per-document `ocr_required_pages` metadata. The PP-OCR benchmark adapter remains available as an optional experiment, but is not part of the default ingestion flow.
+
+The next deterministic stage is `scripts/clean_raw_pdfs.py`, which writes a mirrored `data/cleaned/{computers,routers,printers}` tree. The original text and positioned spans remain immutable in `data/raw/`. Cleaned pages retain their page identity, a raw-source pointer, `span_count`, normalization counts, and `removed_fragments`; coordinates are resolved from raw by source file and page rather than duplicated.
+
+Cleanup removes repeated running titles after preserving their first occurrence, isolated page numbers, copyright/navigation boilerplate, non-semantic HTML formatting, malformed Markdown markers, and dot leaders. Contents, empty, and exact-duplicate pages remain represented but are marked `excluded_from_chunking` and carry an exclusion reason. Warnings, procedures, tables, codes, URLs, and source page numbering are preserved.
 
 Install the native binding with the backend extra before using it:
 
