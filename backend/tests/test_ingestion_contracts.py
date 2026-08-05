@@ -1,6 +1,6 @@
 from copilot.ingestion.models import ChunkKind, DocumentChunk, Evidence, OcrPage, OcrTextItem, PageRecord, SourceDocument, TextSpan
 from copilot.ingestion.cleaning import clean_document
-from copilot.ingestion.chunking import structure_document
+from copilot.ingestion.chunking import extract_procedures, structure_document
 
 
 def test_chunk_requires_citation_evidence() -> None:
@@ -113,6 +113,47 @@ def test_structure_preserves_excluded_pages_without_creating_headings() -> None:
     assert structured.pages[0].excluded_from_chunking is True
     assert structured.pages[0].lines == []
     assert [heading.title for heading in structured.headings] == ["Setup"]
+
+
+def test_procedure_extraction_preserves_steps_prerequisites_and_warnings() -> None:
+    document = {
+        "source_file": "manual.json",
+        "pages": [
+            {
+                "page_number": 1,
+                "parser": "pdf-inspector",
+                "text": "# Reset the router\n**Before you begin:** disconnect power.\n\n**1.** Press Reset.\n**2.** Hold it for ten seconds. **WARNING:** Do not remove power.",
+            },
+            {
+                "page_number": 2,
+                "parser": "pdf-inspector",
+                "text": "3. Release Reset.\n\nVerify the status light.",
+            },
+        ],
+    }
+    procedures = extract_procedures(document)
+    assert len(procedures) == 1
+    procedure = procedures[0]
+    assert procedure.section == "Reset the router"
+    assert procedure.pages == [1, 2]
+    assert [step.number for step in procedure.steps] == [1, 2, 3]
+    assert "Before you begin" in procedure.prerequisites[0].content
+    assert any("WARNING" in warning.content for warning in procedure.warnings)
+    assert procedure.steps[2].content == "Release Reset."
+
+
+def test_procedure_extraction_splits_numbering_resets_and_rejects_single_steps() -> None:
+    document = {
+        "source_file": "manual.json",
+        "pages": [{
+            "page_number": 1,
+            "parser": "fixture",
+            "text": "# Setup\n1. First.\n2. Second.\n1. Another procedure.\nOnly context.",
+        }],
+    }
+    procedures = extract_procedures(document)
+    assert len(procedures) == 1
+    assert [step.number for step in procedures[0].steps] == [1, 2]
 
 
 def test_page_can_be_marked_for_selective_ocr() -> None:

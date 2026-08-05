@@ -41,6 +41,8 @@ The chunk schema and provenance rules are defined in [`docs/chunk-contract.md`](
 
 The first structure pass is documented in [`docs/structure-detection.md`](structure-detection.md). It assigns deterministic section paths but does not yet generate chunks.
 
+The next pass, documented in [`docs/procedure-extraction.md`](procedure-extraction.md), identifies ordered procedure candidates while preserving prerequisites, warnings, step order, and page evidence.
+
 Install the native binding with the backend extra before using it:
 
 ```bash
