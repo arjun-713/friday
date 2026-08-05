@@ -8,6 +8,6 @@ node_modules/
 .next/
 .env
 data/raw/
-data/processed/
 data/index/
 data/manuals/
+tmp/
