@@ -37,6 +37,8 @@ The next deterministic stage is `scripts/clean_raw_pdfs.py`, which writes a mirr
 
 Cleanup removes repeated running titles after preserving their first occurrence, isolated page numbers, copyright/navigation boilerplate, non-semantic HTML formatting, malformed Markdown markers, and dot leaders. Contents, empty, and exact-duplicate pages remain represented but are marked `excluded_from_chunking` and carry an exclusion reason. Warnings, procedures, tables, codes, URLs, and source page numbering are preserved.
 
+The chunk schema and provenance rules are defined in [`docs/chunk-contract.md`](chunk-contract.md). The contract is validated before a future chunk can enter BM25 or vector indexes.
+
 Install the native binding with the backend extra before using it:
 
 ```bash
@@ -49,6 +51,6 @@ pip install -e '.[dev]'
 - Original files remain immutable.
 - OCR is page-selective and records confidence.
 - Procedures retain prerequisites, warnings, and order.
-- Every chunk has document, model, version, section, page, parser, confidence, and evidence metadata.
+- Every chunk has document, model, version, section, page, parser, and evidence metadata.
 - A chunk without page and section evidence cannot enter retrieval indexes.
 - `pdf-inspector` page positions are converted from its 0-based page values to the application's 1-based citation pages.

@@ -7,6 +7,8 @@ def test_chunk_requires_citation_evidence() -> None:
         document_id="manual-001",
         title="Example Manual",
         manufacturer="Example",
+        model="Example 1",
+        version="1.0",
         source_url="https://example.test/manual.pdf",
         retrieved_at="2026-08-03T00:00:00Z",
     )
@@ -14,14 +16,70 @@ def test_chunk_requires_citation_evidence() -> None:
         chunk_id="manual-001-p4",
         document=document,
         page=4,
+        pages=[4],
         section="Troubleshooting > Wi-Fi",
         content="Restart the router.",
         kind=ChunkKind.PROCEDURE,
         parser="fixture",
-        confidence=1.0,
-        evidence=[Evidence(page=4, section="Troubleshooting > Wi-Fi", content="Restart the router.")],
+        evidence=[Evidence(source_file="manual.pdf", page=4, section="Troubleshooting > Wi-Fi", content="Restart the router.")],
     )
     assert chunk.evidence[0].page == chunk.page
+    assert chunk.pages == [4]
+
+
+def test_chunk_contract_rejects_missing_resolved_document_metadata() -> None:
+    from pydantic import ValidationError
+
+    document = SourceDocument(
+        document_id="manual-001",
+        title="Example Manual",
+        manufacturer="Example",
+        source_url="https://example.test/manual.pdf",
+        retrieved_at="2026-08-03T00:00:00Z",
+    )
+    try:
+        DocumentChunk(
+            chunk_id="manual-001-p4",
+            document=document,
+            page=4,
+            pages=[4],
+            section="Troubleshooting",
+            content="Restart the router.",
+            kind=ChunkKind.SECTION,
+            parser="fixture",
+            evidence=[Evidence(source_file="manual.pdf", page=4, section="Troubleshooting", content="Restart the router.")],
+        )
+    except ValidationError as error:
+        assert "document.model" in str(error)
+    else:
+        raise AssertionError("chunk validation must reject unresolved model metadata")
+
+
+def test_chunk_contract_keeps_multi_page_evidence_consistent() -> None:
+    document = SourceDocument(
+        document_id="manual-001",
+        title="Example Manual",
+        manufacturer="Example",
+        model="Example 1",
+        version="1.0",
+        source_url="https://example.test/manual.pdf",
+        retrieved_at="2026-08-03T00:00:00Z",
+    )
+    chunk = DocumentChunk(
+        chunk_id="manual-001-p4-p5",
+        document=document,
+        page=4,
+        pages=[4, 5],
+        section="Troubleshooting > Wi-Fi",
+        content="Restart the router, then verify the connection.",
+        kind=ChunkKind.PROCEDURE,
+        parser="fixture",
+        evidence=[
+            Evidence(source_file="manual.pdf", page=4, section="Troubleshooting > Wi-Fi", content="Restart the router."),
+            Evidence(source_file="manual.pdf", page=5, section="Troubleshooting > Wi-Fi", content="Verify the connection."),
+        ],
+    )
+    assert chunk.pages == [4, 5]
 
 
 def test_page_can_be_marked_for_selective_ocr() -> None:

@@ -1,6 +1,6 @@
 from enum import StrEnum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class PdfKind(StrEnum):
@@ -70,9 +70,10 @@ class ChunkKind(StrEnum):
 
 
 class Evidence(BaseModel):
+    source_file: str = Field(min_length=1)
     page: int = Field(gt=0)
-    section: str
-    content: str
+    section: str = Field(min_length=1)
+    content: str = Field(min_length=1)
     coordinates: tuple[float, float, float, float] | None = None
 
 
@@ -80,9 +81,25 @@ class DocumentChunk(BaseModel):
     chunk_id: str
     document: SourceDocument
     page: int = Field(gt=0)
-    section: str
-    content: str
+    pages: list[int] = Field(min_length=1)
+    section: str = Field(min_length=1)
+    content: str = Field(min_length=1)
     kind: ChunkKind
-    parser: str
-    confidence: float = Field(ge=0, le=1)
+    parser: str = Field(min_length=1)
     evidence: list[Evidence] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_provenance(self) -> "DocumentChunk":
+        if self.document.model is None:
+            raise ValueError("chunk document.model must be resolved before indexing")
+        if self.document.version is None:
+            raise ValueError("chunk document.version must be resolved before indexing")
+        if self.pages != sorted(set(self.pages)):
+            raise ValueError("chunk pages must be sorted and unique")
+        if self.page != self.pages[0]:
+            raise ValueError("chunk page must be the first page in chunk pages")
+        if any(e.page not in self.pages for e in self.evidence):
+            raise ValueError("every evidence page must belong to chunk pages")
+        if any(e.source_file != self.evidence[0].source_file for e in self.evidence):
+            raise ValueError("all evidence must reference the same raw source file")
+        return self
