@@ -4,7 +4,7 @@
 import json
 from pathlib import Path
 
-from copilot.ingestion.cleaning import clean_document
+from .logic import clean_document
 
 
 def main() -> None:

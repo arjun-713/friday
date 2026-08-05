@@ -6,7 +6,7 @@ optional native dependency and call the adapter from an ingestion job.
 
 from typing import Any
 
-from .models import PageRecord, PdfKind, TextSpan
+from ..models import PageRecord, PdfKind, TextSpan
 
 
 class PdfInspectorUnavailable(RuntimeError):

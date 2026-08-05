@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pdf_inspector
 
-from copilot.ingestion.ocr import PpOcrAdapter
+from .ocr import PpOcrAdapter
 
 
 os.environ.setdefault("PADDLE_PDX_CACHE_HOME", "tmp/paddlex")

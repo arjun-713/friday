@@ -28,19 +28,19 @@ The ingestion adapter uses Firecrawl's local `pdf-inspector` bindings for PDF cl
 Parsed outputs mirror the source taxonomy under `data/raw/{computers,routers,printers}`. Re-run the text-only parser with:
 
 ```bash
-PYTHONPATH=backend/src python scripts/parse_text_pdfs.py
+PYTHONPATH=backend/src python -m copilot.ingestion.parsing.text_only
 ```
 
 The active corpus path is native-only parsing for all PDFs, including mixed PDFs. It does not run OCR:
 
 ```bash
-PYTHONPATH=backend/src python scripts/parse_native_pdfs.py
+PYTHONPATH=backend/src python -m copilot.ingestion.parsing.native
 ```
 
 Create auditable cleaned output without changing the raw JSON:
 
 ```bash
-PYTHONPATH=backend/src python scripts/clean_raw_pdfs.py
+PYTHONPATH=backend/src python -m copilot.ingestion.cleaning.runner
 ```
 
 Cleaned JSON is retrieval-oriented. It removes layout-only formatting and boilerplate, excludes contents/empty/duplicate pages from future chunking without renumbering them, and records every removal. Positioned spans remain in `data/raw` and are referenced by source file plus page number instead of being duplicated in `data/cleaned`.

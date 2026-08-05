@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .models import OcrPage, OcrTextItem
+from ..models import OcrPage, OcrTextItem
 
 
 class PaddleOcrUnavailable(RuntimeError):

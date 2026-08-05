@@ -1,5 +1,6 @@
 from copilot.ingestion.models import ChunkKind, DocumentChunk, Evidence, OcrPage, OcrTextItem, PageRecord, SourceDocument, TextSpan
 from copilot.ingestion.cleaning import clean_document
+from copilot.ingestion.chunking import structure_document
 
 
 def test_chunk_requires_citation_evidence() -> None:
@@ -80,6 +81,38 @@ def test_chunk_contract_keeps_multi_page_evidence_consistent() -> None:
         ],
     )
     assert chunk.pages == [4, 5]
+
+
+def test_structure_assigns_nested_sections_across_pages() -> None:
+    structured = structure_document({
+        "source_file": "manual.json",
+        "pages": [
+            {"page_number": 1, "parser": "pdf-inspector", "text": "# Troubleshooting\nIntro\n## Wi-Fi\nCheck the cable."},
+            {"page_number": 2, "parser": "pdf-inspector", "text": "Continue checking.\n### Signal\nCheck the indicator."},
+        ],
+    })
+    assert [heading.section for heading in structured.headings] == [
+        "Troubleshooting",
+        "Troubleshooting > Wi-Fi",
+        "Troubleshooting > Wi-Fi > Signal",
+    ]
+    assert structured.pages[0].lines[1].section == "Troubleshooting"
+    assert structured.pages[0].lines[3].section == "Troubleshooting > Wi-Fi"
+    assert structured.pages[1].lines[0].section == "Troubleshooting > Wi-Fi"
+    assert structured.pages[1].lines[1].is_heading is True
+
+
+def test_structure_preserves_excluded_pages_without_creating_headings() -> None:
+    structured = structure_document({
+        "source_file": "manual.json",
+        "pages": [
+            {"page_number": 1, "parser": "pdf-inspector", "text": "# Contents", "excluded_from_chunking": True, "exclusion_reason": "table_of_contents"},
+            {"page_number": 2, "parser": "pdf-inspector", "text": "# Setup\nConnect the cable."},
+        ],
+    })
+    assert structured.pages[0].excluded_from_chunking is True
+    assert structured.pages[0].lines == []
+    assert [heading.title for heading in structured.headings] == ["Setup"]
 
 
 def test_page_can_be_marked_for_selective_ocr() -> None:

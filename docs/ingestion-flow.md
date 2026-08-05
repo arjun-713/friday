@@ -29,15 +29,17 @@ data/manuals/routers/<manual>.pdf    -> data/raw/routers/<manual>.json
 data/manuals/printers/<manual>.pdf   -> data/raw/printers/<manual>.json
 ```
 
-The reproducible runner is `scripts/parse_text_pdfs.py`; it writes the corpus report to `data/raw/parse_report.json`.
+The reproducible runner is `PYTHONPATH=backend/src python -m copilot.ingestion.parsing.text_only` from the repository root; it writes the corpus report to `data/raw/parse_report.json`.
 
-`scripts/parse_native_pdfs.py` is the active corpus runner. It processes all 21 retained manuals without OCR and writes per-document `ocr_required_pages` metadata. The PP-OCR benchmark adapter remains available as an optional experiment, but is not part of the default ingestion flow.
+`PYTHONPATH=backend/src python -m copilot.ingestion.parsing.native` is the active corpus runner. It processes all 21 retained manuals without OCR and writes per-document `ocr_required_pages` metadata. The PP-OCR benchmark runner remains available as an optional experiment, but is not part of the default ingestion flow.
 
-The next deterministic stage is `scripts/clean_raw_pdfs.py`, which writes a mirrored `data/cleaned/{computers,routers,printers}` tree. The original text and positioned spans remain immutable in `data/raw/`. Cleaned pages retain their page identity, a raw-source pointer, `span_count`, normalization counts, and `removed_fragments`; coordinates are resolved from raw by source file and page rather than duplicated.
+The next deterministic stage is `PYTHONPATH=backend/src python -m copilot.ingestion.cleaning.runner`, which writes a mirrored `data/cleaned/{computers,routers,printers}` tree. The original text and positioned spans remain immutable in `data/raw/`. Cleaned pages retain their page identity, a raw-source pointer, `span_count`, normalization counts, and `removed_fragments`; coordinates are resolved from raw by source file and page rather than duplicated.
 
 Cleanup removes repeated running titles after preserving their first occurrence, isolated page numbers, copyright/navigation boilerplate, non-semantic HTML formatting, malformed Markdown markers, and dot leaders. Contents, empty, and exact-duplicate pages remain represented but are marked `excluded_from_chunking` and carry an exclusion reason. Warnings, procedures, tables, codes, URLs, and source page numbering are preserved.
 
 The chunk schema and provenance rules are defined in [`docs/chunk-contract.md`](chunk-contract.md). The contract is validated before a future chunk can enter BM25 or vector indexes.
+
+The first structure pass is documented in [`docs/structure-detection.md`](structure-detection.md). It assigns deterministic section paths but does not yet generate chunks.
 
 Install the native binding with the backend extra before using it:
 

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pdf_inspector
 
-from copilot.ingestion.pdf_inspector import PdfInspectorAdapter
+from .pdf_inspector import PdfInspectorAdapter
 
 
 def main() -> None:
