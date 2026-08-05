@@ -23,4 +23,16 @@ pytest
 uvicorn copilot.main:app --reload
 ```
 
-The current adapters are deterministic placeholders. They define the seams for `pdf-inspector`, OCR, persistent storage, BM25, vector search, and raw-page rendering without pretending those integrations are complete.
+The ingestion adapter uses Firecrawl's local `pdf-inspector` bindings for PDF classification, per-page Markdown, and positioned text. It records OCR-required pages but does not run OCR yet. Persistent storage, normalization, chunking, BM25, vector search, and raw-page rendering remain later stages.
+
+Parsed outputs mirror the source taxonomy under `data/raw/{computers,routers,printers}`. Re-run the text-only parser with:
+
+```bash
+PYTHONPATH=backend/src python scripts/parse_text_pdfs.py
+```
+
+The active corpus path is native-only parsing for all PDFs, including mixed PDFs. It does not run OCR:
+
+```bash
+PYTHONPATH=backend/src python scripts/parse_native_pdfs.py
+```
