@@ -8,7 +8,6 @@ from pydantic import BaseModel, Field
 from ..models import Evidence
 from .structure import StructuredDocument, StructuredLine, structure_document
 
-
 PIPE_ROW = re.compile(r"^\s*\|[^\n]*\|\s*$")
 TABLE_SEPARATOR = re.compile(r"^\s*\|?\s*:?-{2,}:?\s*(?:\|\s*:?-{2,}:?\s*)+\|?\s*$")
 
@@ -88,18 +87,20 @@ def extract_table_rows(document: dict[str, Any] | StructuredDocument) -> list[Ta
                 index += 1
                 continue
             evidence = _evidence(source_file, row)
-            candidates.append(TableRowCandidate(
-                table_id=table_id,
-                row_index=row_index,
-                source_file=source_file,
-                parser=parser_by_page.get(row.page, "unknown"),
-                section=row.section,
-                page=row.page,
-                headers=headers,
-                cells=cells,
-                content=" | ".join(cells),
-                evidence=evidence,
-            ))
+            candidates.append(
+                TableRowCandidate(
+                    table_id=table_id,
+                    row_index=row_index,
+                    source_file=source_file,
+                    parser=parser_by_page.get(row.page, "unknown"),
+                    section=row.section,
+                    page=row.page,
+                    headers=headers,
+                    cells=cells,
+                    content=" | ".join(cells),
+                    evidence=evidence,
+                )
+            )
             row_index += 1
             index += 1
 

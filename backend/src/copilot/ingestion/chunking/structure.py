@@ -5,7 +5,6 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-
 HEADING = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
 
 
@@ -70,36 +69,44 @@ def structure_document(document: dict[str, Any]) -> StructuredDocument:
                         stack.pop()
                     stack.append((level, title))
                     section = _section_path(stack)
-                    headings.append(HeadingRecord(
-                        page=page_number,
-                        line_index=line_index,
-                        level=level,
-                        title=title,
-                        section=section,
-                    ))
-                    lines.append(StructuredLine(
-                        page=page_number,
-                        line_index=line_index,
-                        text=text,
-                        section=section,
-                        is_heading=True,
-                        heading_level=level,
-                    ))
+                    headings.append(
+                        HeadingRecord(
+                            page=page_number,
+                            line_index=line_index,
+                            level=level,
+                            title=title,
+                            section=section,
+                        )
+                    )
+                    lines.append(
+                        StructuredLine(
+                            page=page_number,
+                            line_index=line_index,
+                            text=text,
+                            section=section,
+                            is_heading=True,
+                            heading_level=level,
+                        )
+                    )
                 else:
-                    lines.append(StructuredLine(
-                        page=page_number,
-                        line_index=line_index,
-                        text=text,
-                        section=_section_path(stack),
-                    ))
+                    lines.append(
+                        StructuredLine(
+                            page=page_number,
+                            line_index=line_index,
+                            text=text,
+                            section=_section_path(stack),
+                        )
+                    )
 
-        structured_pages.append(StructuredPage(
-            page=page_number,
-            parser=str(page.get("parser", "unknown")),
-            excluded_from_chunking=excluded,
-            exclusion_reason=page.get("exclusion_reason"),
-            lines=lines,
-        ))
+        structured_pages.append(
+            StructuredPage(
+                page=page_number,
+                parser=str(page.get("parser", "unknown")),
+                excluded_from_chunking=excluded,
+                exclusion_reason=page.get("exclusion_reason"),
+                lines=lines,
+            )
+        )
 
     return StructuredDocument(
         source_file=str(document.get("source_file", "unknown")),

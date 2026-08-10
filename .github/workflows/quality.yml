@@ -1,0 +1,75 @@
+name: Quality checks
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PIP_NO_INPUT: "1"
+  PIP_PROGRESS_BAR: "off"
+
+defaults:
+  run:
+    working-directory: backend
+
+jobs:
+  ruff:
+    name: Ruff
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+      - name: Install backend development dependencies
+        run: python -m pip install --quiet -e ".[dev]"
+      - name: Lint
+        run: ruff check --output-format concise src tests
+      - name: Check formatting
+        run: ruff format --check src tests
+
+  pytest:
+    name: pytest
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+      - name: Install backend development dependencies
+        run: python -m pip install --quiet -e ".[dev]"
+      - name: Run tests
+        run: python -m pytest -q
+
+  mypy:
+    name: mypy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+      - name: Install backend development dependencies
+        run: python -m pip install --quiet -e ".[dev]"
+      - name: Run type checker
+        run: mypy

@@ -12,7 +12,6 @@ import pdf_inspector
 
 from .ocr import PpOcrAdapter
 
-
 os.environ.setdefault("PADDLE_PDX_CACHE_HOME", "tmp/paddlex")
 
 

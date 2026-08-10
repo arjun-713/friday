@@ -2,7 +2,7 @@
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar, cast
 
 from ..models import OcrPage, OcrTextItem
 
@@ -15,16 +15,14 @@ def _paddle_ocr() -> Any:
     try:
         from paddleocr import PaddleOCR
     except ImportError as exc:
-        raise PaddleOcrUnavailable(
-            "Install the OCR extra with: pip install -e '.[ocr]'"
-        ) from exc
+        raise PaddleOcrUnavailable("Install the OCR extra with: pip install -e '.[ocr]'") from exc
     return PaddleOCR
 
 
 class PpOcrAdapter:
     """Lazy, CPU-only PP-OCRv6 adapter with small/medium model tiers."""
 
-    _models = {
+    _models: ClassVar[dict[str, tuple[str, str]]] = {
         "small": ("PP-OCRv6_small_det", "PP-OCRv6_small_rec"),
         "medium": ("PP-OCRv6_medium_det", "PP-OCRv6_medium_rec"),
     }
@@ -73,7 +71,7 @@ class PpOcrAdapter:
             data = result.to_json()
             if isinstance(data, str):
                 data = json.loads(data)
-            return data.get("res", data)
+            return cast(dict[str, Any], data.get("res", data))
         raise TypeError("Unsupported PaddleOCR result object")
 
     def recognize(self, image_path: str | Path, page: int) -> OcrPage:
@@ -89,7 +87,7 @@ class PpOcrAdapter:
                 page=page,
                 polygon=[(float(point[0]), float(point[1])) for point in polygon],
             )
-            for text, score, polygon in zip(texts, scores, polygons)
+            for text, score, polygon in zip(texts, scores, polygons, strict=False)
             if str(text).strip()
         ]
         return OcrPage(

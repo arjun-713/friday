@@ -48,9 +48,7 @@ def main() -> None:
                 "characters": sum(len(page.text) for page in pages),
                 "positioned_spans": sum(len(page.spans) for page in pages),
                 "seconds": round(time.perf_counter() - started, 3),
-                "preview": " ".join(
-                    next((page.text for page in pages if page.text.strip()), "").split()
-                )[:240],
+                "preview": " ".join(next((page.text for page in pages if page.text.strip()), "").split())[:240],
             }
         )
         print(f"parsed {source_path} -> {output_path}")

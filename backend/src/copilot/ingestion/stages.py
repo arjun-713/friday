@@ -31,7 +31,9 @@ class IngestionResult:
 
 
 class IngestionPipeline:
-    def __init__(self, classifier: PdfClassifier, extractor: PageExtractor, chunker: ChunkBuilder, index: IndexWriter) -> None:
+    def __init__(
+        self, classifier: PdfClassifier, extractor: PageExtractor, chunker: ChunkBuilder, index: IndexWriter
+    ) -> None:
         self.classifier = classifier
         self.extractor = extractor
         self.chunker = chunker

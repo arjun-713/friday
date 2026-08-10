@@ -17,9 +17,7 @@ def _library() -> Any:
     try:
         import pdf_inspector
     except ImportError as exc:
-        raise PdfInspectorUnavailable(
-            "Install the backend dependencies to use pdf-inspector."
-        ) from exc
+        raise PdfInspectorUnavailable("Install the backend dependencies to use pdf-inspector.") from exc
     return pdf_inspector
 
 

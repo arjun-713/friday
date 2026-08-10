@@ -20,13 +20,17 @@ NAVIGATION_LABEL = re.compile(
     r"^(?:#{1,6}\s*)?(?:related (?:information|references|tasks|topics)|parent topic)\s*:?$",
     re.IGNORECASE,
 )
-COPYRIGHT_LINE = re.compile(
-    r"^(?:#{1,6}\s*)?(?:©|copyright\b|all rights reserved\b)", re.IGNORECASE
-)
+COPYRIGHT_LINE = re.compile(r"^(?:#{1,6}\s*)?(?:©|copyright\b|all rights reserved\b)", re.IGNORECASE)
 TOC_HEADING = re.compile(r"^#{1,6}\s+(?:table of )?contents\s*$", re.IGNORECASE)
 TOC_ENTRY = re.compile(r"^(?!#{1,6}\s).{3,}?\s+\d{1,4}\s*\*{0,2}$")
 PROTECTED_REPEATED_HEADINGS = {
-    "cause", "what to do", "warning", "caution", "danger", "important", "note",
+    "cause",
+    "what to do",
+    "warning",
+    "caution",
+    "danger",
+    "important",
+    "note",
 }
 
 
@@ -62,7 +66,7 @@ def _safe_boundary_candidate(line: str) -> bool:
     plain = _plain_markdown(normalized)
     if is_page_number(normalized) or normalized.upper() == "ENWW":
         return True
-    if TABLE_SEPARATOR.fullmatch(normalized) or STRUCTURAL.match(normalized) and not normalized.startswith("#"):
+    if TABLE_SEPARATOR.fullmatch(normalized) or (STRUCTURAL.match(normalized) and not normalized.startswith("#")):
         return False
     if plain.lower() in PROTECTED_REPEATED_HEADINGS:
         return False
@@ -80,10 +84,7 @@ def _repeated_boundary_lines(pages: list[dict[str, Any]]) -> set[str]:
         counts.update(set(top + bottom))
     # Cap the threshold so long manuals with chapter-local running titles are cleaned too.
     minimum = max(3, min(20, (len(pages) + 9) // 10))
-    return {
-        line for line, count in counts.items()
-        if count >= minimum and _safe_boundary_candidate(line)
-    }
+    return {line for line, count in counts.items() if count >= minimum and _safe_boundary_candidate(line)}
 
 
 def _join_wrapped_lines(lines: list[str]) -> list[str]:
@@ -115,9 +116,7 @@ def _table_of_contents_signals(lines: list[str], leader_runs: int) -> tuple[bool
     has_heading = any(TOC_HEADING.fullmatch(line) for line in nonempty)
     has_page_heading = any(line.startswith("#") for line in nonempty)
     starts_contents = (has_heading and entries >= 2) or (leader_runs >= 8 and has_page_heading)
-    looks_like_continuation = (
-        entries >= 8 and entries / len(nonempty) >= 0.5
-    ) or leader_runs >= 8
+    looks_like_continuation = (entries >= 8 and entries / len(nonempty) >= 0.5) or leader_runs >= 8
     return starts_contents, looks_like_continuation
 
 
@@ -172,11 +171,15 @@ def clean_document(document: dict[str, Any]) -> tuple[dict[str, Any], dict[str, 
             elif STANDALONE_LAYOUT_RULE.fullmatch(line):
                 removed.append({"text": line, "reason": "layout_rule"})
                 removed_counts["layout_rule"] += 1
-            elif line in repeated and line in boundary and (
-                line in seen_repeated_boundaries
-                or is_page_number(line)
-                or line.upper() == "ENWW"
-                or len(_plain_markdown(line)) == 1
+            elif (
+                line in repeated
+                and line in boundary
+                and (
+                    line in seen_repeated_boundaries
+                    or is_page_number(line)
+                    or line.upper() == "ENWW"
+                    or len(_plain_markdown(line)) == 1
+                )
             ):
                 removed.append({"text": line, "reason": "repeated_page_boundary"})
                 removed_counts["repeated_page_boundary"] += 1
@@ -206,10 +209,12 @@ def clean_document(document: dict[str, Any]) -> tuple[dict[str, Any], dict[str, 
             removed_counts[exclusion_reason] += 1
         elif cleaned_text in seen_page_text:
             exclusion_reason = "duplicate_page"
-            removed.append({
-                "text": f"Duplicate of page {seen_page_text[cleaned_text]}",
-                "reason": exclusion_reason,
-            })
+            removed.append(
+                {
+                    "text": f"Duplicate of page {seen_page_text[cleaned_text]}",
+                    "reason": exclusion_reason,
+                }
+            )
             removed_counts[exclusion_reason] += 1
             cleaned_text = ""
         else:

@@ -1,13 +1,12 @@
 """Conservative extraction of ordered procedure candidates."""
 
 import re
-from typing import Iterable
+from collections.abc import Iterable
 
 from pydantic import BaseModel, Field, model_validator
 
 from ..models import Evidence
 from .structure import StructuredDocument, StructuredLine, structure_document
-
 
 ORDERED_STEP = re.compile(r"^\s*(?:\*\*)?(\d+)[.)](?:\*\*)?\s+(.+?)\s*$")
 WARNING_MARKER = re.compile(r"\b(?:warning|caution|danger|notice|important)\b", re.IGNORECASE)
@@ -122,9 +121,7 @@ def extract_procedures(document: dict) -> list[ProcedureCandidate]:
     def finish() -> None:
         nonlocal steps, prerequisites, warnings, section, parser, procedure_number
         procedure_number += 1
-        candidate = _candidate(
-            source_file, procedure_number, parser, section, steps, prerequisites, warnings
-        )
+        candidate = _candidate(source_file, procedure_number, parser, section, steps, prerequisites, warnings)
         if candidate is not None:
             candidates.append(candidate)
         steps = []
@@ -143,13 +140,15 @@ def extract_procedures(document: dict) -> list[ProcedureCandidate]:
                 section = line.section
                 parser = parser_by_page.get(line.page, "unknown")
             evidence = _evidence(source_file, line)
-            steps.append(ProcedureStep(
-                number=number,
-                page=line.page,
-                section=line.section,
-                content=match.group(2),
-                evidence=evidence,
-            ))
+            steps.append(
+                ProcedureStep(
+                    number=number,
+                    page=line.page,
+                    section=line.section,
+                    content=match.group(2),
+                    evidence=evidence,
+                )
+            )
             if WARNING_MARKER.search(line.text):
                 warnings.append(_evidence(source_file, line))
             last_line_was_blank = False
