@@ -1,6 +1,6 @@
 from copilot.ingestion.models import ChunkKind, DocumentChunk, Evidence, OcrPage, OcrTextItem, PageRecord, SourceDocument, TextSpan
 from copilot.ingestion.cleaning import clean_document
-from copilot.ingestion.chunking import extract_procedures, structure_document
+from copilot.ingestion.chunking import extract_procedures, extract_table_rows, structure_document
 
 
 def test_chunk_requires_citation_evidence() -> None:
@@ -154,6 +154,34 @@ def test_procedure_extraction_splits_numbering_resets_and_rejects_single_steps()
     procedures = extract_procedures(document)
     assert len(procedures) == 1
     assert [step.number for step in procedures[0].steps] == [1, 2]
+
+
+def test_table_extraction_requires_header_separator_and_preserves_cells() -> None:
+    document = {
+        "source_file": "manual.json",
+        "pages": [{
+            "page_number": 4,
+            "parser": "pdf-inspector",
+            "text": "# Error codes\n| Code | Meaning | Action |\n|---|:---:|---|\n| E01 | Paper jam | Open the cover |\n| E02 | No paper | Load paper |",
+        }],
+    }
+    rows = extract_table_rows(document)
+    assert len(rows) == 2
+    assert rows[0].table_id.endswith(":table:1")
+    assert rows[0].headers == ["Code", "Meaning", "Action"]
+    assert rows[1].cells == ["E02", "No paper", "Load paper"]
+    assert rows[0].evidence.page == 4
+
+
+def test_table_extraction_skips_unstructured_pipe_text_and_excluded_pages() -> None:
+    document = {
+        "source_file": "manual.json",
+        "pages": [
+            {"page_number": 1, "parser": "fixture", "text": "| Not | a table |\n| still | prose |"},
+            {"page_number": 2, "parser": "fixture", "excluded_from_chunking": True, "text": "| Code | Meaning |\n|---|---|\n| E01 | Hidden |"},
+        ],
+    }
+    assert extract_table_rows(document) == []
 
 
 def test_page_can_be_marked_for_selective_ocr() -> None:

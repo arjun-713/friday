@@ -43,6 +43,8 @@ The first structure pass is documented in [`docs/structure-detection.md`](struct
 
 The next pass, documented in [`docs/procedure-extraction.md`](procedure-extraction.md), identifies ordered procedure candidates while preserving prerequisites, warnings, step order, and page evidence.
 
+Table rows are handled by the deterministic pass documented in [`docs/table-extraction.md`](table-extraction.md). It requires explicit Markdown table structure before emitting row candidates.
+
 Install the native binding with the backend extra before using it:
 
 ```bash
