@@ -1,4 +1,9 @@
-from copilot.ingestion.chunking import extract_procedures, extract_table_rows, structure_document
+from copilot.ingestion.chunking import (
+    extract_exact_matches,
+    extract_procedures,
+    extract_table_rows,
+    structure_document,
+)
 from copilot.ingestion.cleaning import clean_document
 from copilot.ingestion.models import (
     ChunkKind,
@@ -226,6 +231,59 @@ def test_table_extraction_skips_unstructured_pipe_text_and_excluded_pages() -> N
         ],
     }
     assert extract_table_rows(document) == []
+
+
+def test_exact_match_extraction_is_context_gated_and_preserves_evidence() -> None:
+    document = {
+        "source_file": "manual.json",
+        "pages": [
+            {
+                "page_number": 7,
+                "parser": "pdf-inspector",
+                "text": (
+                    "# Diagnostics\n"
+                    "The LED flashes error code [2,7].\n"
+                    "Blinking pattern 3-3-3 indicates failure.\n"
+                    "The spare part number M05264-001 is required.\n"
+                    "Use model number RT-AX3000.\n"
+                    "The model description is DUAL-BAND WI-FI.\n"
+                    "The page number 42 is not an identifier."
+                ),
+            }
+        ],
+    }
+    matches = extract_exact_matches(document)
+    by_kind = {(match.kind.value, match.normalized_value) for match in matches}
+    assert ("error_code", "[2,7]") in by_kind
+    assert ("blink_pattern", "3-3-3") in by_kind
+    assert ("part_number", "M05264-001") in by_kind
+    assert ("model_number", "RT-AX3000") in by_kind
+    assert all(match.evidence.page == 7 for match in matches)
+    assert all(match.source_file == "manual.json" for match in matches)
+    assert not any(match.normalized_value == "42" for match in matches)
+
+
+def test_exact_match_extraction_skips_excluded_pages_and_deduplicates_line_values() -> None:
+    document = {
+        "source_file": "manual.json",
+        "pages": [
+            {
+                "page_number": 1,
+                "parser": "fixture",
+                "text": "# Diagnostics\nThe error code [2,7] is repeated in this message: [2,7].",
+            },
+            {
+                "page_number": 2,
+                "parser": "fixture",
+                "excluded_from_chunking": True,
+                "text": "The LED flashes error code [9,9].",
+            },
+        ],
+    }
+    matches = extract_exact_matches(document)
+    assert [(match.kind.value, match.normalized_value) for match in matches] == [
+        ("error_code", "[2,7]"),
+    ]
 
 
 def test_page_can_be_marked_for_selective_ocr() -> None:

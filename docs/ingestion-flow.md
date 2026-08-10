@@ -45,6 +45,8 @@ The next pass, documented in [`docs/procedure-extraction.md`](procedure-extracti
 
 Table rows are handled by the deterministic pass documented in [`docs/table-extraction.md`](table-extraction.md). It requires explicit Markdown table structure before emitting row candidates.
 
+Exact technical identifiers are handled by [`docs/exact-match-extraction.md`](exact-match-extraction.md) using context-gated patterns for error codes, blink patterns, part numbers, and model numbers.
+
 Install the native binding with the backend extra before using it:
 
 ```bash
