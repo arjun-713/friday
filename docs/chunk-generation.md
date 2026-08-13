@@ -24,4 +24,12 @@ Run the generator from the repository root after parsing, cleaning, and source m
 PYTHONPATH=backend/src python -m copilot.ingestion.chunking.runner
 ```
 
+For the normal workflow after adding or replacing manuals, use the root Makefile:
+
+```bash
+make ingest
+```
+
+This runs parsing, metadata resolution, cleaning, and chunk generation in order. The individual `make prepare` and `make chunk` targets are available when only one part of the RAG ingestion flow needs to be repeated.
+
 It writes one JSONL file per manual under `data/chunks/` and a strategy-count report at `data/chunks/chunk_report.json`. Generated artifacts are ignored by Git.
