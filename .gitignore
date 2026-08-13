@@ -11,5 +11,6 @@ node_modules/
 data/raw/
 data/cleaned/
 data/index/
+data/chunks/
 data/manuals/
 tmp/

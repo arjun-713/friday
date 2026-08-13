@@ -1,12 +1,15 @@
 from copilot.ingestion.chunking import (
+    ChunkingConfig,
     extract_exact_matches,
     extract_procedures,
     extract_table_rows,
+    generate_chunks,
     structure_document,
 )
 from copilot.ingestion.cleaning import clean_document
 from copilot.ingestion.models import (
     ChunkKind,
+    ChunkStrategy,
     DocumentChunk,
     Evidence,
     OcrPage,
@@ -289,6 +292,59 @@ def test_exact_match_extraction_skips_excluded_pages_and_deduplicates_line_value
 def test_page_can_be_marked_for_selective_ocr() -> None:
     page = PageRecord(page_number=2, text="", parser="pdf-inspector", confidence=0.0, requires_ocr=True)
     assert page.requires_ocr is True
+
+
+def test_chunk_generation_emits_distinct_strategies_and_parent_links() -> None:
+    document = {
+        "source_file": "data/manuals/routers/example.pdf",
+        "pages": [
+            {
+                "page_number": 1,
+                "parser": "pdf-inspector",
+                "text": (
+                    "# Troubleshooting\n"
+                    "## Connection\n"
+                    "Before you begin, check the cable.\n"
+                    "\n"
+                    "1. Turn off the router.\n"
+                    "2. Turn on the router.\n"
+                    "\n"
+                    "| Code | Meaning |\n"
+                    "| --- | --- |\n"
+                    "| E1 | No link |\n"
+                    "\n"
+                    "The error code [2,7] is shown when the LED blinks.\n"
+                ),
+            }
+        ],
+    }
+    source = SourceDocument(
+        document_id="router-example",
+        title="Example Manual",
+        manufacturer="Example",
+        model="Example 1",
+        version="sha256:abc",
+        source_url="https://example.test/manual.pdf",
+        retrieved_at="2026-08-10T00:00:00Z",
+    )
+
+    chunks = generate_chunks(
+        document,
+        source,
+        ChunkingConfig(section_max_chars=200, parent_max_chars=500, child_max_chars=200, child_overlap_chars=30),
+    )
+
+    strategies = {chunk.strategy for chunk in chunks}
+    assert ChunkStrategy.SECTION in strategies
+    assert ChunkStrategy.PARENT_CHILD in strategies
+    assert ChunkStrategy.PROCEDURE in strategies
+    assert ChunkStrategy.TABLE_ROW in strategies
+    assert ChunkStrategy.EXACT_MATCH in strategies
+    parents = {chunk.chunk_id for chunk in chunks if chunk.metadata.get("role") == "parent"}
+    children = [chunk for chunk in chunks if chunk.metadata.get("role") == "child"]
+    assert children
+    assert all(chunk.parent_chunk_id in parents for chunk in children)
+    assert all(chunk.evidence and chunk.pages for chunk in chunks)
 
 
 def test_positioned_text_keeps_one_based_citation_page() -> None:

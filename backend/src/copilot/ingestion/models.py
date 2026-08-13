@@ -69,6 +69,14 @@ class ChunkKind(StrEnum):
     EXACT_MATCH = "exact_match"
 
 
+class ChunkStrategy(StrEnum):
+    SECTION = "section"
+    PARENT_CHILD = "parent_child"
+    PROCEDURE = "procedure"
+    TABLE_ROW = "table_row"
+    EXACT_MATCH = "exact_match"
+
+
 class Evidence(BaseModel):
     source_file: str = Field(min_length=1)
     page: int = Field(gt=0)
@@ -87,6 +95,12 @@ class DocumentChunk(BaseModel):
     kind: ChunkKind
     parser: str = Field(min_length=1)
     evidence: list[Evidence] = Field(min_length=1)
+    strategy: ChunkStrategy = ChunkStrategy.SECTION
+    ordinal: int = Field(default=0, ge=0)
+    parent_chunk_id: str | None = None
+    overlap_before: int = Field(default=0, ge=0)
+    overlap_after: int = Field(default=0, ge=0)
+    metadata: dict[str, str | int | bool] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_provenance(self) -> "DocumentChunk":
