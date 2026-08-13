@@ -2,7 +2,7 @@ PYTHON ?= python
 BACKEND_PYTHONPATH := backend/src
 MODULE := PYTHONPATH=$(BACKEND_PYTHONPATH) $(PYTHON) -m
 
-.PHONY: prepare chunk ingest
+.PHONY: prepare chunk ingest qdrant-up qdrant-down
 
 # Run after adding or replacing manuals in data/manuals.
 prepare:
@@ -16,3 +16,9 @@ chunk:
 
 # Complete RAG ingestion workflow for the current manual corpus.
 ingest: prepare chunk
+
+qdrant-up:
+	docker compose -f docker-compose.qdrant.yml up -d qdrant
+
+qdrant-down:
+	docker compose -f docker-compose.qdrant.yml down
