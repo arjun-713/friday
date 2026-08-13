@@ -1,0 +1,128 @@
+{
+  "computers/dell-latitude-7490-owner-s-manual.pdf": {
+    "title": "Latitude 7490 Owner's Manual",
+    "manufacturer": "Dell",
+    "model": "Latitude 7490",
+    "source_url": "https://dl.dell.com/topicspdf/latitude-14-7490-laptop_owners-manual2_en-us.pdf"
+  },
+  "computers/dell-optiplex-7060-sff-service-manual.pdf": {
+    "title": "OptiPlex 7060 SFF Service Manual",
+    "manufacturer": "Dell",
+    "model": "OptiPlex 7060 SFF",
+    "source_url": "https://dl.dell.com/topicspdf/optiplex-7060-desktop_service-manual2_en-us.pdf"
+  },
+  "computers/hp-elitebook-855-g8-maintenance-and-service-guide.pdf": {
+    "title": "EliteBook 855 G8 Maintenance and Service Guide",
+    "manufacturer": "HP",
+    "model": "EliteBook 855 G8",
+    "source_url": "https://h10032.www1.hp.com/ctg/Manual/c07067672.pdf"
+  },
+  "computers/hp-elitedesk-800-g5-sff-maintenance-and-service-guide.pdf": {
+    "title": "EliteDesk 800 G5 SFF Maintenance and Service Guide",
+    "manufacturer": "HP",
+    "model": "EliteDesk 800 G5 SFF",
+    "source_url": "https://h10032.www1.hp.com/ctg/Manual/c06443940.pdf"
+  },
+  "computers/lenovo-thinkpad-t14-gen-3-p14s-gen-3-hardware-maintenance-manual.pdf": {
+    "title": "ThinkPad T14 Gen 3 and P14s Gen 3 Hardware Maintenance Manual",
+    "manufacturer": "Lenovo",
+    "model": "ThinkPad T14 Gen 3 / P14s Gen 3",
+    "source_url": "https://download.lenovo.com/pccbbs/mobiles_pdf/t14_gen3_p14s_gen3_hmm_en.pdf"
+  },
+  "printers/brother-hl-l2350dw-series-online-user-s-guide.pdf": {
+    "title": "HL-L2350DW Series Online User's Guide",
+    "manufacturer": "Brother",
+    "model": "HL-L2350DW Series",
+    "source_url": "https://download.brother.com/welcome/doc100810/cv_hll2310d_uke_oug_c.pdf"
+  },
+  "printers/brother-hl-l2350dw-series-product-safety-guide.pdf": {
+    "title": "HL-L2350DW Series Product Safety Guide",
+    "manufacturer": "Brother",
+    "model": "HL-L2350DW Series",
+    "source_url": "https://download.brother.com/welcome/doc100759/cv_hll2310d_use_psg_e.pdf"
+  },
+  "printers/canon-g2000-series-online-manual.pdf": {
+    "title": "G2000 Series Online Manual",
+    "manufacturer": "Canon",
+    "model": "G2000 Series",
+    "source_url": "https://downloads.canon.com/hsg2023/ijprinters/manuals/G2000ser_OnlineManual_Win_EN_V02.pdf"
+  },
+  "printers/canon-ts5300-series-online-manual.pdf": {
+    "title": "TS5300 Series Online Manual",
+    "manufacturer": "Canon",
+    "model": "TS5300 Series",
+    "source_url": "https://downloads.canon.com/hsg2023/ijprinters/manuals/TS5300ser_OnlineManual_Mac_EN_V01.pdf"
+  },
+  "printers/epson-et-2800-et-2803-user-s-guide.pdf": {
+    "title": "ET-2800 and ET-2803 User's Guide",
+    "manufacturer": "Epson",
+    "model": "ET-2800 / ET-2803",
+    "source_url": "https://files.support.epson.com/docid/cpd6/cpd60271.pdf"
+  },
+  "printers/epson-l3150-user-s-guide.pdf": {
+    "title": "L3150 User's Guide",
+    "manufacturer": "Epson",
+    "model": "L3150",
+    "source_url": "https://files.support.epson.com/docid/cpd5/cpd55466.pdf"
+  },
+  "printers/hp-laserjet-1022-series-service-manual.pdf": {
+    "title": "LaserJet 1022 Series Service Manual",
+    "manufacturer": "HP",
+    "model": "LaserJet 1022 Series",
+    "source_url": "https://h10032.www1.hp.com/ctg/Manual/c00631427.pdf"
+  },
+  "printers/hp-laserjet-pro-m404-m405-user-guide.pdf": {
+    "title": "LaserJet Pro M404/M405 User Guide",
+    "manufacturer": "HP",
+    "model": "LaserJet Pro M404/M405",
+    "source_url": "https://h10032.www1.hp.com/ctg/Manual/c06177490.pdf"
+  },
+  "routers/asus-rt-ax3000-user-manual.pdf": {
+    "title": "RT-AX3000 User Manual",
+    "manufacturer": "ASUS",
+    "model": "RT-AX3000",
+    "source_url": "https://dlcdnets.asus.com/pub/ASUS/wireless/RT-AX3000/E16134_RT-AX3000_UM_1119.pdf"
+  },
+  "routers/asus-rt-be58u-user-manual.pdf": {
+    "title": "RT-BE58U User Manual",
+    "manufacturer": "ASUS",
+    "model": "RT-BE58U",
+    "source_url": "https://dlcdnets.asus.com/pub/ASUS/wireless/RT-BE58U/E23503_RT-BE58U_UM_WEB.pdf"
+  },
+  "routers/linksys-e9450-user-guide.pdf": {
+    "title": "E9450 User Guide",
+    "manufacturer": "Linksys",
+    "model": "E9450",
+    "source_url": "https://downloads.linksys.com/support/assets/userguide/E9450_USERGUIDE_EN%20LNKPG-00832%20Rev%20A00.pdf"
+  },
+  "routers/linksys-mr7300-series-user-guide.pdf": {
+    "title": "MR7300 Series User Guide",
+    "manufacturer": "Linksys",
+    "model": "MR7300 Series",
+    "source_url": "https://downloads.linksys.com/support/assets/userguide/USER%20GUIDE%20-%20MR7300%20Series%20-%20INTL_B00.pdf"
+  },
+  "routers/netgear-nighthawk-rax40-user-manual.pdf": {
+    "title": "Nighthawk RAX40 User Manual",
+    "manufacturer": "NETGEAR",
+    "model": "Nighthawk RAX40",
+    "source_url": "https://www.downloads.netgear.com/files/GDC/RAX40/RAX40_UM_EN.pdf"
+  },
+  "routers/netgear-orbi-rbk752-user-manual.pdf": {
+    "title": "Orbi RBK752 User Manual",
+    "manufacturer": "NETGEAR",
+    "model": "Orbi RBK752",
+    "source_url": "https://www.downloads.netgear.com/files/GDC/RBK752/RBK752_UM_EN.pdf"
+  },
+  "routers/tp-link-archer-c1200-user-guide.pdf": {
+    "title": "Archer C1200 User Guide",
+    "manufacturer": "TP-Link",
+    "model": "Archer C1200",
+    "source_url": "https://static.tp-link.com/res/down/doc/Archer_C1200%28US%29_V1_UG.pdf"
+  },
+  "routers/tp-link-archer-c6-user-guide.pdf": {
+    "title": "Archer C6 User Guide",
+    "manufacturer": "TP-Link",
+    "model": "Archer C6",
+    "source_url": "https://static.tp-link.com/upload/manual/2022/202206/20220607/1910013208_Archer%20C6%28US%29_UG_V1.pdf"
+  }
+}
