@@ -2,7 +2,7 @@ PYTHON ?= python
 BACKEND_PYTHONPATH := backend/src
 MODULE := PYTHONPATH=$(BACKEND_PYTHONPATH) $(PYTHON) -m
 
-.PHONY: prepare chunk ingest qdrant-up qdrant-down
+.PHONY: prepare chunk ingest qdrant-up qdrant-down index-vectors
 
 # Run after adding or replacing manuals in data/manuals.
 prepare:
@@ -22,3 +22,6 @@ qdrant-up:
 
 qdrant-down:
 	docker compose -f docker-compose.qdrant.yml down
+
+index-vectors:
+	PYTHONPATH=$(BACKEND_PYTHONPATH) $(PYTHON) -m copilot.retrieval.indexer

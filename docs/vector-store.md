@@ -45,6 +45,21 @@ BM25 and exact identifier retrieval are deliberately outside Qdrant. The hybrid 
 
 No embedding provider is bundled yet. The provider must implement `EmbeddingProvider`, expose its dimension dynamically, and support batch document embedding plus single-query embedding.
 
+The first local provider is Granite Small R2. Install its optional dependency with:
+
+```bash
+python -m pip install -e 'backend[embeddings]'
+```
+
+After starting Qdrant, index a bounded sample first:
+
+```bash
+make qdrant-up
+PYTHONPATH=backend/src python -m copilot.retrieval.indexer --limit 100
+```
+
+The runner selects only `vector`-profile chunks, embeds them in bounded batches, writes deterministic Qdrant point IDs, and stores an indexing manifest under `data/index/`. Use `--category computers|routers|printers` for a category sample. The full corpus can be indexed with `make index-vectors` after the sample has been benchmarked.
+
 ## Latency measurements
 
 `retrieval.metrics` provides trace marks and P50/P70/P99/max summaries. Benchmark retrieval with the same query set and embedding provider across:

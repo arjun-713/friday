@@ -6,6 +6,7 @@ from copilot.retrieval.benchmark import BenchmarkQuery, run_benchmark
 from copilot.retrieval.contracts import MetadataFilter, VectorHit, VectorRecord
 from copilot.retrieval.granite import GraniteEmbeddingProvider, GraniteEmbeddingSettings
 from copilot.retrieval.hybrid import retrieve
+from copilot.retrieval.indexer import index_from_chunks, load_vector_chunks
 from copilot.retrieval.ingest import index_chunks, vector_chunks
 from copilot.retrieval.metrics import latency_summary
 
@@ -184,3 +185,38 @@ def test_granite_provider_rejects_dimension_mismatch() -> None:
         assert "dimension mismatch" in str(error)
     else:
         raise AssertionError("expected dimension mismatch to be rejected")
+
+
+def test_load_vector_chunks_filters_profiles_and_honors_limit(tmp_path) -> None:
+    vector = _chunk("vector", RetrievalProfile.VECTOR)
+    context = _chunk("context", RetrievalProfile.CONTEXT_STORE)
+    path = tmp_path / "routers" / "manual.jsonl"
+    path.parent.mkdir()
+    path.write_text("".join(f"{chunk.model_dump_json()}\n" for chunk in (vector, context)), encoding="utf-8")
+
+    loaded = load_vector_chunks(tmp_path, category="routers", limit=1)
+
+    assert [chunk.chunk_id for chunk in loaded] == ["vector"]
+
+
+def test_index_from_chunks_returns_provider_manifest_fields() -> None:
+    class FakeIndex:
+        async def ensure_collection(self, dimension: int) -> None:
+            assert dimension == 3
+
+        async def upsert(self, records) -> None:
+            assert len(records) == 1
+
+        async def search(
+            self, vector, metadata_filter=None, limit=10, exact=False, candidate_count=None, score_threshold=None
+        ):
+            return []
+
+        async def fetch(self, ids):
+            return []
+
+    report = asyncio.run(index_from_chunks([_chunk("vector", RetrievalProfile.VECTOR)], FakeEmbedder(), FakeIndex(), 1))
+
+    assert report.indexed_chunks == 1
+    assert report.model_name == "fixture"
+    assert report.dimension == 3
