@@ -201,6 +201,50 @@ def test_procedure_extraction_splits_numbering_resets_and_rejects_single_steps()
     assert [step.number for step in procedures[0].steps] == [1, 2]
 
 
+def test_procedure_extraction_filters_license_numbered_lists() -> None:
+    document = {
+        "source_file": "manual.json",
+        "pages": [
+            {
+                "page_number": 1,
+                "parser": "fixture",
+                "text": "# Terms and conditions for copying, distribution, & modification\n1. Copy this text.\n2. Distribute this text.",
+            }
+        ],
+    }
+    assert extract_procedures(document) == []
+
+
+def test_procedure_chunks_have_bounded_step_groups() -> None:
+    document = {
+        "source_file": "manual.json",
+        "pages": [
+            {
+                "page_number": 1,
+                "parser": "fixture",
+                "text": "# Reset\n1. First step.\n2. Second step.\n3. Third step.\n4. Fourth step.\n5. Fifth step.",
+            }
+        ],
+    }
+    source = SourceDocument(
+        document_id="manual",
+        title="Manual",
+        manufacturer="Example",
+        model="Example 1",
+        version="sha256:test",
+        source_url="https://example.test/manual.pdf",
+        retrieved_at="2026-08-10T00:00:00Z",
+    )
+    chunks = generate_chunks(document, source)
+    procedure_chunks = [chunk for chunk in chunks if chunk.strategy.value == "procedure"]
+    parents = [chunk for chunk in procedure_chunks if chunk.metadata.get("role") == "parent"]
+    groups = [chunk for chunk in procedure_chunks if chunk.metadata.get("role") == "step_group"]
+    assert len(parents) == 1
+    assert len(groups) == 2
+    assert all(chunk.parent_chunk_id == parents[0].chunk_id for chunk in groups)
+    assert [chunk.metadata["step_start"] for chunk in groups] == [1, 5]
+
+
 def test_table_extraction_requires_header_separator_and_preserves_cells() -> None:
     document = {
         "source_file": "manual.json",

@@ -14,6 +14,10 @@ PREREQUISITE_MARKER = re.compile(
     r"^(?:before you begin|prerequisite(?:s)?|preparation|prepare|requirements?|required tools?|you will need)\b",
     re.IGNORECASE,
 )
+NON_PROCEDURE_SECTION = re.compile(
+    r"\b(?:licenses?|licen[cs]es?|trademarks?|copyright|terms\s*(?:and|&)\s*conditions|glossary)\b",
+    re.IGNORECASE,
+)
 
 
 class ProcedureStep(BaseModel):
@@ -85,7 +89,7 @@ def _candidate(
     prerequisites: list[Evidence],
     warnings: list[Evidence],
 ) -> ProcedureCandidate | None:
-    if not section or len(steps) < 2:
+    if not section or len(steps) < 2 or NON_PROCEDURE_SECTION.search(section):
         return None
     return ProcedureCandidate(
         procedure_id=f"{source_file}:procedure:{procedure_number}",

@@ -25,6 +25,8 @@ SECTION_MAX_CHARS = 2_400
 PARENT_MAX_CHARS = 6_000
 CHILD_MAX_CHARS = 1_400
 CHILD_OVERLAP_CHARS = 240
+PROCEDURE_STEP_GROUP_MAX_CHARS = 1_800
+PROCEDURE_STEP_GROUP_SIZE = 4
 
 
 class ChunkingConfig(BaseModel):
@@ -357,59 +359,136 @@ def _parent_child_chunks(document: SourceDocument, structured: Any, config: Chun
     return chunks
 
 
-def _candidate_chunk(
+def _procedure_chunks(
     document: SourceDocument,
-    candidate: ProcedureCandidate | TableRowCandidate | ExactMatchCandidate,
+    candidate: ProcedureCandidate,
     ordinal: int,
+) -> tuple[list[DocumentChunk], int]:
+    context = [
+        *[f"Prerequisite: {item.content}" for item in candidate.prerequisites],
+        *[f"Warning: {item.content}" for item in candidate.warnings],
+    ]
+    all_evidence = [*candidate.prerequisites, *candidate.warnings, *(step.evidence for step in candidate.steps)]
+    parent_content = "\n".join([*context, *[f"{step.number}. {step.content}" for step in candidate.steps]])
+    parent = _chunk(
+        document=document,
+        source_file=candidate.source_file,
+        parser=candidate.parser,
+        kind=ChunkKind.PROCEDURE,
+        strategy=ChunkStrategy.PROCEDURE,
+        ordinal=ordinal,
+        section=candidate.section,
+        content=parent_content,
+        evidence=all_evidence,
+        metadata={"role": "parent", "step_count": len(candidate.steps), "procedure_id": candidate.procedure_id},
+    )
+    chunks = [parent]
+    group: list[Any] = []
+    group_chars = 0
+    context_chars = len("\n".join(context)) + (1 if context else 0)
+    step_budget = max(200, PROCEDURE_STEP_GROUP_MAX_CHARS - context_chars - 100)
+    for step in candidate.steps:
+        for fragment in _split_step(step, step_budget):
+            if group and (len(group) >= PROCEDURE_STEP_GROUP_SIZE or group_chars + len(fragment.content) > step_budget):
+                ordinal += 1
+                chunks.append(_procedure_step_group(document, candidate, parent, group, ordinal, context))
+                group = []
+                group_chars = 0
+            group.append(fragment)
+            group_chars += len(fragment.content)
+    if group:
+        ordinal += 1
+        chunks.append(_procedure_step_group(document, candidate, parent, group, ordinal, context))
+    return chunks, ordinal
+
+
+def _split_step(step: Any, max_chars: int) -> list[Any]:
+    if len(step.content) <= max_chars:
+        return [step]
+    fragments: list[Any] = []
+    words = step.content.split()
+    current: list[str] = []
+    current_chars = 0
+    for word in words:
+        if current and current_chars + len(word) + 1 > max_chars:
+            fragments.append(step.model_copy(update={"content": " ".join(current)}))
+            current = []
+            current_chars = 0
+        current.append(word)
+        current_chars += len(word) + 1
+    if current:
+        fragments.append(step.model_copy(update={"content": " ".join(current)}))
+    return fragments
+
+
+def _procedure_step_group(
+    document: SourceDocument,
+    candidate: ProcedureCandidate,
+    parent: DocumentChunk,
+    steps: list[Any],
+    ordinal: int,
+    context: list[str],
 ) -> DocumentChunk:
-    if isinstance(candidate, ProcedureCandidate):
-        evidence = [*candidate.prerequisites, *candidate.warnings, *(step.evidence for step in candidate.steps)]
-        content = "\n".join(
-            [
-                *[f"Prerequisite: {item.content}" for item in candidate.prerequisites],
-                *[f"Warning: {item.content}" for item in candidate.warnings],
-                *[f"{step.number}. {step.content}" for step in candidate.steps],
-            ]
-        )
-        return _chunk(
-            document=document,
-            source_file=candidate.source_file,
-            parser=candidate.parser,
-            kind=ChunkKind.PROCEDURE,
-            strategy=ChunkStrategy.PROCEDURE,
-            ordinal=ordinal,
-            section=candidate.section,
-            content=content,
-            evidence=evidence,
-            metadata={"step_count": len(candidate.steps), "procedure_id": candidate.procedure_id},
-        )
-    if isinstance(candidate, TableRowCandidate):
-        return _chunk(
-            document=document,
-            source_file=candidate.source_file,
-            parser=candidate.parser,
-            kind=ChunkKind.TABLE_ROW,
-            strategy=ChunkStrategy.TABLE_ROW,
-            ordinal=ordinal,
-            section=candidate.section,
-            content=" | ".join(
-                f"{header}: {cell}" for header, cell in zip(candidate.headers, candidate.cells, strict=False)
-            ),
-            evidence=[candidate.evidence],
-            metadata={"table_id": candidate.table_id, "row_index": candidate.row_index},
-        )
+    evidence = [*candidate.prerequisites, *candidate.warnings, *(step.evidence for step in steps)]
+    content = "\n".join([*context, *[f"{step.number}. {step.content}" for step in steps]])
     return _chunk(
         document=document,
         source_file=candidate.source_file,
         parser=candidate.parser,
-        kind=ChunkKind.EXACT_MATCH,
-        strategy=ChunkStrategy.EXACT_MATCH,
+        kind=ChunkKind.PROCEDURE_STEP_GROUP,
+        strategy=ChunkStrategy.PROCEDURE,
         ordinal=ordinal,
         section=candidate.section,
-        content=candidate.context,
-        evidence=[candidate.evidence],
-        metadata={"identifier_kind": candidate.kind.value, "normalized_value": candidate.normalized_value},
+        content=content,
+        evidence=evidence,
+        parent_chunk_id=parent.chunk_id,
+        metadata={
+            "role": "step_group",
+            "procedure_id": candidate.procedure_id,
+            "step_start": steps[0].number,
+            "step_end": steps[-1].number,
+        },
     )
+
+
+def _candidate_chunks(
+    document: SourceDocument,
+    candidate: ProcedureCandidate | TableRowCandidate | ExactMatchCandidate,
+    ordinal: int,
+) -> tuple[list[DocumentChunk], int]:
+    if isinstance(candidate, ProcedureCandidate):
+        return _procedure_chunks(document, candidate, ordinal)
+    if isinstance(candidate, TableRowCandidate):
+        return [
+            _chunk(
+                document=document,
+                source_file=candidate.source_file,
+                parser=candidate.parser,
+                kind=ChunkKind.TABLE_ROW,
+                strategy=ChunkStrategy.TABLE_ROW,
+                ordinal=ordinal,
+                section=candidate.section,
+                content=" | ".join(
+                    f"{header}: {cell}" for header, cell in zip(candidate.headers, candidate.cells, strict=False)
+                ),
+                evidence=[candidate.evidence],
+                metadata={"table_id": candidate.table_id, "row_index": candidate.row_index},
+            )
+        ], ordinal
+    return [
+        _chunk(
+            document=document,
+            source_file=candidate.source_file,
+            parser=candidate.parser,
+            kind=ChunkKind.EXACT_MATCH,
+            strategy=ChunkStrategy.EXACT_MATCH,
+            ordinal=ordinal,
+            section=candidate.section,
+            content=candidate.context,
+            evidence=[candidate.evidence],
+            metadata={"identifier_kind": candidate.kind.value, "normalized_value": candidate.normalized_value},
+        )
+    ], ordinal
 
 
 def generate_chunks(
@@ -431,5 +510,6 @@ def generate_chunks(
     ordinal = len(chunks)
     for candidate in candidates:
         ordinal += 1
-        chunks.append(_candidate_chunk(source_document, candidate, ordinal))
+        candidate_chunks, ordinal = _candidate_chunks(source_document, candidate, ordinal)
+        chunks.extend(candidate_chunks)
     return chunks

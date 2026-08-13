@@ -65,6 +65,7 @@ class ChunkKind(StrEnum):
     PARENT = "parent"
     CHILD = "child"
     PROCEDURE = "procedure"
+    PROCEDURE_STEP_GROUP = "procedure_step_group"
     TABLE_ROW = "table_row"
     EXACT_MATCH = "exact_match"
 
