@@ -8,7 +8,7 @@ warning from its procedure or a table value from its header.
 
 import hashlib
 from collections import defaultdict
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -34,12 +34,27 @@ class ChunkingConfig(BaseModel):
 
 class _Unit(BaseModel):
     text: str = Field(min_length=1)
-    evidence: Evidence
+    evidence: list[Evidence] = Field(min_length=1)
 
 
-def _stable_id(source_file: str, strategy: ChunkStrategy, ordinal: int) -> str:
-    digest = hashlib.sha1(source_file.encode("utf-8")).hexdigest()[:12]
-    return f"{digest}:{strategy.value}:{ordinal}"
+def _stable_id(
+    document: SourceDocument,
+    strategy: ChunkStrategy,
+    section: str,
+    pages: Sequence[int],
+    content: str,
+) -> str:
+    identity = "|".join(
+        [
+            document.sha256 or document.document_id,
+            strategy.value,
+            section,
+            ",".join(str(page) for page in pages),
+            content,
+        ]
+    )
+    digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:24]
+    return f"{strategy.value}:{digest}"
 
 
 def _dedupe_evidence(items: Iterable[Evidence]) -> list[Evidence]:
@@ -53,6 +68,11 @@ def _dedupe_evidence(items: Iterable[Evidence]) -> list[Evidence]:
     return result
 
 
+def _evidence_for_units(units: Iterable[_Unit]) -> Iterator[Evidence]:
+    for unit in units:
+        yield from unit.evidence
+
+
 def _units_for_section(source_file: str, lines: Sequence[StructuredLine]) -> list[_Unit]:
     units: list[_Unit] = []
     paragraph: list[str] = []
@@ -63,12 +83,7 @@ def _units_for_section(source_file: str, lines: Sequence[StructuredLine]) -> lis
             units.append(
                 _Unit(
                     text="\n".join(paragraph),
-                    evidence=Evidence(
-                        source_file=source_file,
-                        page=paragraph_evidence[0].page,
-                        section=paragraph_evidence[0].section,
-                        content="\n".join(paragraph),
-                    ),
+                    evidence=paragraph_evidence.copy(),
                 )
             )
             paragraph.clear()
@@ -79,7 +94,14 @@ def _units_for_section(source_file: str, lines: Sequence[StructuredLine]) -> lis
         if not text:
             flush()
             continue
-        evidence = Evidence(source_file=source_file, page=line.page, section=line.section, content=line.text)
+        evidence = Evidence(
+            source_file=source_file,
+            page=line.page,
+            section=line.section,
+            content=line.text,
+            line_start=line.line_index,
+            line_end=line.line_index,
+        )
         paragraph.append(text)
         paragraph_evidence.append(evidence)
         if line.is_heading:
@@ -116,7 +138,7 @@ def _pack(units: Sequence[_Unit], max_chars: int) -> list[list[_Unit]]:
                     [
                         _Unit(
                             text=" ".join(piece),
-                            evidence=unit.evidence.model_copy(update={"content": " ".join(piece)}),
+                            evidence=[item.model_copy(update={"content": " ".join(piece)}) for item in unit.evidence],
                         )
                     ]
                 )
@@ -129,7 +151,7 @@ def _pack(units: Sequence[_Unit], max_chars: int) -> list[list[_Unit]]:
                 [
                     _Unit(
                         text=" ".join(piece),
-                        evidence=unit.evidence.model_copy(update={"content": " ".join(piece)}),
+                        evidence=[item.model_copy(update={"content": " ".join(piece)}) for item in unit.evidence],
                     )
                 ]
             )
@@ -169,6 +191,7 @@ def _chunk(
     *,
     document: SourceDocument,
     source_file: str,
+    parser: str,
     kind: ChunkKind,
     strategy: ChunkStrategy,
     ordinal: int,
@@ -183,15 +206,17 @@ def _chunk(
     evidence_list = _dedupe_evidence(evidence)
     pages = sorted({item.page for item in evidence_list})
     return DocumentChunk(
-        chunk_id=_stable_id(source_file, strategy, ordinal),
+        chunk_id=_stable_id(document, strategy, section, pages, content),
         document=document,
         page=pages[0],
         pages=pages,
         section=section,
         content=content,
         kind=kind,
-        parser="ingestion.chunker",
+        parser=parser,
         evidence=evidence_list,
+        source_parser=parser,
+        chunker="chunking.v2",
         strategy=strategy,
         ordinal=ordinal,
         parent_chunk_id=parent_chunk_id,
@@ -224,12 +249,13 @@ def _narrative_chunks(
                 _chunk(
                     document=document,
                     source_file=structured.source_file,
+                    parser="pdf-inspector",
                     kind=ChunkKind.SECTION,
                     strategy=ChunkStrategy.SECTION,
                     ordinal=ordinal,
                     section=section,
                     content="\n\n".join(unit.text for unit in group),
-                    evidence=(unit.evidence for unit in group),
+                    evidence=_evidence_for_units(group),
                     metadata={"split": "paragraph_boundary", "max_chars": config.section_max_chars},
                 )
             )
@@ -253,12 +279,13 @@ def _parent_child_chunks(document: SourceDocument, structured: Any, config: Chun
             parent = _chunk(
                 document=document,
                 source_file=structured.source_file,
+                parser="pdf-inspector",
                 kind=ChunkKind.PARENT,
                 strategy=ChunkStrategy.PARENT_CHILD,
                 ordinal=ordinal,
                 section=section,
                 content="\n\n".join(unit.text for unit in parent_group),
-                evidence=(unit.evidence for unit in parent_group),
+                evidence=_evidence_for_units(parent_group),
                 metadata={"role": "parent", "max_chars": config.parent_max_chars},
             )
             chunks.append(parent)
@@ -270,12 +297,13 @@ def _parent_child_chunks(document: SourceDocument, structured: Any, config: Chun
                     _chunk(
                         document=document,
                         source_file=structured.source_file,
+                        parser="pdf-inspector",
                         kind=ChunkKind.CHILD,
                         strategy=ChunkStrategy.PARENT_CHILD,
                         ordinal=ordinal,
                         section=section,
                         content="\n\n".join(unit.text for unit in child_group),
-                        evidence=(unit.evidence for unit in child_group),
+                        evidence=_evidence_for_units(child_group),
                         parent_chunk_id=parent.chunk_id,
                         overlap_before=before,
                         overlap_after=after,
@@ -302,6 +330,7 @@ def _candidate_chunk(
         return _chunk(
             document=document,
             source_file=candidate.source_file,
+            parser=candidate.parser,
             kind=ChunkKind.PROCEDURE,
             strategy=ChunkStrategy.PROCEDURE,
             ordinal=ordinal,
@@ -314,6 +343,7 @@ def _candidate_chunk(
         return _chunk(
             document=document,
             source_file=candidate.source_file,
+            parser=candidate.parser,
             kind=ChunkKind.TABLE_ROW,
             strategy=ChunkStrategy.TABLE_ROW,
             ordinal=ordinal,
@@ -327,6 +357,7 @@ def _candidate_chunk(
     return _chunk(
         document=document,
         source_file=candidate.source_file,
+        parser=candidate.parser,
         kind=ChunkKind.EXACT_MATCH,
         strategy=ChunkStrategy.EXACT_MATCH,
         ordinal=ordinal,

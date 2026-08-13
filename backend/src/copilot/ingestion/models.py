@@ -83,6 +83,8 @@ class Evidence(BaseModel):
     section: str = Field(min_length=1)
     content: str = Field(min_length=1)
     coordinates: tuple[float, float, float, float] | None = None
+    line_start: int | None = Field(default=None, ge=0)
+    line_end: int | None = Field(default=None, ge=0)
 
 
 class DocumentChunk(BaseModel):
@@ -95,6 +97,8 @@ class DocumentChunk(BaseModel):
     kind: ChunkKind
     parser: str = Field(min_length=1)
     evidence: list[Evidence] = Field(min_length=1)
+    source_parser: str = Field(default="unknown", min_length=1)
+    chunker: str = Field(default="chunking.v2", min_length=1)
     strategy: ChunkStrategy = ChunkStrategy.SECTION
     ordinal: int = Field(default=0, ge=0)
     parent_chunk_id: str | None = None

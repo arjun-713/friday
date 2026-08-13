@@ -60,6 +60,8 @@ def _evidence(source_file: str, line: StructuredLine) -> Evidence:
         page=line.page,
         section=line.section,
         content=line.text,
+        line_start=line.line_index,
+        line_end=line.line_index,
     )
 
 
