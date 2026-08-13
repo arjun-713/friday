@@ -8,12 +8,15 @@ from .contracts import (
     VectorIndex,
     VectorRecord,
 )
+from .granite import GraniteEmbeddingProvider, GraniteEmbeddingSettings
 from .qdrant import QdrantSettings, QdrantVectorIndex
 
 __all__ = [
     "BenchmarkQuery",
     "BenchmarkResult",
     "EmbeddingProvider",
+    "GraniteEmbeddingProvider",
+    "GraniteEmbeddingSettings",
     "MetadataFilter",
     "QdrantSettings",
     "QdrantVectorIndex",

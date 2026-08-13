@@ -4,6 +4,7 @@ from collections.abc import Sequence
 from copilot.ingestion.models import ChunkKind, DocumentChunk, Evidence, RetrievalProfile, SourceDocument
 from copilot.retrieval.benchmark import BenchmarkQuery, run_benchmark
 from copilot.retrieval.contracts import MetadataFilter, VectorHit, VectorRecord
+from copilot.retrieval.granite import GraniteEmbeddingProvider, GraniteEmbeddingSettings
 from copilot.retrieval.hybrid import retrieve
 from copilot.retrieval.ingest import index_chunks, vector_chunks
 from copilot.retrieval.metrics import latency_summary
@@ -124,3 +125,62 @@ def test_benchmark_reports_latency_and_relevance_metrics() -> None:
     assert result.latency["max_ms"] >= 0
     assert result.recall_at_5 == 1.0
     assert result.mrr == 1.0
+
+
+class FakeTokenizer:
+    def __call__(self, texts, **kwargs):
+        return {"input_ids": [[1] * len(text.split()) for text in texts]}
+
+
+class FakeSentenceTransformer:
+    tokenizer = FakeTokenizer()
+
+    def __init__(self, vectors: list[list[float]]) -> None:
+        self.vectors = vectors
+        self.calls: list[dict[str, object]] = []
+
+    def get_sentence_embedding_dimension(self) -> int:
+        return 3
+
+    def encode(self, texts, **kwargs):
+        self.calls.append(kwargs)
+        return self.vectors[: len(texts)]
+
+
+def test_granite_provider_batches_and_normalizes_configuration() -> None:
+    model = FakeSentenceTransformer([[0.6, 0.8, 0.0]])
+    provider = GraniteEmbeddingProvider(
+        GraniteEmbeddingSettings(dimension=3, batch_size=4, normalize_embeddings=True), model=model
+    )
+
+    vectors = asyncio.run(provider.embed_documents(["error E42"]))
+
+    assert vectors == [[0.6, 0.8, 0.0]]
+    assert model.calls[0]["batch_size"] == 4
+    assert model.calls[0]["normalize_embeddings"] is True
+
+
+def test_granite_provider_rejects_oversized_inputs_without_truncating() -> None:
+    provider = GraniteEmbeddingProvider(
+        GraniteEmbeddingSettings(dimension=3, max_tokens=2), model=FakeSentenceTransformer([[1.0, 0.0, 0.0]])
+    )
+
+    try:
+        asyncio.run(provider.embed_query("one two three"))
+    except ValueError as error:
+        assert "re-chunk before embedding" in str(error)
+    else:
+        raise AssertionError("expected oversized input to be rejected")
+
+
+def test_granite_provider_rejects_dimension_mismatch() -> None:
+    provider = GraniteEmbeddingProvider(
+        GraniteEmbeddingSettings(dimension=3), model=FakeSentenceTransformer([[1.0, 0.0]])
+    )
+
+    try:
+        asyncio.run(provider.embed_query("error"))
+    except ValueError as error:
+        assert "dimension mismatch" in str(error)
+    else:
+        raise AssertionError("expected dimension mismatch to be rejected")
