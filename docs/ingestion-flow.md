@@ -15,6 +15,12 @@ source registry
   -> BM25/vector/raw-page indexing
 ```
 
+The tracked registry is `config/source_registry.json`. Run
+`PYTHONPATH=backend/src python -m copilot.ingestion.metadata.registry` from the repository root to validate that every local
+manual has explicit title, manufacturer, model, and source URL metadata. The command writes a resolved manifest to
+`data/raw/source_registry.json`, including the PDF SHA-256, a content-addressed version, and the local file's UTC mtime as
+the retrieval timestamp. Missing or extra registry entries fail instead of being inferred.
+
 ## Current scaffold
 
 `backend/src/copilot/ingestion/models.py` defines the source, page, chunk, evidence, and positioned-text schemas. `stages.py` defines dependency-injected stage protocols and the pipeline coordinator. `pdf_inspector.py` is the unexecuted adapter for Firecrawl's `pdf-inspector` Python bindings: it performs detection, extracts per-page Markdown, preserves positioned text, and marks pages needing OCR.
@@ -46,6 +52,8 @@ The next pass, documented in [`docs/procedure-extraction.md`](procedure-extracti
 Table rows are handled by the deterministic pass documented in [`docs/table-extraction.md`](table-extraction.md). It requires explicit Markdown table structure before emitting row candidates.
 
 Exact technical identifiers are handled by [`docs/exact-match-extraction.md`](exact-match-extraction.md) using context-gated patterns for error codes, blink patterns, part numbers, and model numbers.
+
+Final chunk materialization is documented in [`docs/chunk-generation.md`](chunk-generation.md). It emits paragraph-aware section chunks, parent/child windows with bounded overlap, complete procedure chunks, verified table rows, and exact-match chunks as separate retrieval strategies.
 
 Install the native binding with the backend extra before using it:
 
