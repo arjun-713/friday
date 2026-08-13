@@ -44,14 +44,18 @@ def main() -> None:
             encoding="utf-8",
         )
         by_strategy: dict[str, int] = {}
+        by_profile: dict[str, int] = {}
         for chunk in chunks:
             by_strategy[chunk.strategy.value] = by_strategy.get(chunk.strategy.value, 0) + 1
+            for profile in chunk.retrieval_profiles:
+                by_profile[profile.value] = by_profile.get(profile.value, 0) + 1
         report.append(
             {
                 "source_file": document["source_file"],
                 "output_file": str(output_path),
                 "chunks": len(chunks),
                 "by_strategy": by_strategy,
+                "by_retrieval_profile": by_profile,
             }
         )
         print(f"chunked {path} -> {output_path} ({len(chunks)} chunks)")

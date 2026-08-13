@@ -78,6 +78,13 @@ class ChunkStrategy(StrEnum):
     EXACT_MATCH = "exact_match"
 
 
+class RetrievalProfile(StrEnum):
+    BM25 = "bm25"
+    VECTOR = "vector"
+    EXACT = "exact"
+    CONTEXT_STORE = "context_store"
+
+
 class Evidence(BaseModel):
     source_file: str = Field(min_length=1)
     page: int = Field(gt=0)
@@ -100,6 +107,7 @@ class DocumentChunk(BaseModel):
     evidence: list[Evidence] = Field(min_length=1)
     source_parser: str = Field(default="unknown", min_length=1)
     chunker: str = Field(default="chunking.v2", min_length=1)
+    retrieval_profiles: list[RetrievalProfile] = Field(default_factory=list)
     strategy: ChunkStrategy = ChunkStrategy.SECTION
     ordinal: int = Field(default=0, ge=0)
     parent_chunk_id: str | None = None

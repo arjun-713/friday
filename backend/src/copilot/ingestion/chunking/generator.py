@@ -15,7 +15,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from ..models import ChunkKind, ChunkStrategy, DocumentChunk, Evidence, SourceDocument
+from ..models import ChunkKind, ChunkStrategy, DocumentChunk, Evidence, RetrievalProfile, SourceDocument
 from .exact_matches import ExactMatchCandidate, extract_exact_matches
 from .procedures import ProcedureCandidate, extract_procedures
 from .structure import StructuredLine, structure_document
@@ -239,6 +239,7 @@ def _chunk(
     overlap_before: int = 0,
     overlap_after: int = 0,
     metadata: dict[str, str | int | bool] | None = None,
+    retrieval_profiles: list[RetrievalProfile] | None = None,
 ) -> DocumentChunk:
     evidence_list = _dedupe_evidence(evidence)
     pages = sorted({item.page for item in evidence_list})
@@ -254,6 +255,7 @@ def _chunk(
         evidence=evidence_list,
         source_parser=parser,
         chunker="chunking.v2",
+        retrieval_profiles=retrieval_profiles or _retrieval_profiles(kind, metadata or {}),
         strategy=strategy,
         ordinal=ordinal,
         parent_chunk_id=parent_chunk_id,
@@ -261,6 +263,23 @@ def _chunk(
         overlap_after=overlap_after,
         metadata=metadata or {},
     )
+
+
+def _retrieval_profiles(
+    kind: ChunkKind,
+    metadata: dict[str, str | int | bool],
+) -> list[RetrievalProfile]:
+    if kind == ChunkKind.EXACT_MATCH:
+        return [RetrievalProfile.EXACT, RetrievalProfile.BM25]
+    if kind == ChunkKind.TABLE_ROW:
+        return [RetrievalProfile.EXACT, RetrievalProfile.BM25, RetrievalProfile.VECTOR]
+    if kind == ChunkKind.PROCEDURE_STEP_GROUP:
+        return [RetrievalProfile.BM25, RetrievalProfile.VECTOR]
+    if kind == ChunkKind.PROCEDURE:
+        return [RetrievalProfile.CONTEXT_STORE]
+    if metadata.get("role") == "parent":
+        return [RetrievalProfile.CONTEXT_STORE]
+    return [RetrievalProfile.BM25, RetrievalProfile.VECTOR]
 
 
 def _narrative_chunks(

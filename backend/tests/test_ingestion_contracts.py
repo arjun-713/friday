@@ -15,6 +15,7 @@ from copilot.ingestion.models import (
     OcrPage,
     OcrTextItem,
     PageRecord,
+    RetrievalProfile,
     SourceDocument,
     TextSpan,
 )
@@ -392,6 +393,16 @@ def test_chunk_generation_emits_distinct_strategies_and_parent_links() -> None:
     assert all(chunk.evidence and chunk.pages for chunk in chunks)
     assert all(len(chunk.content) <= 200 for chunk in children)
     assert any("warning" in str(chunk.metadata.get("block_types")) for chunk in chunks)
+    assert any(
+        chunk.metadata.get("role") == "parent" and RetrievalProfile.CONTEXT_STORE in chunk.retrieval_profiles
+        for chunk in chunks
+    )
+    assert any(
+        chunk.kind == ChunkKind.TABLE_ROW and RetrievalProfile.BM25 in chunk.retrieval_profiles for chunk in chunks
+    )
+    assert any(
+        chunk.kind == ChunkKind.EXACT_MATCH and RetrievalProfile.EXACT in chunk.retrieval_profiles for chunk in chunks
+    )
 
 
 def test_positioned_text_keeps_one_based_citation_page() -> None:

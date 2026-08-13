@@ -18,6 +18,19 @@ Procedure, table, and exact-match chunks are atomic. This prevents a warning or 
 
 Every emitted chunk has a strategy, kind, section, ordered pages, parser marker, source evidence, source document metadata, and deterministic ID. Child chunks point to `parent_chunk_id`. Strategy and metadata fields allow later BM25/vector indexes to filter or boost representations without changing the stored evidence.
 
+## Retrieval projections
+
+Chunk generation does not create embeddings or connect to a vector database. It records the intended retrieval profile on every chunk so indexing can be added as a separate, measurable phase:
+
+| Profile | Chunks | Purpose |
+| --- | --- | --- |
+| `exact` | Exact identifiers and table rows | Codes, model numbers, part numbers, blink patterns |
+| `bm25` | Section, child, procedure-step, table-row, and exact chunks | Exact terminology, symptoms, error codes, and procedures |
+| `vector` | Section, child, procedure-step, and table-row chunks | Later semantic retrieval |
+| `context_store` | Parents and canonical complete procedures | Expand context after a child or step-group hit |
+
+This keeps parent context available without forcing every large parent into the first-stage search results. Device model, manufacturer, document version, source page, section, strategy, and profile remain available for metadata filtering and rank fusion in the later retrieval phase.
+
 Run the generator from the repository root after parsing, cleaning, and source metadata resolution:
 
 ```bash
