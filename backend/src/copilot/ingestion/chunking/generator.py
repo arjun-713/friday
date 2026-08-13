@@ -7,8 +7,10 @@ warning from its procedure or a table value from its header.
 """
 
 import hashlib
+import re
 from collections import defaultdict
 from collections.abc import Iterable, Iterator, Sequence
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -32,9 +34,20 @@ class ChunkingConfig(BaseModel):
     child_overlap_chars: int = Field(default=CHILD_OVERLAP_CHARS, ge=0)
 
 
+class BlockType(StrEnum):
+    NARRATIVE = "narrative"
+    HEADING = "heading"
+    WARNING = "warning"
+    PREREQUISITE = "prerequisite"
+    ORDERED_LIST = "ordered_list"
+    TABLE = "table"
+    TECHNICAL_IDENTIFIER = "technical_identifier"
+
+
 class _Unit(BaseModel):
     text: str = Field(min_length=1)
     evidence: list[Evidence] = Field(min_length=1)
+    block_type: BlockType = BlockType.NARRATIVE
 
 
 def _stable_id(
@@ -73,27 +86,56 @@ def _evidence_for_units(units: Iterable[_Unit]) -> Iterator[Evidence]:
         yield from unit.evidence
 
 
+def _block_type(line: StructuredLine) -> BlockType:
+    text = line.text.strip()
+    if line.is_heading:
+        return BlockType.HEADING
+    if re.search(r"\b(?:warning|caution|danger|notice|important)\b", text, re.IGNORECASE):
+        return BlockType.WARNING
+    if re.match(
+        r"^(?:before you begin|prerequisite|preparation|prepare|requirements?|required tools?)\b", text, re.IGNORECASE
+    ):
+        return BlockType.PREREQUISITE
+    if re.match(r"^(?:\*\*)?\d+[.)](?:\*\*)?\s+", text):
+        return BlockType.ORDERED_LIST
+    if text.startswith("|") and text.endswith("|"):
+        return BlockType.TABLE
+    if re.search(
+        r"\b(?:error code|failure code|blink(?:ing)? pattern|part number|model number)\b", text, re.IGNORECASE
+    ):
+        return BlockType.TECHNICAL_IDENTIFIER
+    return BlockType.NARRATIVE
+
+
 def _units_for_section(source_file: str, lines: Sequence[StructuredLine]) -> list[_Unit]:
     units: list[_Unit] = []
     paragraph: list[str] = []
     paragraph_evidence: list[Evidence] = []
+    paragraph_type = BlockType.NARRATIVE
 
     def flush() -> None:
+        nonlocal paragraph_type
         if paragraph:
             units.append(
                 _Unit(
                     text="\n".join(paragraph),
                     evidence=paragraph_evidence.copy(),
+                    block_type=paragraph_type,
                 )
             )
             paragraph.clear()
             paragraph_evidence.clear()
+            paragraph_type = BlockType.NARRATIVE
 
     for line in lines:
         text = line.text.strip()
         if not text:
             flush()
             continue
+        block_type = _block_type(line)
+        if paragraph and block_type != paragraph_type:
+            flush()
+        paragraph_type = block_type
         evidence = Evidence(
             source_file=source_file,
             page=line.page,
@@ -161,7 +203,8 @@ def _pack(units: Sequence[_Unit], max_chars: int) -> list[list[_Unit]]:
 
 
 def _overlap_groups(units: Sequence[_Unit], max_chars: int, overlap_chars: int) -> list[tuple[list[_Unit], int, int]]:
-    groups = _pack(units, max_chars)
+    effective_max = max_chars if overlap_chars == 0 else max(1, max_chars - overlap_chars)
+    groups = _pack(units, effective_max)
     if overlap_chars == 0 or len(groups) < 2:
         return [(group, 0, 0) for group in groups]
 
@@ -175,15 +218,7 @@ def _overlap_groups(units: Sequence[_Unit], max_chars: int, overlap_chars: int) 
                     break
                 before.insert(0, unit)
                 chars += len(unit.text) + 1
-        after: list[_Unit] = []
-        chars_after = 0
-        if index + 1 < len(groups):
-            for unit in groups[index + 1]:
-                if chars_after + len(unit.text) + 1 > overlap_chars:
-                    break
-                after.append(unit)
-                chars_after += len(unit.text) + 1
-        result.append((before + group + after, chars, chars_after))
+        result.append((before + group, chars, 0))
     return result
 
 
@@ -256,7 +291,11 @@ def _narrative_chunks(
                     section=section,
                     content="\n\n".join(unit.text for unit in group),
                     evidence=_evidence_for_units(group),
-                    metadata={"split": "paragraph_boundary", "max_chars": config.section_max_chars},
+                    metadata={
+                        "split": "block_and_paragraph_boundary",
+                        "max_chars": config.section_max_chars,
+                        "block_types": ",".join(sorted({unit.block_type.value for unit in group})),
+                    },
                 )
             )
     return chunks
@@ -307,7 +346,12 @@ def _parent_child_chunks(document: SourceDocument, structured: Any, config: Chun
                         parent_chunk_id=parent.chunk_id,
                         overlap_before=before,
                         overlap_after=after,
-                        metadata={"role": "child", "max_chars": config.child_max_chars},
+                        metadata={
+                            "role": "child",
+                            "max_chars": config.child_max_chars,
+                            "overlap_policy": "trailing_context",
+                            "block_types": ",".join(sorted({unit.block_type.value for unit in child_group})),
+                        },
                     )
                 )
     return chunks

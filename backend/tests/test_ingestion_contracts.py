@@ -304,6 +304,7 @@ def test_chunk_generation_emits_distinct_strategies_and_parent_links() -> None:
                 "text": (
                     "# Troubleshooting\n"
                     "## Connection\n"
+                    "WARNING: Disconnect power before servicing.\n"
                     "Before you begin, check the cable.\n"
                     "\n"
                     "1. Turn off the router.\n"
@@ -345,6 +346,8 @@ def test_chunk_generation_emits_distinct_strategies_and_parent_links() -> None:
     assert children
     assert all(chunk.parent_chunk_id in parents for chunk in children)
     assert all(chunk.evidence and chunk.pages for chunk in chunks)
+    assert all(len(chunk.content) <= 200 for chunk in children)
+    assert any("warning" in str(chunk.metadata.get("block_types")) for chunk in chunks)
 
 
 def test_positioned_text_keeps_one_based_citation_page() -> None:
