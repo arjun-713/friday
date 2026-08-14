@@ -45,6 +45,7 @@ async def run_live_benchmark(
     chunks_root: Path,
     query_count: int,
     warmup_count: int,
+    scoped_cache: bool = True,
 ) -> dict[str, object]:
     chunks = load_vector_chunks(chunks_root)
     provider = GraniteEmbeddingProvider()
@@ -105,7 +106,8 @@ async def run_live_benchmark(
         cache = RetrievalSessionCache()
         first_chunk = chunks[0]
         cache.set_scope(
-            MetadataFilter(manufacturer=first_chunk.document.manufacturer, model=first_chunk.document.model)
+            MetadataFilter(manufacturer=first_chunk.document.manufacturer, model=first_chunk.document.model),
+            lexical_retriever=lexical if scoped_cache else None,
         )
         cache_cold = await cache.retrieve(
             queries[0].query,
@@ -132,6 +134,7 @@ async def run_live_benchmark(
         return {
             "query_count": len(queries),
             "warmup_count": min(warmup_count, len(queries)),
+            "scoped_cache": scoped_cache,
             "label_type": "synthetic_chunk_prefix_proxy",
             "warning": "Recall@5 and MRR are plumbing proxies until manually verified query labels are added.",
             "latency_ms": benchmark.latency,
@@ -154,13 +157,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--chunks-root", type=Path, default=Path("data/chunks"))
     parser.add_argument("--queries", type=int, default=12)
     parser.add_argument("--warmup", type=int, default=2)
+    parser.add_argument("--no-scoped-cache", action="store_false", dest="scoped_cache")
     parser.add_argument("--output", type=Path, default=Path("data/index/retrieval_benchmark.json"))
     return parser
 
 
 def main() -> None:
     args = build_parser().parse_args()
-    report = asyncio.run(run_live_benchmark(args.chunks_root, args.queries, args.warmup))
+    report = asyncio.run(run_live_benchmark(args.chunks_root, args.queries, args.warmup, args.scoped_cache))
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(report, indent=2))

@@ -2,7 +2,7 @@ PYTHON ?= python
 BACKEND_PYTHONPATH := backend/src
 MODULE := PYTHONPATH=$(BACKEND_PYTHONPATH) $(PYTHON) -m
 
-.PHONY: prepare chunk ingest qdrant-up qdrant-down index-vectors benchmark-retrieval
+.PHONY: prepare chunk ingest qdrant-up qdrant-down index-vectors benchmark-retrieval backend-venv
 
 # Run after adding or replacing manuals in data/manuals.
 prepare:
@@ -27,4 +27,8 @@ index-vectors:
 	PYTHONPATH=$(BACKEND_PYTHONPATH) $(PYTHON) -m copilot.retrieval.indexer
 
 benchmark-retrieval:
-	PYTHONPATH=backend/src:/tmp/friday-qdrant-1.14.1:/tmp/friday-embeddings-deps HF_HOME=/tmp/friday-hf-cache TRANSFORMERS_CACHE=/tmp/friday-hf-cache python -m copilot.retrieval.real_benchmark
+	PYTHONPATH=backend/src backend/.venv/bin/python -m copilot.retrieval.real_benchmark
+
+backend-venv:
+	uv venv --clear --python 3.11 backend/.venv
+	uv pip install --index-strategy unsafe-best-match --python backend/.venv/bin/python -r backend/requirements-cpu.txt

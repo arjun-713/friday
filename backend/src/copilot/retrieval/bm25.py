@@ -74,13 +74,20 @@ class InMemoryBM25Retriever:
             for index in ranked
         ]
 
+    def scoped(self, metadata_filter: MetadataFilter) -> "InMemoryBM25Retriever":
+        """Build a smaller lexical index for a confirmed device scope."""
+
+        chunks = [chunk for chunk in self._chunks if _matches(chunk, metadata_filter)]
+        return InMemoryBM25Retriever(chunks, self._k1, self._b)
+
 
 class InMemoryExactIdentifierRetriever:
     """Exact lookup for normalized error codes, model numbers, and identifiers."""
 
     def __init__(self, chunks: Sequence[DocumentChunk]) -> None:
+        self._chunks = list(chunks)
         self._by_value: dict[str, list[DocumentChunk]] = defaultdict(list)
-        for chunk in chunks:
+        for chunk in self._chunks:
             if RetrievalProfile.EXACT in chunk.retrieval_profiles:
                 value = chunk.metadata.get("normalized_value")
                 if isinstance(value, str):
@@ -100,6 +107,12 @@ class InMemoryExactIdentifierRetriever:
                 if _matches(chunk, metadata_filter)
             )
         return [VectorHit(id=chunk.chunk_id, score=1.0, payload=chunk_payload(chunk)) for chunk in matches[:limit]]
+
+    def scoped(self, metadata_filter: MetadataFilter) -> "InMemoryExactIdentifierRetriever":
+        """Build a smaller exact-identifier index for a confirmed device scope."""
+
+        chunks = [chunk for chunk in self._chunks if _matches(chunk, metadata_filter)]
+        return InMemoryExactIdentifierRetriever(chunks)
 
 
 class CombinedLexicalRetriever:
@@ -126,6 +139,9 @@ class CombinedLexicalRetriever:
                 seen.add(hit.id)
                 merged.append(hit)
         return merged[:limit]
+
+    def scoped(self, metadata_filter: MetadataFilter) -> "CombinedLexicalRetriever":
+        return CombinedLexicalRetriever(self.bm25.scoped(metadata_filter), self.exact.scoped(metadata_filter))
 
 
 def _normalize_identifier(value: str) -> str:

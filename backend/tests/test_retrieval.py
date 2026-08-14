@@ -129,6 +129,35 @@ def test_session_cache_reuses_completed_turn_and_applies_device_scope() -> None:
     assert index.search_calls[0]["filter"] == MetadataFilter(model="Example 1")
 
 
+def test_session_cache_singleflights_concurrent_identical_queries() -> None:
+    class SlowEmbedder(FakeEmbedder):
+        calls = 0
+
+        async def embed_query(self, text: str) -> list[float]:
+            self.calls += 1
+            await asyncio.sleep(0.01)
+            return await super().embed_query(text)
+
+    index = FakeIndex()
+    chunk = _chunk("vector", RetrievalProfile.VECTOR)
+    index.records.append(VectorRecord(id=chunk.chunk_id, vector=[1, 0, 0], payload={}, chunk=chunk))
+    cache = RetrievalSessionCache()
+    embedder = SlowEmbedder()
+
+    async def run() -> tuple[RetrievalResult, RetrievalResult]:
+        return await asyncio.gather(
+            cache.retrieve("connect", embedder, index),
+            cache.retrieve("connect", embedder, index),
+        )
+
+    first, second = asyncio.run(run())
+
+    assert first.hits and second.hits
+    assert embedder.calls == 1
+    assert len(index.search_calls) == 1
+    assert second.timings_ms["cache_hit"] == 1.0
+
+
 def test_latency_summary_reports_requested_percentiles() -> None:
     summary = latency_summary([1.0, 2.0, 3.0, 4.0, 5.0])
     assert set(summary) == {"p50_ms", "p70_ms", "p99_ms", "p100_ms", "max_ms"}
