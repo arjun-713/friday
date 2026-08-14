@@ -29,5 +29,6 @@ def latency_summary(values: list[float]) -> dict[str, float]:
         "p50_ms": percentile(values, 50),
         "p70_ms": percentile(values, 70),
         "p99_ms": percentile(values, 99),
+        "p100_ms": percentile(values, 100),
         "max_ms": max(values),
     }

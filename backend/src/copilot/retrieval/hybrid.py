@@ -2,6 +2,7 @@
 
 import asyncio
 from collections.abc import Sequence
+from time import perf_counter
 from typing import Protocol
 
 from pydantic import BaseModel, Field
@@ -28,6 +29,7 @@ class RetrievalResult(BaseModel):
     parents: list[DocumentChunk] = Field(default_factory=list)
     abstained: bool = False
     reason: str | None = None
+    timings_ms: dict[str, float] = Field(default_factory=dict)
 
 
 async def retrieve(
@@ -44,10 +46,14 @@ async def retrieve(
 ) -> RetrievalResult:
     """Run dense and lexical retrieval concurrently, then expand parents in one batch."""
 
+    total_started = perf_counter()
+    parallel_started = perf_counter()
     query_vector, lexical_hits = await asyncio.gather(
         embedding_provider.embed_query(query),
         lexical_retriever.search(query, metadata_filter, limit * 2) if lexical_retriever is not None else _empty_hits(),
     )
+    parallel_ms = _elapsed_ms(parallel_started)
+    dense_started = perf_counter()
     vector_hits = await vector_index.search(
         query_vector,
         metadata_filter=metadata_filter,
@@ -56,12 +62,40 @@ async def retrieve(
         candidate_count=candidate_count,
         score_threshold=score_threshold,
     )
+    dense_ms = _elapsed_ms(dense_started)
+    fusion_started = perf_counter()
     hits = _rrf_fuse(vector_hits, lexical_hits, limit)
+    fusion_ms = _elapsed_ms(fusion_started)
     if not hits:
-        return RetrievalResult(abstained=True, reason="no_retrieval_hits")
+        return RetrievalResult(
+            abstained=True,
+            reason="no_retrieval_hits",
+            timings_ms={
+                "parallel_embed_lexical_ms": parallel_ms,
+                "dense_search_ms": dense_ms,
+                "fusion_ms": fusion_ms,
+                "parent_fetch_ms": 0.0,
+                "total_ms": _elapsed_ms(total_started),
+            },
+        )
     parent_ids = [str(hit.payload["parent_chunk_id"]) for hit in hits if hit.payload.get("parent_chunk_id")]
+    parent_started = perf_counter()
     parents = await parent_store.fetch(parent_ids) if parent_store is not None else []
-    return RetrievalResult(hits=hits, parents=parents)
+    return RetrievalResult(
+        hits=hits,
+        parents=parents,
+        timings_ms={
+            "parallel_embed_lexical_ms": parallel_ms,
+            "dense_search_ms": dense_ms,
+            "fusion_ms": fusion_ms,
+            "parent_fetch_ms": _elapsed_ms(parent_started),
+            "total_ms": _elapsed_ms(total_started),
+        },
+    )
+
+
+def _elapsed_ms(started: float) -> float:
+    return (perf_counter() - started) * 1000
 
 
 async def _empty_hits() -> list[VectorHit]:

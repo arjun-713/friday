@@ -3,6 +3,7 @@ from collections.abc import Sequence
 
 from copilot.ingestion.models import ChunkKind, DocumentChunk, Evidence, RetrievalProfile, SourceDocument
 from copilot.retrieval.benchmark import BenchmarkQuery, run_benchmark
+from copilot.retrieval.bm25 import InMemoryBM25Retriever, InMemoryExactIdentifierRetriever
 from copilot.retrieval.contracts import MetadataFilter, VectorHit, VectorRecord
 from copilot.retrieval.granite import GraniteEmbeddingProvider, GraniteEmbeddingSettings
 from copilot.retrieval.hybrid import retrieve
@@ -108,8 +109,31 @@ def test_hybrid_retrieval_applies_filter_and_abstains_without_hits() -> None:
 
 def test_latency_summary_reports_requested_percentiles() -> None:
     summary = latency_summary([1.0, 2.0, 3.0, 4.0, 5.0])
-    assert set(summary) == {"p50_ms", "p70_ms", "p99_ms", "max_ms"}
+    assert set(summary) == {"p50_ms", "p70_ms", "p99_ms", "p100_ms", "max_ms"}
     assert summary["max_ms"] == 5.0
+
+
+def test_bm25_retriever_returns_technical_term_match(tmp_path) -> None:
+    first = _chunk("bm25-match", RetrievalProfile.BM25)
+    first.content = "Error E42 means the printer cannot connect to Wi-Fi."
+    second = _chunk("bm25-other", RetrievalProfile.BM25)
+    path = tmp_path / "routers" / "manual.jsonl"
+    path.parent.mkdir()
+    path.write_text("\n".join(chunk.model_dump_json() for chunk in (first, second)) + "\n", encoding="utf-8")
+
+    retriever = InMemoryBM25Retriever.from_directory(tmp_path)
+    hits = asyncio.run(retriever.search("E42 Wi-Fi", limit=1))
+
+    assert hits[0].id == "bm25-match"
+
+
+def test_exact_identifier_retriever_normalizes_punctuation() -> None:
+    chunk = _chunk("exact-match", RetrievalProfile.EXACT)
+    chunk.metadata = {"normalized_value": "E42"}
+
+    hits = asyncio.run(InMemoryExactIdentifierRetriever([chunk]).search("error E-42"))
+
+    assert [hit.id for hit in hits] == ["exact-match"]
 
 
 def test_benchmark_reports_latency_and_relevance_metrics() -> None:
