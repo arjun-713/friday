@@ -22,6 +22,10 @@ class GraniteEmbeddingSettings:
     batch_size: int = 8
     max_tokens: int = DEFAULT_MAX_TOKENS
     device: str = "cpu"
+    cpu_threads: int = 4
+    interop_threads: int = 1
+    backend: str = "torch"
+    model_file: str | None = None
 
     @classmethod
     def from_env(cls) -> "GraniteEmbeddingSettings":
@@ -32,6 +36,10 @@ class GraniteEmbeddingSettings:
             batch_size=int(os.getenv("EMBEDDING_BATCH_SIZE", "8")),
             max_tokens=int(os.getenv("EMBEDDING_MAX_TOKENS", str(DEFAULT_MAX_TOKENS))),
             device=os.getenv("EMBEDDING_DEVICE", "cpu"),
+            cpu_threads=int(os.getenv("EMBEDDING_CPU_THREADS", "4")),
+            interop_threads=int(os.getenv("EMBEDDING_INTEROP_THREADS", "1")),
+            backend=os.getenv("EMBEDDING_BACKEND", "torch"),
+            model_file=os.getenv("EMBEDDING_MODEL_FILE") or None,
         )
 
 
@@ -46,6 +54,12 @@ class GraniteEmbeddingProvider(EmbeddingProvider):
             raise ValueError("embedding batch size must be positive")
         if self.settings.max_tokens <= 0:
             raise ValueError("embedding max tokens must be positive")
+        if self.settings.cpu_threads <= 0:
+            raise ValueError("embedding CPU threads must be positive")
+        if self.settings.interop_threads <= 0:
+            raise ValueError("embedding inter-op threads must be positive")
+        if self.settings.backend not in {"torch", "onnx", "openvino"}:
+            raise ValueError("embedding backend must be torch, onnx, or openvino")
         self._model = model
 
     @property
@@ -97,19 +111,44 @@ class GraniteEmbeddingProvider(EmbeddingProvider):
 
     def _get_model(self) -> Any:
         if self._model is None:
+            self._configure_cpu_threads()
             try:
                 from sentence_transformers import SentenceTransformer
             except ImportError as error:
                 raise RuntimeError(
                     "Sentence Transformers is required for Granite embeddings; install the embeddings extra"
                 ) from error
-            self._model = SentenceTransformer(self.settings.model_name, device=self.settings.device)
-        actual_dimension = self._model.get_sentence_embedding_dimension()
+            model_kwargs = {"file_name": self.settings.model_file} if self.settings.model_file else None
+            self._model = SentenceTransformer(
+                self.settings.model_name,
+                device=self.settings.device,
+                backend=self.settings.backend,
+                model_kwargs=model_kwargs,
+            )
+        dimension_getter = getattr(self._model, "get_embedding_dimension", None)
+        actual_dimension = (
+            dimension_getter() if dimension_getter is not None else self._model.get_sentence_embedding_dimension()
+        )
         if actual_dimension != self.dimension:
             raise ValueError(
                 f"embedding model dimension is {actual_dimension}, configured dimension is {self.dimension}"
             )
         return self._model
+
+    def _configure_cpu_threads(self) -> None:
+        if self.settings.device != "cpu":
+            return
+        try:
+            import torch
+        except ImportError:
+            return
+        if torch.get_num_threads() != self.settings.cpu_threads:
+            torch.set_num_threads(self.settings.cpu_threads)
+        if torch.get_num_interop_threads() != self.settings.interop_threads:
+            try:
+                torch.set_num_interop_threads(self.settings.interop_threads)
+            except RuntimeError as error:
+                raise RuntimeError("configure embedding inter-op threads before starting model inference") from error
 
     def _token_lengths(self, model: Any, texts: Sequence[str]) -> list[int]:
         tokenized = model.tokenizer(

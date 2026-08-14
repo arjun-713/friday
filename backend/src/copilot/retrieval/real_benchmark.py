@@ -125,6 +125,42 @@ async def run_live_benchmark(
             parent_store=parent_store,
             limit=5,
         )
+        scoped_chunks = [
+            chunk
+            for chunk in chunks
+            if chunk.document.manufacturer == first_chunk.document.manufacturer
+            and chunk.document.model == first_chunk.document.model
+        ]
+        scoped_queries = build_proxy_queries(scoped_chunks, query_count)
+        scoped_cache_instance = RetrievalSessionCache()
+        scoped_cache_instance.set_scope(
+            MetadataFilter(manufacturer=first_chunk.document.manufacturer, model=first_chunk.document.model),
+            lexical_retriever=lexical,
+        )
+        for query in scoped_queries[:warmup_count]:
+            await scoped_cache_instance.retrieve(
+                query.query,
+                provider,
+                vector_index,
+                lexical_retriever=lexical,
+                parent_store=parent_store,
+                limit=5,
+            )
+        scoped_timings: list[dict[str, float]] = []
+
+        async def measured_scoped_query(query: str) -> list[str]:
+            result = await scoped_cache_instance.retrieve(
+                query,
+                provider,
+                vector_index,
+                lexical_retriever=lexical,
+                parent_store=parent_store,
+                limit=5,
+            )
+            scoped_timings.append(result.timings_ms)
+            return [hit.id for hit in result.hits]
+
+        scoped_benchmark = await run_benchmark(scoped_queries[warmup_count:], measured_scoped_query)
         component_latency: dict[str, dict[str, float]] = {}
         for key in sorted({key for timing in timings for key in timing}):
             values = [timing[key] for timing in timings]
@@ -145,6 +181,18 @@ async def run_live_benchmark(
                 "cold_total_ms": cache_cold.timings_ms.get("total_ms", 0.0),
                 "warm_total_ms": cache_warm.timings_ms.get("total_ms", 0.0),
                 "warm_cache_hit": cache_warm.timings_ms.get("cache_hit", 0.0),
+            },
+            "scoped_session": {
+                "manufacturer": first_chunk.document.manufacturer,
+                "model": first_chunk.document.model,
+                "query_count": len(scoped_queries) - warmup_count,
+                "latency_ms": scoped_benchmark.latency,
+                "recall_at_5": scoped_benchmark.recall_at_5,
+                "mrr": scoped_benchmark.mrr,
+                "component_latency_ms": {
+                    key: latency_summary([timing[key] for timing in scoped_timings])
+                    for key in sorted({key for timing in scoped_timings for key in timing})
+                },
             },
             "results": result_rows,
         }

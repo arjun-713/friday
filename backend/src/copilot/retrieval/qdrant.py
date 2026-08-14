@@ -29,6 +29,7 @@ class QdrantSettings:
     collection_name: str = COLLECTION_NAME
     batch_size: int = 128
     exact_candidate_threshold: int = 128
+    prefer_grpc: bool = True
 
 
 def chunk_payload(chunk: DocumentChunk) -> dict[str, Any]:
@@ -59,7 +60,7 @@ class QdrantVectorIndex(VectorIndex):
 
     def __init__(self, settings: QdrantSettings | None = None, client: AsyncQdrantClient | None = None) -> None:
         self.settings = settings or QdrantSettings()
-        self.client = client or AsyncQdrantClient(url=self.settings.url)
+        self.client = client or AsyncQdrantClient(url=self.settings.url, prefer_grpc=self.settings.prefer_grpc)
         self._dimension: int | None = None
 
     async def close(self) -> None:

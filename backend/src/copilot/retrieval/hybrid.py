@@ -48,9 +48,9 @@ async def retrieve(
 
     total_started = perf_counter()
     parallel_started = perf_counter()
-    query_vector, lexical_hits = await asyncio.gather(
-        embedding_provider.embed_query(query),
-        lexical_retriever.search(query, metadata_filter, limit * 2) if lexical_retriever is not None else _empty_hits(),
+    (query_vector, embedding_ms), (lexical_hits, lexical_ms) = await asyncio.gather(
+        _timed_embedding(embedding_provider, query),
+        _timed_lexical(lexical_retriever, query, metadata_filter, limit * 2),
     )
     parallel_ms = _elapsed_ms(parallel_started)
     dense_started = perf_counter()
@@ -72,6 +72,8 @@ async def retrieve(
             reason="no_retrieval_hits",
             timings_ms={
                 "parallel_embed_lexical_ms": parallel_ms,
+                "embedding_ms": embedding_ms,
+                "lexical_ms": lexical_ms,
                 "dense_search_ms": dense_ms,
                 "fusion_ms": fusion_ms,
                 "parent_fetch_ms": 0.0,
@@ -86,6 +88,8 @@ async def retrieve(
         parents=parents,
         timings_ms={
             "parallel_embed_lexical_ms": parallel_ms,
+            "embedding_ms": embedding_ms,
+            "lexical_ms": lexical_ms,
             "dense_search_ms": dense_ms,
             "fusion_ms": fusion_ms,
             "parent_fetch_ms": _elapsed_ms(parent_started),
@@ -100,6 +104,23 @@ def _elapsed_ms(started: float) -> float:
 
 async def _empty_hits() -> list[VectorHit]:
     return []
+
+
+async def _timed_embedding(provider: EmbeddingProvider, query: str) -> tuple[list[float], float]:
+    started = perf_counter()
+    vector = await provider.embed_query(query)
+    return vector, _elapsed_ms(started)
+
+
+async def _timed_lexical(
+    retriever: LexicalRetriever | None,
+    query: str,
+    metadata_filter: MetadataFilter | None,
+    limit: int,
+) -> tuple[list[VectorHit], float]:
+    started = perf_counter()
+    hits = await retriever.search(query, metadata_filter, limit) if retriever is not None else await _empty_hits()
+    return hits, _elapsed_ms(started)
 
 
 def _rrf_fuse(vector_hits: Sequence[VectorHit], lexical_hits: Sequence[VectorHit], limit: int) -> list[VectorHit]:

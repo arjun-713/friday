@@ -104,6 +104,8 @@ def test_hybrid_retrieval_applies_filter_and_abstains_without_hits() -> None:
     )
 
     assert not result.abstained
+    assert result.timings_ms["embedding_ms"] >= 0
+    assert result.timings_ms["lexical_ms"] >= 0
     assert index.search_calls[0]["exact"] is True
     assert index.search_calls[0]["filter"] == MetadataFilter(model="Example 1")
 
@@ -176,6 +178,16 @@ def test_bm25_retriever_returns_technical_term_match(tmp_path) -> None:
     hits = asyncio.run(retriever.search("E42 Wi-Fi", limit=1))
 
     assert hits[0].id == "bm25-match"
+
+
+def test_scoped_bm25_skips_redundant_payload_filtering() -> None:
+    chunk = _chunk("bm25-match", RetrievalProfile.BM25)
+    scoped_filter = MetadataFilter(manufacturer="Example", model="Example 1")
+    retriever = InMemoryBM25Retriever([chunk]).scoped(scoped_filter)
+
+    hits = asyncio.run(retriever.search("connect cable", scoped_filter, limit=1))
+
+    assert [hit.id for hit in hits] == ["bm25-match"]
 
 
 def test_exact_identifier_retriever_normalizes_punctuation() -> None:

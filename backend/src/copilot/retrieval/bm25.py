@@ -22,10 +22,17 @@ def tokenize(text: str) -> list[str]:
 class InMemoryBM25Retriever:
     """Small lexical index designed for the current local corpus."""
 
-    def __init__(self, chunks: Sequence[DocumentChunk], k1: float = 1.2, b: float = 0.75) -> None:
+    def __init__(
+        self,
+        chunks: Sequence[DocumentChunk],
+        k1: float = 1.2,
+        b: float = 0.75,
+        scope_filter: MetadataFilter | None = None,
+    ) -> None:
         self._chunks = [chunk for chunk in chunks if RetrievalProfile.BM25 in chunk.retrieval_profiles]
         self._k1 = k1
         self._b = b
+        self._scope_filter = scope_filter
         self._tokens = [tokenize(chunk.content) for chunk in self._chunks]
         self._lengths = [len(tokens) for tokens in self._tokens]
         self._average_length = sum(self._lengths) / len(self._lengths) if self._lengths else 0.0
@@ -63,7 +70,7 @@ class InMemoryBM25Retriever:
             inverse_document_frequency = math.log(1 + (document_count - len(posting) + 0.5) / (len(posting) + 0.5))
             for index, frequency in posting.items():
                 chunk = self._chunks[index]
-                if _matches(chunk, metadata_filter):
+                if self._scope_filter == metadata_filter or _matches(chunk, metadata_filter):
                     denominator = frequency + self._k1 * (
                         1 - self._b + self._b * self._lengths[index] / max(self._average_length, 1)
                     )
@@ -78,14 +85,15 @@ class InMemoryBM25Retriever:
         """Build a smaller lexical index for a confirmed device scope."""
 
         chunks = [chunk for chunk in self._chunks if _matches(chunk, metadata_filter)]
-        return InMemoryBM25Retriever(chunks, self._k1, self._b)
+        return InMemoryBM25Retriever(chunks, self._k1, self._b, scope_filter=metadata_filter)
 
 
 class InMemoryExactIdentifierRetriever:
     """Exact lookup for normalized error codes, model numbers, and identifiers."""
 
-    def __init__(self, chunks: Sequence[DocumentChunk]) -> None:
+    def __init__(self, chunks: Sequence[DocumentChunk], scope_filter: MetadataFilter | None = None) -> None:
         self._chunks = list(chunks)
+        self._scope_filter = scope_filter
         self._by_value: dict[str, list[DocumentChunk]] = defaultdict(list)
         for chunk in self._chunks:
             if RetrievalProfile.EXACT in chunk.retrieval_profiles:
@@ -104,7 +112,7 @@ class InMemoryExactIdentifierRetriever:
             matches.extend(
                 chunk
                 for chunk in self._by_value.get(_normalize_identifier(raw_value), [])
-                if _matches(chunk, metadata_filter)
+                if self._scope_filter == metadata_filter or _matches(chunk, metadata_filter)
             )
         return [VectorHit(id=chunk.chunk_id, score=1.0, payload=chunk_payload(chunk)) for chunk in matches[:limit]]
 
@@ -112,7 +120,7 @@ class InMemoryExactIdentifierRetriever:
         """Build a smaller exact-identifier index for a confirmed device scope."""
 
         chunks = [chunk for chunk in self._chunks if _matches(chunk, metadata_filter)]
-        return InMemoryExactIdentifierRetriever(chunks)
+        return InMemoryExactIdentifierRetriever(chunks, scope_filter=metadata_filter)
 
 
 class CombinedLexicalRetriever:
