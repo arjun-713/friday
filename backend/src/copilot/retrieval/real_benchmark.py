@@ -9,7 +9,9 @@ from time import perf_counter
 from ..ingestion.models import DocumentChunk
 from .benchmark import BenchmarkQuery, run_benchmark
 from .bm25 import CombinedLexicalRetriever, InMemoryBM25Retriever, InMemoryExactIdentifierRetriever
+from .cache import RetrievalSessionCache
 from .context_store import JsonlParentChunkStore
+from .contracts import MetadataFilter
 from .granite import GraniteEmbeddingProvider
 from .hybrid import retrieve
 from .indexer import load_vector_chunks
@@ -100,6 +102,27 @@ async def run_live_benchmark(
             return [hit.id for hit in result.hits]
 
         benchmark = await run_benchmark(queries, measured_query)
+        cache = RetrievalSessionCache()
+        first_chunk = chunks[0]
+        cache.set_scope(
+            MetadataFilter(manufacturer=first_chunk.document.manufacturer, model=first_chunk.document.model)
+        )
+        cache_cold = await cache.retrieve(
+            queries[0].query,
+            provider,
+            vector_index,
+            lexical_retriever=lexical,
+            parent_store=parent_store,
+            limit=5,
+        )
+        cache_warm = await cache.retrieve(
+            queries[0].query,
+            provider,
+            vector_index,
+            lexical_retriever=lexical,
+            parent_store=parent_store,
+            limit=5,
+        )
         component_latency: dict[str, dict[str, float]] = {}
         for key in sorted({key for timing in timings for key in timing}):
             values = [timing[key] for timing in timings]
@@ -115,6 +138,11 @@ async def run_live_benchmark(
             "component_latency_ms": component_latency,
             "recall_at_5": benchmark.recall_at_5,
             "mrr": benchmark.mrr,
+            "cache_comparison_ms": {
+                "cold_total_ms": cache_cold.timings_ms.get("total_ms", 0.0),
+                "warm_total_ms": cache_warm.timings_ms.get("total_ms", 0.0),
+                "warm_cache_hit": cache_warm.timings_ms.get("cache_hit", 0.0),
+            },
             "results": result_rows,
         }
     finally:

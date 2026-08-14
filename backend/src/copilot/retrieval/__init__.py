@@ -2,6 +2,7 @@
 
 from .benchmark import BenchmarkQuery, BenchmarkResult, run_benchmark
 from .bm25 import CombinedLexicalRetriever, InMemoryBM25Retriever, InMemoryExactIdentifierRetriever
+from .cache import RetrievalSessionCache
 from .contracts import (
     EmbeddingProvider,
     MetadataFilter,
@@ -24,6 +25,7 @@ __all__ = [
     "MetadataFilter",
     "QdrantSettings",
     "QdrantVectorIndex",
+    "RetrievalSessionCache",
     "VectorHit",
     "VectorIndex",
     "VectorRecord",

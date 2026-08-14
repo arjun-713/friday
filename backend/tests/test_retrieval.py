@@ -4,9 +4,10 @@ from collections.abc import Sequence
 from copilot.ingestion.models import ChunkKind, DocumentChunk, Evidence, RetrievalProfile, SourceDocument
 from copilot.retrieval.benchmark import BenchmarkQuery, run_benchmark
 from copilot.retrieval.bm25 import InMemoryBM25Retriever, InMemoryExactIdentifierRetriever
+from copilot.retrieval.cache import RetrievalSessionCache
 from copilot.retrieval.contracts import MetadataFilter, VectorHit, VectorRecord
 from copilot.retrieval.granite import GraniteEmbeddingProvider, GraniteEmbeddingSettings
-from copilot.retrieval.hybrid import retrieve
+from copilot.retrieval.hybrid import RetrievalResult, retrieve
 from copilot.retrieval.indexer import index_from_chunks, load_vector_chunks
 from copilot.retrieval.ingest import index_chunks, vector_chunks
 from copilot.retrieval.metrics import latency_summary
@@ -104,6 +105,27 @@ def test_hybrid_retrieval_applies_filter_and_abstains_without_hits() -> None:
 
     assert not result.abstained
     assert index.search_calls[0]["exact"] is True
+    assert index.search_calls[0]["filter"] == MetadataFilter(model="Example 1")
+
+
+def test_session_cache_reuses_completed_turn_and_applies_device_scope() -> None:
+    index = FakeIndex()
+    chunk = _chunk("vector", RetrievalProfile.VECTOR)
+    index.records.append(VectorRecord(id=chunk.chunk_id, vector=[1, 0, 0], payload={"model": "Example 1"}, chunk=chunk))
+    cache = RetrievalSessionCache()
+    cache.set_scope(MetadataFilter(model="Example 1"))
+
+    async def run() -> tuple[RetrievalResult, RetrievalResult]:
+        first = await cache.retrieve("connect", FakeEmbedder(), index)
+        second = await cache.retrieve("connect", FakeEmbedder(), index)
+        return first, second
+
+    first, second = asyncio.run(run())
+
+    assert first.hits
+    assert second.hits
+    assert second.timings_ms["cache_hit"] == 1.0
+    assert len(index.search_calls) == 1
     assert index.search_calls[0]["filter"] == MetadataFilter(model="Example 1")
 
 
