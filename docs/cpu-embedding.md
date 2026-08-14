@@ -22,3 +22,9 @@ The exported model is machine-generated and intentionally excluded from Git. Do 
 Use `make benchmark-embedding` for a repeatable PyTorch baseline. The benchmark reports cold start and P50/P70/P99/P100/max warm-query latency. Retrieval benchmarking additionally reports embedding, lexical, dense search, fusion, parent fetch, total, cache-hit, and confirmed-device scoped latency.
 
 The proxy Recall@5/MRR labels generated from chunk prefixes are smoke checks, not a substitute for the manually verified retrieval benchmark required before production.
+
+## Deferred end-to-end optimization
+
+The demo deployment runs Granite embeddings, BM25, and Qdrant locally on the ThinkPad T480. DeepSeek provides the LLM and ElevenLabs provides the voice APIs. The current local retrieval baseline is sufficient to continue building the product; do not optimize individual stages further before the complete pipeline can be measured.
+
+After DeepSeek and ElevenLabs are integrated, capture timestamps for speech end, final transcript, retrieval start and end, first DeepSeek token, first ElevenLabs audio byte, and playback start. Then optimize the measured bottleneck and overlap stable-partial-transcript retrieval, streamed LLM output, and sentence-level TTS where appropriate. The product latency target is speech-end to first playable audio, not model latency in isolation.
