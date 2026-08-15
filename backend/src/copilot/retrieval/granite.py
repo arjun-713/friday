@@ -3,6 +3,7 @@
 import asyncio
 import math
 import os
+from collections import OrderedDict
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -26,6 +27,7 @@ class GraniteEmbeddingSettings:
     interop_threads: int = 1
     backend: str = "torch"
     model_file: str | None = None
+    query_cache_size: int = 128
 
     @classmethod
     def from_env(cls) -> "GraniteEmbeddingSettings":
@@ -40,6 +42,7 @@ class GraniteEmbeddingSettings:
             interop_threads=int(os.getenv("EMBEDDING_INTEROP_THREADS", "1")),
             backend=os.getenv("EMBEDDING_BACKEND", "torch"),
             model_file=os.getenv("EMBEDDING_MODEL_FILE") or None,
+            query_cache_size=int(os.getenv("EMBEDDING_QUERY_CACHE_SIZE", "128")),
         )
 
 
@@ -58,9 +61,12 @@ class GraniteEmbeddingProvider(EmbeddingProvider):
             raise ValueError("embedding CPU threads must be positive")
         if self.settings.interop_threads <= 0:
             raise ValueError("embedding inter-op threads must be positive")
+        if self.settings.query_cache_size < 0:
+            raise ValueError("embedding query cache size must not be negative")
         if self.settings.backend not in {"torch", "onnx", "openvino"}:
             raise ValueError("embedding backend must be torch, onnx, or openvino")
         self._model = model
+        self._query_cache: OrderedDict[str, list[float]] = OrderedDict()
 
     @property
     def dimension(self) -> int:
@@ -79,8 +85,20 @@ class GraniteEmbeddingProvider(EmbeddingProvider):
     async def embed_query(self, text: str) -> list[float]:
         if not text.strip():
             raise ValueError("query text must not be empty")
+        cache_key = _normalize_query(text)
+        if self.settings.query_cache_size:
+            cached = self._query_cache.get(cache_key)
+            if cached is not None:
+                self._query_cache.move_to_end(cache_key)
+                return list(cached)
         vectors = await self._encode([text])
-        return vectors[0]
+        vector = vectors[0]
+        if self.settings.query_cache_size:
+            self._query_cache[cache_key] = list(vector)
+            self._query_cache.move_to_end(cache_key)
+            while len(self._query_cache) > self.settings.query_cache_size:
+                self._query_cache.popitem(last=False)
+        return vector
 
     async def _encode(self, texts: list[str]) -> list[list[float]]:
         model = self._get_model()
@@ -209,3 +227,7 @@ def _env_bool(name: str, default: bool) -> bool:
     if value.lower() not in {"0", "1", "false", "true", "no", "yes"}:
         raise ValueError(f"{name} must be a boolean value")
     return value.lower() in {"1", "true", "yes"}
+
+
+def _normalize_query(text: str) -> str:
+    return " ".join(text.lower().split())
