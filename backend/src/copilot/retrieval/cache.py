@@ -68,11 +68,29 @@ class RetrievalSessionCache:
         exact: bool | None = False,
         candidate_count: int | None = None,
         score_threshold: float | None = None,
+        candidate_limit: int | None = None,
+        dense_weight: float = 1.0,
+        lexical_weight: float = 1.0,
+        rrf_k: int = 60,
+        diversify: bool = False,
+        include_diagnostics: bool = False,
     ) -> RetrievalResult:
         started = perf_counter()
         effective_filter = self._effective_filter(metadata_filter)
         effective_lexical = self._scoped_lexical or lexical_retriever
-        key = self._key(query, effective_filter, limit, exact, candidate_count, score_threshold)
+        key = self._key(
+            query,
+            effective_filter,
+            limit,
+            exact,
+            candidate_count,
+            score_threshold,
+            candidate_limit,
+            dense_weight,
+            lexical_weight,
+            rrf_k,
+            diversify,
+        )
         now = monotonic()
         async with self._lock:
             entry = self._entries.get(key)
@@ -117,6 +135,12 @@ class RetrievalSessionCache:
                 exact=exact,
                 candidate_count=candidate_count,
                 score_threshold=score_threshold,
+                candidate_limit=candidate_limit,
+                dense_weight=dense_weight,
+                lexical_weight=lexical_weight,
+                rrf_k=rrf_k,
+                diversify=diversify,
+                include_diagnostics=include_diagnostics,
             )
             result.timings_ms["cache_hit"] = 0.0
             result.timings_ms["cache_total_ms"] = (perf_counter() - started) * 1000
@@ -157,6 +181,11 @@ class RetrievalSessionCache:
         exact: bool | None,
         candidate_count: int | None,
         score_threshold: float | None,
+        candidate_limit: int | None,
+        dense_weight: float,
+        lexical_weight: float,
+        rrf_k: int,
+        diversify: bool,
     ) -> str:
         return json.dumps(
             {
@@ -166,6 +195,11 @@ class RetrievalSessionCache:
                 "exact": exact,
                 "candidate_count": candidate_count,
                 "score_threshold": score_threshold,
+                "candidate_limit": candidate_limit,
+                "dense_weight": dense_weight,
+                "lexical_weight": lexical_weight,
+                "rrf_k": rrf_k,
+                "diversify": diversify,
             },
             sort_keys=True,
             separators=(",", ":"),

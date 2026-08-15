@@ -13,6 +13,7 @@ from copilot.retrieval.bm25 import (
     InMemoryBM25Retriever,
     InMemoryExactIdentifierRetriever,
 )
+from copilot.retrieval.cache import RetrievalSessionCache
 from copilot.retrieval.context_store import JsonlParentChunkStore
 from copilot.retrieval.contracts import MetadataFilter
 from copilot.retrieval.granite import GraniteEmbeddingProvider
@@ -46,6 +47,7 @@ async def run(
     lexical_weight: float = 1.5,
     rrf_k: int = 30,
     diversify: bool = False,
+    scoped: bool = True,
 ) -> dict[str, Any]:
     chunks = load_vector_chunks(chunks_root)
     provider = GraniteEmbeddingProvider()
@@ -53,6 +55,7 @@ async def run(
     bm25 = InMemoryBM25Retriever.from_directory(chunks_root)
     lexical = CombinedLexicalRetriever(bm25, InMemoryExactIdentifierRetriever(chunks))
     parent_store = JsonlParentChunkStore.from_directory(chunks_root)
+    session_caches: dict[tuple[str | None, str | None], RetrievalSessionCache] = {}
     rows: list[dict[str, Any]] = []
     try:
         await index.ensure_collection(provider.dimension)
@@ -64,19 +67,20 @@ async def run(
             if warmup_case.manufacturer or warmup_case.model
             else None
         )
-        await retrieve(
+        await _retrieve_case(
             warmup_case.query,
+            warmup_filter,
             provider,
             index,
-            lexical_retriever=lexical,
-            parent_store=parent_store,
-            metadata_filter=warmup_filter,
-            limit=5,
-            candidate_limit=candidate_limit,
-            dense_weight=dense_weight,
-            lexical_weight=lexical_weight,
-            rrf_k=rrf_k,
-            diversify=diversify,
+            lexical,
+            parent_store,
+            session_caches,
+            candidate_limit,
+            dense_weight,
+            lexical_weight,
+            rrf_k,
+            diversify,
+            scoped,
         )
         for case in cases:
             started = perf_counter()
@@ -85,19 +89,20 @@ async def run(
                 metadata_filter = MetadataFilter(
                     manufacturer=case.manufacturer, model=case.model
                 )
-            result = await retrieve(
+            result = await _retrieve_case(
                 case.query,
+                metadata_filter,
                 provider,
                 index,
-                lexical_retriever=lexical,
-                parent_store=parent_store,
-                metadata_filter=metadata_filter,
-                limit=5,
-                candidate_limit=candidate_limit,
-                dense_weight=dense_weight,
-                lexical_weight=lexical_weight,
-                rrf_k=rrf_k,
-                diversify=diversify,
+                lexical,
+                parent_store,
+                session_caches,
+                candidate_limit,
+                dense_weight,
+                lexical_weight,
+                rrf_k,
+                diversify,
+                scoped,
                 include_diagnostics=True,
             )
             wall_clock_ms = (perf_counter() - started) * 1000
@@ -157,7 +162,44 @@ async def run(
         lexical_weight=lexical_weight,
         rrf_k=rrf_k,
         diversify=diversify,
+        scoped=scoped,
     )
+
+
+async def _retrieve_case(
+    query: str,
+    metadata_filter: MetadataFilter | None,
+    provider: GraniteEmbeddingProvider,
+    index: QdrantVectorIndex,
+    lexical: CombinedLexicalRetriever,
+    parent_store: JsonlParentChunkStore,
+    session_caches: dict[tuple[str | None, str | None], RetrievalSessionCache],
+    candidate_limit: int,
+    dense_weight: float,
+    lexical_weight: float,
+    rrf_k: int,
+    diversify: bool,
+    scoped: bool,
+    include_diagnostics: bool = False,
+):
+    options = {
+        "lexical_retriever": lexical,
+        "parent_store": parent_store,
+        "metadata_filter": metadata_filter,
+        "limit": 5,
+        "candidate_limit": candidate_limit,
+        "dense_weight": dense_weight,
+        "lexical_weight": lexical_weight,
+        "rrf_k": rrf_k,
+        "diversify": diversify,
+        "include_diagnostics": include_diagnostics,
+    }
+    if not scoped or metadata_filter is None:
+        return await retrieve(query, provider, index, **options)
+    key = (metadata_filter.manufacturer, metadata_filter.model)
+    cache = session_caches.setdefault(key, RetrievalSessionCache())
+    cache.set_scope(metadata_filter, lexical_retriever=lexical)
+    return await cache.retrieve(query, provider, index, **options)
 
 
 def _failure_reason(
@@ -181,6 +223,7 @@ def _report(
     lexical_weight: float,
     rrf_k: int,
     diversify: bool,
+    scoped: bool,
 ) -> dict[str, Any]:
     labeled = [row for row in rows if row["expected_chunk_ids"]]
     timings = [row["timings_ms"]["wall_clock_ms"] for row in rows]
@@ -213,6 +256,7 @@ def _report(
             "lexical_weight": lexical_weight,
             "rrf_k": rrf_k,
             "diversify": diversify,
+            "scoped": scoped,
         },
         "metrics": {
             "recall_at_5": _mean(row["recall_at_5"] for row in labeled),
@@ -252,6 +296,12 @@ def main() -> None:
     parser.add_argument("--lexical-weight", type=float, default=1.5)
     parser.add_argument("--rrf-k", type=int, default=30)
     parser.add_argument("--diversify", action="store_true")
+    parser.add_argument(
+        "--global",
+        action="store_false",
+        dest="scoped",
+        help="measure filtered global BM25 instead of the confirmed-device scoped path",
+    )
     args = parser.parse_args()
     report = asyncio.run(
         run(
@@ -262,6 +312,7 @@ def main() -> None:
             lexical_weight=args.lexical_weight,
             rrf_k=args.rrf_k,
             diversify=args.diversify,
+            scoped=args.scoped,
         )
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
