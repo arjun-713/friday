@@ -33,7 +33,7 @@ benchmark-retrieval-optimized:
 	EMBEDDING_BACKEND=onnx EMBEDDING_MODEL=data/models/granite-small-r2-onnx EMBEDDING_MODEL_FILE=onnx/model_int8-avx2.onnx PYTHONPATH=backend/src backend/.venv/bin/python -m copilot.retrieval.real_benchmark
 
 eval-retrieval:
-	PYTHONPATH=backend/src backend/.venv/bin/python -m eval.run_retrieval
+	PYTHONPATH=backend/src backend/.venv/bin/python -m eval.run_retrieval --candidate-limit 32 --dense-weight 1 --lexical-weight 1.5 --rrf-k 30 --abstention-dense-threshold 0.84
 
 benchmark-embedding:
 	PYTHONPATH=backend/src backend/.venv/bin/python -m copilot.retrieval.embedding_benchmark

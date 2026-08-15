@@ -17,6 +17,7 @@ class RetrievalCase:
     manufacturer: str | None
     model: str | None
     expected_chunk_ids: frozenset[str]
+    acceptable_chunk_ids: frozenset[str]
     expected_pages: frozenset[int]
     should_abstain: bool
     notes: str
@@ -34,6 +35,16 @@ class RetrievalCase:
             raise ValueError(
                 f"{value['case_id']}: abstention flag must match question type"
             )
+        expected_chunk_ids = frozenset(
+            str(item) for item in value.get("expected_chunk_ids", [])
+        )
+        acceptable_chunk_ids = frozenset(
+            str(item) for item in value.get("acceptable_chunk_ids", expected_chunk_ids)
+        )
+        if expected_chunk_ids and not expected_chunk_ids <= acceptable_chunk_ids:
+            raise ValueError(
+                f"{value['case_id']}: expected chunks must be acceptable evidence"
+            )
         return cls(
             case_id=str(value["case_id"]),
             query=str(value["query"]),
@@ -41,9 +52,8 @@ class RetrievalCase:
             question_type=question_type,
             manufacturer=value.get("manufacturer"),
             model=value.get("model"),
-            expected_chunk_ids=frozenset(
-                str(item) for item in value.get("expected_chunk_ids", [])
-            ),
+            expected_chunk_ids=expected_chunk_ids,
+            acceptable_chunk_ids=acceptable_chunk_ids,
             expected_pages=expected_pages,
             should_abstain=should_abstain,
             notes=str(value.get("notes", "")),

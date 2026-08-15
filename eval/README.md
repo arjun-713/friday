@@ -8,6 +8,8 @@ Run it from the repository root after the local Qdrant collection has been index
 PYTHONPATH=backend/src backend/.venv/bin/python -m eval.run_retrieval
 ```
 
+The checked-in Make target runs the calibrated development configuration: 32 candidates per source, lexical RRF weight 1.5, rank constant 30, and a dense-confidence abstention threshold of 0.84. Tune these values only on a development split and validate on held-out manuals before changing the defaults.
+
 The runner writes the full case-by-case report to `data/index/retrieval_eval.json`. That generated report is ignored by Git. It reports Recall@5, MRR, abstention accuracy, citation-ready evidence coverage, latency percentiles, metrics by question type, and individual retrieval failures.
 
 The runner performs one unscored warm-up retrieval before measuring cases, so latency percentiles represent warm serving behavior. Model cold-start time is measured separately by the embedding benchmark.

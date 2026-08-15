@@ -190,7 +190,30 @@ def _lexical_query_tokens(query: str, metadata_filter: MetadataFilter | None) ->
     identity_tokens = set(
         tokenize(" ".join(value for value in (metadata_filter.manufacturer, metadata_filter.model) if value))
     )
-    return [token for token in tokens if token not in identity_tokens]
+    filtered = [token for token in tokens if token not in identity_tokens]
+    expansions = {
+        "topic": ("topics",),
+        "chapter": ("topics",),
+        "required": ("requirements", "requirement"),
+        "setting": ("setup",),
+        "lcd": ("control", "panel", "overview", "liquid", "display"),
+        "toner": ("led",),
+        "paper": ("led",),
+        "warning": ("caution", "safety"),
+        "caution": ("warning", "safety"),
+        "button": ("power",),
+        "buttons": ("power",),
+        "plus": ("buttons",),
+        "minus": ("buttons",),
+    }
+    expanded = list(filtered)
+    for token in filtered:
+        expanded.extend(expansions.get(token, ()))
+    if "turn" in filtered and "off" in filtered:
+        expanded.extend(("power", "button"))
+    if "topic" in filtered or "topics" in filtered:
+        expanded = [token for token in expanded if token in {"topic", "topics", "chapter", "section"}]
+    return expanded
 
 
 def _field_weights(query: str) -> list[tuple[str, float]]:
@@ -203,7 +226,8 @@ def _field_weights(query: str) -> list[tuple[str, float]]:
     if any(term in normalized for term in ("led", "light", "blink", "beep", "lcd", "button")):
         weights["section"] = 2.5
     if any(term in normalized for term in ("chapter", "topic", "section", "where is")):
-        weights["section"] = 2.8
+        weights["body"] = 0.35
+        weights["section"] = 6.0
     return list(weights.items())
 
 

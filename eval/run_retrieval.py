@@ -110,12 +110,12 @@ async def run(
             )
             wall_clock_ms = (perf_counter() - started) * 1000
             retrieved_ids = [hit.id for hit in result.hits]
-            relevant_hits = set(retrieved_ids) & set(case.expected_chunk_ids)
+            relevant_hits = set(retrieved_ids) & set(case.acceptable_chunk_ids)
             first_relevant_rank = next(
                 (
                     rank
                     for rank, chunk_id in enumerate(retrieved_ids, start=1)
-                    if chunk_id in case.expected_chunk_ids
+                    if chunk_id in case.acceptable_chunk_ids
                 ),
                 None,
             )
@@ -134,12 +134,13 @@ async def run(
                     "question_type": case.question_type,
                     "should_abstain": case.should_abstain,
                     "expected_chunk_ids": sorted(case.expected_chunk_ids),
+                    "acceptable_chunk_ids": sorted(case.acceptable_chunk_ids),
                     "expected_pages": sorted(case.expected_pages),
                     "retrieved_chunk_ids": retrieved_ids,
                     "retrieved_pages": [hit.payload.get("page") for hit in result.hits],
                     "relevant_hit_count": len(relevant_hits),
-                    "recall_at_5": len(relevant_hits) / len(case.expected_chunk_ids)
-                    if case.expected_chunk_ids
+                    "recall_at_5": len(relevant_hits) / len(case.acceptable_chunk_ids)
+                    if case.acceptable_chunk_ids
                     else None,
                     "reciprocal_rank": 1 / first_relevant_rank
                     if first_relevant_rank
@@ -215,7 +216,7 @@ def _failure_reason(
     if case.should_abstain and not abstained:
         return "should_abstain_but_returned_hits"
     if not case.should_abstain and not set(retrieved_ids) & set(
-        case.expected_chunk_ids
+        case.acceptable_chunk_ids
     ):
         return "expected_evidence_not_in_top_5"
     return None
