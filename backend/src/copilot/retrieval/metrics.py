@@ -19,9 +19,14 @@ class RetrievalTrace:
 def percentile(values: list[float], percentile_value: float) -> float:
     if not values:
         raise ValueError("cannot calculate a percentile over no values")
+    if not 0 <= percentile_value <= 100:
+        raise ValueError("percentile must be between zero and one hundred")
     ordered = sorted(values)
-    index = min(len(ordered) - 1, int(len(ordered) * percentile_value / 100))
-    return ordered[index]
+    position = (len(ordered) - 1) * percentile_value / 100
+    lower = int(position)
+    upper = min(lower + 1, len(ordered) - 1)
+    fraction = position - lower
+    return ordered[lower] + (ordered[upper] - ordered[lower]) * fraction
 
 
 def latency_summary(values: list[float]) -> dict[str, float]:

@@ -49,7 +49,10 @@ async def run(
     diversify: bool = False,
     scoped: bool = True,
     abstention_dense_threshold: float | None = None,
+    warmup_count: int = 20,
 ) -> dict[str, Any]:
+    if warmup_count < 0:
+        raise ValueError("warmup count must not be negative")
     chunks = load_vector_chunks(chunks_root)
     provider = GraniteEmbeddingProvider()
     index = QdrantVectorIndex(QdrantSettings())
@@ -60,37 +63,34 @@ async def run(
     rows: list[dict[str, Any]] = []
     try:
         await index.ensure_collection(provider.dimension)
-        warmup_case = cases[0]
-        warmup_filter = (
-            MetadataFilter(
-                manufacturer=warmup_case.manufacturer, model=warmup_case.model
+        warmup_timings: list[float] = []
+        for warmup_index in range(warmup_count):
+            for cache in session_caches.values():
+                cache.clear()
+            warmup_case = cases[warmup_index % len(cases)]
+            started = perf_counter()
+            await _retrieve_case(
+                warmup_case.query,
+                _metadata_filter(warmup_case),
+                provider,
+                index,
+                lexical,
+                parent_store,
+                session_caches,
+                candidate_limit,
+                dense_weight,
+                lexical_weight,
+                rrf_k,
+                diversify,
+                scoped,
+                abstention_dense_threshold,
             )
-            if warmup_case.manufacturer or warmup_case.model
-            else None
-        )
-        await _retrieve_case(
-            warmup_case.query,
-            warmup_filter,
-            provider,
-            index,
-            lexical,
-            parent_store,
-            session_caches,
-            candidate_limit,
-            dense_weight,
-            lexical_weight,
-            rrf_k,
-            diversify,
-            scoped,
-            abstention_dense_threshold,
-        )
+            warmup_timings.append((perf_counter() - started) * 1000)
+        for cache in session_caches.values():
+            cache.clear()
         for case in cases:
             started = perf_counter()
-            metadata_filter = None
-            if case.manufacturer or case.model:
-                metadata_filter = MetadataFilter(
-                    manufacturer=case.manufacturer, model=case.model
-                )
+            metadata_filter = _metadata_filter(case)
             result = await _retrieve_case(
                 case.query,
                 metadata_filter,
@@ -169,7 +169,14 @@ async def run(
         diversify=diversify,
         scoped=scoped,
         abstention_dense_threshold=abstention_dense_threshold,
+        warmup_timings=warmup_timings,
     )
+
+
+def _metadata_filter(case: RetrievalCase) -> MetadataFilter | None:
+    if case.manufacturer or case.model:
+        return MetadataFilter(manufacturer=case.manufacturer, model=case.model)
+    return None
 
 
 async def _retrieve_case(
@@ -233,10 +240,21 @@ def _report(
     diversify: bool,
     scoped: bool,
     abstention_dense_threshold: float | None,
+    warmup_timings: list[float],
 ) -> dict[str, Any]:
     labeled = [row for row in rows if row["expected_chunk_ids"]]
     supported = [row for row in rows if not row["should_abstain"]]
     timings = [row["timings_ms"]["wall_clock_ms"] for row in rows]
+    component_keys = sorted(
+        {key for row in rows for key in row["timings_ms"]}
+        - {"wall_clock_ms", "cache_hit"}
+    )
+    component_latency = {
+        key: latency_summary(
+            [row["timings_ms"][key] for row in rows if key in row["timings_ms"]]
+        )
+        for key in component_keys
+    }
     groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in rows:
         groups[row["question_type"]].append(row)
@@ -259,7 +277,12 @@ def _report(
         "case_count": len(cases),
         "labeled_case_count": len(labeled),
         "unanswerable_case_count": len(cases) - len(labeled),
-        "warmup": "one unscored retrieval using the first case before measurement",
+        "warmup": {
+            "count": len(warmup_timings),
+            "description": "uncached retrievals before measurement; the first includes model startup",
+            "latency_ms": latency_summary(warmup_timings) if warmup_timings else None,
+            "cold_start_ms": warmup_timings[0] if warmup_timings else None,
+        },
         "retrieval_config": {
             "candidate_limit": candidate_limit,
             "dense_weight": dense_weight,
@@ -279,6 +302,7 @@ def _report(
                 row["citation_ready_hit_rate"] for row in supported
             ),
             "latency_ms": latency_summary(timings),
+            "component_latency_ms": component_latency,
         },
         "by_question_type": {
             key: group_metrics(value) for key, value in sorted(groups.items())
@@ -309,6 +333,12 @@ def main() -> None:
     parser.add_argument("--diversify", action="store_true")
     parser.add_argument("--abstention-dense-threshold", type=float)
     parser.add_argument(
+        "--warmup",
+        type=int,
+        default=20,
+        help="uncached retrievals to run before measurement",
+    )
+    parser.add_argument(
         "--global",
         action="store_false",
         dest="scoped",
@@ -326,6 +356,7 @@ def main() -> None:
             diversify=args.diversify,
             scoped=args.scoped,
             abstention_dense_threshold=args.abstention_dense_threshold,
+            warmup_count=args.warmup,
         )
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)

@@ -20,6 +20,6 @@ That target uses the locally exported AVX2 INT8 ONNX Granite artifact. The porta
 
 The runner writes the full case-by-case report to `data/index/retrieval_eval.json`. That generated report is ignored by Git. It reports Recall@5, MRR, abstention accuracy, citation-ready evidence coverage, latency percentiles, metrics by question type, and individual retrieval failures.
 
-The runner performs one unscored warm-up retrieval before measuring cases, so latency percentiles represent warm serving behavior. Model cold-start time is measured separately by the embedding benchmark.
+The runner performs 20 uncached warm-up retrievals before measuring cases, clears the warm-up result cache, and reports the first warm-up latency separately as model cold-start time. Latency percentiles represent uncached warm serving behavior. Use `--warmup 0` only when intentionally measuring cold-start behavior.
 
 The expected chunk IDs in `retrieval_cases.jsonl` are evidence labels, not answer text. Update them only after opening the referenced manual evidence and verifying the document, model, page, and section.
