@@ -38,7 +38,15 @@ def load_cases(path: Path) -> list[RetrievalCase]:
     return cases
 
 
-async def run(cases: list[RetrievalCase], chunks_root: Path) -> dict[str, Any]:
+async def run(
+    cases: list[RetrievalCase],
+    chunks_root: Path,
+    candidate_limit: int = 32,
+    dense_weight: float = 1.0,
+    lexical_weight: float = 1.5,
+    rrf_k: int = 30,
+    diversify: bool = False,
+) -> dict[str, Any]:
     chunks = load_vector_chunks(chunks_root)
     provider = GraniteEmbeddingProvider()
     index = QdrantVectorIndex(QdrantSettings())
@@ -64,6 +72,11 @@ async def run(cases: list[RetrievalCase], chunks_root: Path) -> dict[str, Any]:
             parent_store=parent_store,
             metadata_filter=warmup_filter,
             limit=5,
+            candidate_limit=candidate_limit,
+            dense_weight=dense_weight,
+            lexical_weight=lexical_weight,
+            rrf_k=rrf_k,
+            diversify=diversify,
         )
         for case in cases:
             started = perf_counter()
@@ -80,6 +93,12 @@ async def run(cases: list[RetrievalCase], chunks_root: Path) -> dict[str, Any]:
                 parent_store=parent_store,
                 metadata_filter=metadata_filter,
                 limit=5,
+                candidate_limit=candidate_limit,
+                dense_weight=dense_weight,
+                lexical_weight=lexical_weight,
+                rrf_k=rrf_k,
+                diversify=diversify,
+                include_diagnostics=True,
             )
             wall_clock_ms = (perf_counter() - started) * 1000
             retrieved_ids = [hit.id for hit in result.hits]
@@ -122,6 +141,7 @@ async def run(cases: list[RetrievalCase], chunks_root: Path) -> dict[str, Any]:
                     if result.hits
                     else 0.0,
                     "timings_ms": {**result.timings_ms, "wall_clock_ms": wall_clock_ms},
+                    "diagnostics": result.diagnostics,
                     "failure_reason": _failure_reason(
                         case, result.abstained, retrieved_ids
                     ),
@@ -129,7 +149,15 @@ async def run(cases: list[RetrievalCase], chunks_root: Path) -> dict[str, Any]:
             )
     finally:
         await index.close()
-    return _report(cases, rows)
+    return _report(
+        cases,
+        rows,
+        candidate_limit=candidate_limit,
+        dense_weight=dense_weight,
+        lexical_weight=lexical_weight,
+        rrf_k=rrf_k,
+        diversify=diversify,
+    )
 
 
 def _failure_reason(
@@ -144,7 +172,16 @@ def _failure_reason(
     return None
 
 
-def _report(cases: list[RetrievalCase], rows: list[dict[str, Any]]) -> dict[str, Any]:
+def _report(
+    cases: list[RetrievalCase],
+    rows: list[dict[str, Any]],
+    *,
+    candidate_limit: int,
+    dense_weight: float,
+    lexical_weight: float,
+    rrf_k: int,
+    diversify: bool,
+) -> dict[str, Any]:
     labeled = [row for row in rows if row["expected_chunk_ids"]]
     timings = [row["timings_ms"]["wall_clock_ms"] for row in rows]
     groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -170,6 +207,13 @@ def _report(cases: list[RetrievalCase], rows: list[dict[str, Any]]) -> dict[str,
         "labeled_case_count": len(labeled),
         "unanswerable_case_count": len(cases) - len(labeled),
         "warmup": "one unscored retrieval using the first case before measurement",
+        "retrieval_config": {
+            "candidate_limit": candidate_limit,
+            "dense_weight": dense_weight,
+            "lexical_weight": lexical_weight,
+            "rrf_k": rrf_k,
+            "diversify": diversify,
+        },
         "metrics": {
             "recall_at_5": _mean(row["recall_at_5"] for row in labeled),
             "mrr": _mean(row["reciprocal_rank"] for row in labeled),
@@ -203,8 +247,23 @@ def main() -> None:
     parser.add_argument(
         "--output", type=Path, default=Path("data/index/retrieval_eval.json")
     )
+    parser.add_argument("--candidate-limit", type=int, default=32)
+    parser.add_argument("--dense-weight", type=float, default=1.0)
+    parser.add_argument("--lexical-weight", type=float, default=1.5)
+    parser.add_argument("--rrf-k", type=int, default=30)
+    parser.add_argument("--diversify", action="store_true")
     args = parser.parse_args()
-    report = asyncio.run(run(load_cases(args.cases), args.chunks_root))
+    report = asyncio.run(
+        run(
+            load_cases(args.cases),
+            args.chunks_root,
+            candidate_limit=args.candidate_limit,
+            dense_weight=args.dense_weight,
+            lexical_weight=args.lexical_weight,
+            rrf_k=args.rrf_k,
+            diversify=args.diversify,
+        )
+    )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     print(
