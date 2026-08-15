@@ -22,6 +22,23 @@ PAYLOAD_INDEX_FIELDS = (
     "normalized_value",
 )
 
+# Dense ranking and RRF only need stable identity/evidence metadata. Full text
+# stays in the local parent store and is fetched only after final ranking.
+DENSE_SEARCH_PAYLOAD_FIELDS = (
+    "chunk_id",
+    "parent_chunk_id",
+    "document_id",
+    "manufacturer",
+    "model",
+    "document_version",
+    "page",
+    "section",
+    "kind",
+    "strategy",
+    "identifier_kind",
+    "normalized_value",
+)
+
 
 @dataclass(frozen=True)
 class QdrantSettings:
@@ -128,7 +145,7 @@ class QdrantVectorIndex(VectorIndex):
             search_params=models.SearchParams(exact=use_exact),
             limit=limit,
             score_threshold=score_threshold,
-            with_payload=True,
+            with_payload=models.PayloadSelectorInclude(include=list(DENSE_SEARCH_PAYLOAD_FIELDS)),
             with_vectors=False,
         )
         return [_hit(point) for point in response.points]
