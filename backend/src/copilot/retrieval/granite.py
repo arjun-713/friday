@@ -84,6 +84,8 @@ class GraniteEmbeddingProvider(EmbeddingProvider):
 
     async def _encode(self, texts: list[str]) -> list[list[float]]:
         model = self._get_model()
+        if hasattr(model, "forward") and hasattr(model, "tokenizer"):
+            return await asyncio.to_thread(self._encode_direct, model, texts)
         lengths = await asyncio.to_thread(self._token_lengths, model, texts)
         oversized = [length for length in lengths if length > self.settings.max_tokens]
         if oversized:
@@ -108,6 +110,46 @@ class GraniteEmbeddingProvider(EmbeddingProvider):
             if not all(math.isfinite(float(value)) for value in vector):
                 raise ValueError("embedding model returned a non-finite vector value")
         return [[float(value) for value in vector] for vector in vectors]
+
+    def _encode_direct(self, model: Any, texts: list[str]) -> list[list[float]]:
+        """Tokenize once and run the Sentence Transformer forward path directly.
+
+        ``SentenceTransformer.encode`` tokenizes internally after the provider's
+        length validation, which doubles tokenizer work for every query. The
+        direct path keeps the no-silent-truncation check and preserves the
+        model's own pooling implementation while avoiding that second pass.
+        """
+
+        try:
+            import torch
+            from sentence_transformers.util import batch_to_device
+        except ImportError as error:
+            raise RuntimeError("the direct embedding path requires torch and sentence-transformers") from error
+        features = model.tokenizer(
+            texts,
+            add_special_tokens=True,
+            truncation=False,
+            padding=True,
+            return_tensors="pt",
+        )
+        input_ids = features.get("input_ids")
+        if input_ids is None:
+            raise ValueError("embedding tokenizer did not return input_ids")
+        token_count = int(input_ids.shape[1])
+        if token_count > self.settings.max_tokens:
+            raise ValueError(
+                f"embedding input has {token_count} tokens; re-chunk before embedding "
+                f"(limit={self.settings.max_tokens})"
+            )
+        features["modality"] = "text"
+        features = batch_to_device(features, model.device)
+        with torch.inference_mode():
+            output = model.forward(features)
+            embeddings = output["sentence_embedding"]
+            if self.settings.normalize_embeddings:
+                embeddings = torch.nn.functional.normalize(embeddings, p=2, dim=1)
+            values = embeddings.detach().cpu().tolist()
+        return [[float(value) for value in vector] for vector in values]
 
     def _get_model(self) -> Any:
         if self._model is None:
