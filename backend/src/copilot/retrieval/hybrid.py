@@ -20,6 +20,15 @@ class LexicalRetriever(Protocol):
     ) -> list[VectorHit]: ...
 
 
+class ExactLexicalRetriever(Protocol):
+    async def exact_search(
+        self,
+        query: str,
+        metadata_filter: MetadataFilter | None = None,
+        limit: int = 10,
+    ) -> list[VectorHit]: ...
+
+
 class ParentChunkStore(Protocol):
     async def fetch(self, ids: Sequence[str]) -> list[DocumentChunk]: ...
 
@@ -67,6 +76,29 @@ async def retrieve(
     if abstention_dense_threshold is not None and not 0 <= abstention_dense_threshold <= 1:
         raise ValueError("abstention dense threshold must be between zero and one")
     total_started = perf_counter()
+    exact_search = getattr(lexical_retriever, "exact_search", None)
+    if callable(exact_search):
+        exact_started = perf_counter()
+        exact_hits = await exact_search(query, metadata_filter, limit)
+        if exact_hits:
+            hits = exact_hits[:limit]
+            parent_started = perf_counter()
+            parent_ids = [str(hit.payload["parent_chunk_id"]) for hit in hits if hit.payload.get("parent_chunk_id")]
+            parents = await parent_store.fetch(parent_ids) if parent_store is not None else []
+            return RetrievalResult(
+                hits=hits,
+                parents=parents,
+                timings_ms={
+                    "exact_lookup_ms": _elapsed_ms(exact_started),
+                    "embedding_ms": 0.0,
+                    "lexical_ms": 0.0,
+                    "dense_search_ms": 0.0,
+                    "fusion_ms": 0.0,
+                    "parent_fetch_ms": _elapsed_ms(parent_started),
+                    "total_ms": _elapsed_ms(total_started),
+                },
+                diagnostics={"route": "exact_identifier"} if include_diagnostics else {},
+            )
     parallel_started = perf_counter()
     (query_vector, embedding_ms), (lexical_hits, lexical_ms) = await asyncio.gather(
         _timed_embedding(embedding_provider, query),

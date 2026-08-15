@@ -168,6 +168,16 @@ class CombinedLexicalRetriever:
                 merged.append(hit)
         return merged[:limit]
 
+    async def exact_search(
+        self,
+        query: str,
+        metadata_filter: MetadataFilter | None = None,
+        limit: int = 10,
+    ) -> list[VectorHit]:
+        """Expose the deterministic identifier path to the hybrid router."""
+
+        return await self.exact.search(query, metadata_filter, limit)
+
     def scoped(self, metadata_filter: MetadataFilter) -> "CombinedLexicalRetriever":
         return CombinedLexicalRetriever(self.bm25.scoped(metadata_filter), self.exact.scoped(metadata_filter))
 
