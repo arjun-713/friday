@@ -58,7 +58,7 @@ class InMemoryBM25Retriever:
         metadata_filter: MetadataFilter | None = None,
         limit: int = 10,
     ) -> list[VectorHit]:
-        query_tokens = tokenize(query)
+        query_tokens = _lexical_query_tokens(query, metadata_filter)
         if not query_tokens or not self._chunks:
             return []
         scores: dict[int, float] = defaultdict(float)
@@ -154,6 +154,23 @@ class CombinedLexicalRetriever:
 
 def _normalize_identifier(value: str) -> str:
     return re.sub(r"[^a-z0-9]", "", value.lower())
+
+
+def _lexical_query_tokens(query: str, metadata_filter: MetadataFilter | None) -> list[str]:
+    """Exclude confirmed device identity terms from scope-local BM25 scoring.
+
+    Model and manufacturer names are useful for routing, but once the caller
+    has supplied a confirmed scope they occur in many chunks and add no
+    evidence about the user's symptom or requested procedure.
+    """
+
+    tokens = tokenize(query)
+    if metadata_filter is None:
+        return tokens
+    identity_tokens = set(
+        tokenize(" ".join(value for value in (metadata_filter.manufacturer, metadata_filter.model) if value))
+    )
+    return [token for token in tokens if token not in identity_tokens]
 
 
 def _matches(chunk: DocumentChunk, metadata_filter: MetadataFilter | None) -> bool:

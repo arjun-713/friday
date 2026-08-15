@@ -190,6 +190,19 @@ def test_scoped_bm25_skips_redundant_payload_filtering() -> None:
     assert [hit.id for hit in hits] == ["bm25-match"]
 
 
+def test_scoped_bm25_does_not_rank_device_identity_above_evidence() -> None:
+    identity = _chunk("identity", RetrievalProfile.BM25)
+    identity.content = "Latitude 7490 service manual overview."
+    evidence = _chunk("evidence", RetrievalProfile.BM25)
+    evidence.content = "Recommended tools include a Phillips screwdriver."
+    scope = MetadataFilter(manufacturer="Example", model="Example 1")
+    retriever = InMemoryBM25Retriever([identity, evidence]).scoped(scope)
+
+    hits = asyncio.run(retriever.search("Example 1 recommended tools", scope, limit=1))
+
+    assert [hit.id for hit in hits] == ["evidence"]
+
+
 def test_exact_identifier_retriever_normalizes_punctuation() -> None:
     chunk = _chunk("exact-match", RetrievalProfile.EXACT)
     chunk.metadata = {"normalized_value": "E42"}
