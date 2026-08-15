@@ -74,6 +74,7 @@ class RetrievalSessionCache:
         rrf_k: int = 60,
         diversify: bool = False,
         include_diagnostics: bool = False,
+        abstention_dense_threshold: float | None = None,
     ) -> RetrievalResult:
         started = perf_counter()
         effective_filter = self._effective_filter(metadata_filter)
@@ -90,6 +91,7 @@ class RetrievalSessionCache:
             lexical_weight,
             rrf_k,
             diversify,
+            abstention_dense_threshold,
         )
         now = monotonic()
         async with self._lock:
@@ -141,6 +143,7 @@ class RetrievalSessionCache:
                 rrf_k=rrf_k,
                 diversify=diversify,
                 include_diagnostics=include_diagnostics,
+                abstention_dense_threshold=abstention_dense_threshold,
             )
             result.timings_ms["cache_hit"] = 0.0
             result.timings_ms["cache_total_ms"] = (perf_counter() - started) * 1000
@@ -186,6 +189,7 @@ class RetrievalSessionCache:
         lexical_weight: float,
         rrf_k: int,
         diversify: bool,
+        abstention_dense_threshold: float | None,
     ) -> str:
         return json.dumps(
             {
@@ -200,6 +204,7 @@ class RetrievalSessionCache:
                 "lexical_weight": lexical_weight,
                 "rrf_k": rrf_k,
                 "diversify": diversify,
+                "abstention_dense_threshold": abstention_dense_threshold,
             },
             sort_keys=True,
             separators=(",", ":"),

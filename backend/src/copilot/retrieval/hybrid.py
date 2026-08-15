@@ -50,6 +50,7 @@ async def retrieve(
     rrf_k: int = 60,
     diversify: bool = False,
     include_diagnostics: bool = False,
+    abstention_dense_threshold: float | None = None,
 ) -> RetrievalResult:
     """Run dense and lexical retrieval concurrently, then expand parents in one batch."""
 
@@ -63,6 +64,8 @@ async def retrieve(
         raise ValueError("retrieval source weights must be non-negative and not both zero")
     if rrf_k <= 0:
         raise ValueError("RRF rank constant must be positive")
+    if abstention_dense_threshold is not None and not 0 <= abstention_dense_threshold <= 1:
+        raise ValueError("abstention dense threshold must be between zero and one")
     total_started = perf_counter()
     parallel_started = perf_counter()
     (query_vector, embedding_ms), (lexical_hits, lexical_ms) = await asyncio.gather(
@@ -91,6 +94,22 @@ async def retrieve(
         diversify=diversify,
     )
     fusion_ms = _elapsed_ms(fusion_started)
+    top_dense_score = vector_hits[0].score if vector_hits else 0.0
+    if abstention_dense_threshold is not None and top_dense_score < abstention_dense_threshold:
+        return RetrievalResult(
+            abstained=True,
+            reason="low_dense_confidence",
+            timings_ms={
+                "parallel_embed_lexical_ms": parallel_ms,
+                "embedding_ms": embedding_ms,
+                "lexical_ms": lexical_ms,
+                "dense_search_ms": dense_ms,
+                "fusion_ms": fusion_ms,
+                "parent_fetch_ms": 0.0,
+                "total_ms": _elapsed_ms(total_started),
+            },
+            diagnostics=_diagnostics(vector_hits, lexical_hits, candidate_limit) if include_diagnostics else {},
+        )
     if not hits:
         return RetrievalResult(
             abstained=True,
@@ -207,4 +226,7 @@ def _diagnostics(
         "lexical_candidate_count": len(lexical_hits),
         "dense_ranks": {hit.id: rank for rank, hit in enumerate(vector_hits, start=1)},
         "lexical_ranks": {hit.id: rank for rank, hit in enumerate(lexical_hits, start=1)},
+        "dense_scores": {hit.id: hit.score for hit in vector_hits},
+        "lexical_scores": {hit.id: hit.score for hit in lexical_hits},
+        "source_overlap_count": len({hit.id for hit in vector_hits} & {hit.id for hit in lexical_hits}),
     }

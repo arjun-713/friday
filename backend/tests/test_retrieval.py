@@ -110,6 +110,25 @@ def test_hybrid_retrieval_applies_filter_and_abstains_without_hits() -> None:
     assert index.search_calls[0]["filter"] == MetadataFilter(model="Example 1")
 
 
+def test_hybrid_retrieval_can_abstain_on_low_dense_confidence() -> None:
+    index = FakeIndex()
+    chunk = _chunk("vector", RetrievalProfile.VECTOR)
+    index.records.append(VectorRecord(id=chunk.chunk_id, vector=[1, 0, 0], payload={"model": "Example 1"}, chunk=chunk))
+
+    result = asyncio.run(
+        retrieve(
+            "unrelated question",
+            FakeEmbedder(),
+            index,
+            metadata_filter=MetadataFilter(model="Example 1"),
+            abstention_dense_threshold=0.95,
+        )
+    )
+
+    assert result.abstained
+    assert result.reason == "low_dense_confidence"
+
+
 def test_session_cache_reuses_completed_turn_and_applies_device_scope() -> None:
     index = FakeIndex()
     chunk = _chunk("vector", RetrievalProfile.VECTOR)

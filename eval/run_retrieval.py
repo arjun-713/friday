@@ -48,6 +48,7 @@ async def run(
     rrf_k: int = 30,
     diversify: bool = False,
     scoped: bool = True,
+    abstention_dense_threshold: float | None = None,
 ) -> dict[str, Any]:
     chunks = load_vector_chunks(chunks_root)
     provider = GraniteEmbeddingProvider()
@@ -81,6 +82,7 @@ async def run(
             rrf_k,
             diversify,
             scoped,
+            abstention_dense_threshold,
         )
         for case in cases:
             started = perf_counter()
@@ -104,6 +106,7 @@ async def run(
                 diversify,
                 scoped,
                 include_diagnostics=True,
+                abstention_dense_threshold=abstention_dense_threshold,
             )
             wall_clock_ms = (perf_counter() - started) * 1000
             retrieved_ids = [hit.id for hit in result.hits]
@@ -129,6 +132,7 @@ async def run(
                     "query": case.query,
                     "category": case.category,
                     "question_type": case.question_type,
+                    "should_abstain": case.should_abstain,
                     "expected_chunk_ids": sorted(case.expected_chunk_ids),
                     "expected_pages": sorted(case.expected_pages),
                     "retrieved_chunk_ids": retrieved_ids,
@@ -163,6 +167,7 @@ async def run(
         rrf_k=rrf_k,
         diversify=diversify,
         scoped=scoped,
+        abstention_dense_threshold=abstention_dense_threshold,
     )
 
 
@@ -180,6 +185,7 @@ async def _retrieve_case(
     rrf_k: int,
     diversify: bool,
     scoped: bool,
+    abstention_dense_threshold: float | None,
     include_diagnostics: bool = False,
 ):
     options = {
@@ -193,6 +199,7 @@ async def _retrieve_case(
         "rrf_k": rrf_k,
         "diversify": diversify,
         "include_diagnostics": include_diagnostics,
+        "abstention_dense_threshold": abstention_dense_threshold,
     }
     if not scoped or metadata_filter is None:
         return await retrieve(query, provider, index, **options)
@@ -224,8 +231,10 @@ def _report(
     rrf_k: int,
     diversify: bool,
     scoped: bool,
+    abstention_dense_threshold: float | None,
 ) -> dict[str, Any]:
     labeled = [row for row in rows if row["expected_chunk_ids"]]
+    supported = [row for row in rows if not row["should_abstain"]]
     timings = [row["timings_ms"]["wall_clock_ms"] for row in rows]
     groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in rows:
@@ -257,6 +266,7 @@ def _report(
             "rrf_k": rrf_k,
             "diversify": diversify,
             "scoped": scoped,
+            "abstention_dense_threshold": abstention_dense_threshold,
         },
         "metrics": {
             "recall_at_5": _mean(row["recall_at_5"] for row in labeled),
@@ -265,7 +275,7 @@ def _report(
                 float(row["abstention_correct"]) for row in rows
             ),
             "citation_ready_hit_rate": _mean(
-                row["citation_ready_hit_rate"] for row in rows
+                row["citation_ready_hit_rate"] for row in supported
             ),
             "latency_ms": latency_summary(timings),
         },
@@ -296,6 +306,7 @@ def main() -> None:
     parser.add_argument("--lexical-weight", type=float, default=1.5)
     parser.add_argument("--rrf-k", type=int, default=30)
     parser.add_argument("--diversify", action="store_true")
+    parser.add_argument("--abstention-dense-threshold", type=float)
     parser.add_argument(
         "--global",
         action="store_false",
@@ -313,6 +324,7 @@ def main() -> None:
             rrf_k=args.rrf_k,
             diversify=args.diversify,
             scoped=args.scoped,
+            abstention_dense_threshold=args.abstention_dense_threshold,
         )
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
