@@ -13,6 +13,7 @@ from .qdrant import chunk_payload
 
 TOKEN_PATTERN = re.compile(r"[a-z0-9]+(?:[-_][a-z0-9]+)*", re.IGNORECASE)
 IDENTIFIER_PATTERN = re.compile(r"[a-z0-9]+(?:[-_][a-z0-9]+)+|[a-z]+\d+|\d+[a-z]+|\b\d{2,}\b", re.IGNORECASE)
+FIELD_WEIGHTS = {"body": 1.0, "section": 1.0}
 
 
 def tokenize(text: str) -> list[str]:
@@ -36,10 +37,18 @@ class InMemoryBM25Retriever:
         self._tokens = [tokenize(chunk.content) for chunk in self._chunks]
         self._lengths = [len(tokens) for tokens in self._tokens]
         self._average_length = sum(self._lengths) / len(self._lengths) if self._lengths else 0.0
-        self._postings: dict[str, dict[int, int]] = defaultdict(dict)
-        for index, tokens in enumerate(self._tokens):
-            for token, frequency in Counter(tokens).items():
-                self._postings[token][index] = frequency
+        self._field_tokens = [self._fields_for_chunk(chunk) for chunk in self._chunks]
+        self._field_lengths = {field: [len(values[field]) for values in self._field_tokens] for field in FIELD_WEIGHTS}
+        self._field_averages = {
+            field: sum(lengths) / len(lengths) if lengths else 0.0 for field, lengths in self._field_lengths.items()
+        }
+        self._field_postings: dict[str, dict[str, dict[int, int]]] = {
+            field: defaultdict(dict) for field in FIELD_WEIGHTS
+        }
+        for index, fields in enumerate(self._field_tokens):
+            for field, tokens in fields.items():
+                for token, frequency in Counter(tokens).items():
+                    self._field_postings[field][token][index] = frequency
 
     @classmethod
     def from_directory(cls, root: Path) -> "InMemoryBM25Retriever":
@@ -62,19 +71,25 @@ class InMemoryBM25Retriever:
         if not query_tokens or not self._chunks:
             return []
         scores: dict[int, float] = defaultdict(float)
-        document_count = len(self._chunks)
-        for token in query_tokens:
-            posting = self._postings.get(token)
-            if not posting:
-                continue
-            inverse_document_frequency = math.log(1 + (document_count - len(posting) + 0.5) / (len(posting) + 0.5))
-            for index, frequency in posting.items():
-                chunk = self._chunks[index]
-                if self._scope_filter == metadata_filter or _matches(chunk, metadata_filter):
-                    denominator = frequency + self._k1 * (
-                        1 - self._b + self._b * self._lengths[index] / max(self._average_length, 1)
-                    )
-                    scores[index] += inverse_document_frequency * frequency * (self._k1 + 1) / denominator
+        for field, field_weight in _field_weights(query):
+            postings = self._field_postings[field]
+            document_count = len(self._chunks)
+            for token in query_tokens:
+                posting = postings.get(token)
+                if not posting:
+                    continue
+                inverse_document_frequency = math.log(1 + (document_count - len(posting) + 0.5) / (len(posting) + 0.5))
+                for index, frequency in posting.items():
+                    chunk = self._chunks[index]
+                    if self._scope_filter == metadata_filter or _matches(chunk, metadata_filter):
+                        denominator = frequency + self._k1 * (
+                            1
+                            - self._b
+                            + self._b * self._field_lengths[field][index] / max(self._field_averages[field], 1)
+                        )
+                        scores[index] += (
+                            field_weight * inverse_document_frequency * frequency * (self._k1 + 1) / denominator
+                        )
         ranked = sorted(scores, key=lambda index: scores[index], reverse=True)[:limit]
         return [
             VectorHit(id=self._chunks[index].chunk_id, score=scores[index], payload=chunk_payload(self._chunks[index]))
@@ -86,6 +101,11 @@ class InMemoryBM25Retriever:
 
         chunks = [chunk for chunk in self._chunks if _matches(chunk, metadata_filter)]
         return InMemoryBM25Retriever(chunks, self._k1, self._b, scope_filter=metadata_filter)
+
+    @staticmethod
+    def _fields_for_chunk(chunk: DocumentChunk) -> dict[str, list[str]]:
+        section_title = chunk.section.rsplit(" > ", maxsplit=1)[-1]
+        return {"body": tokenize(chunk.content), "section": tokenize(section_title)}
 
 
 class InMemoryExactIdentifierRetriever:
@@ -171,6 +191,20 @@ def _lexical_query_tokens(query: str, metadata_filter: MetadataFilter | None) ->
         tokenize(" ".join(value for value in (metadata_filter.manufacturer, metadata_filter.model) if value))
     )
     return [token for token in tokens if token not in identity_tokens]
+
+
+def _field_weights(query: str) -> list[tuple[str, float]]:
+    normalized = query.lower()
+    weights = dict(FIELD_WEIGHTS)
+    if any(term in normalized for term in ("how do i", "how can i", "steps", "set up", "setup", "connect", "remove")):
+        weights["section"] = 2.5
+    if any(term in normalized for term in ("warning", "caution", "safety", "hot surface")):
+        weights["section"] = 2.5
+    if any(term in normalized for term in ("led", "light", "blink", "beep", "lcd", "button")):
+        weights["section"] = 2.5
+    if any(term in normalized for term in ("chapter", "topic", "section", "where is")):
+        weights["section"] = 2.8
+    return list(weights.items())
 
 
 def _matches(chunk: DocumentChunk, metadata_filter: MetadataFilter | None) -> bool:
