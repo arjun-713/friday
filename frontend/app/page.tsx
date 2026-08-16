@@ -169,12 +169,14 @@ export default function Home() {
   }
 
   function regenerateResponse() {
-    setState("thinking");
-    window.setTimeout(() => setState("ready"), 650);
+    const latestUserMessage = [...messages].reverse().find((message) => message.role === "user");
+    if (latestUserMessage) void runTroubleshoot(latestUserMessage.text, "", false);
   }
 
-  async function copyResponse() {
-    await navigator.clipboard?.writeText("Friday response");
+  async function copyResponse(response?: TroubleshootingResponse) {
+    if (!response) return;
+    const citations = response.citations.map((citation) => `${citation.document_title}, page ${citation.page}, ${citation.section}`).join("; ");
+    await navigator.clipboard?.writeText(`${response.answer ?? ""}${citations ? `\n\nSources: ${citations}` : ""}`);
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1400);
   }
@@ -255,7 +257,7 @@ export default function Home() {
                       {message.response?.citations[0] && <div className="source-line"><Icon name="manual" /><a href={message.response.citations[0].source_url || "#source"}>{message.response.citations[0].document_title} · p. {message.response.citations[0].page} · {message.response.citations[0].section}</a><Icon name="external" /></div>}
                     </div>
                   )}
-                  {message.role === "assistant" && <div className="assistant-actions" aria-label="Response actions"><button type="button" aria-label="Regenerate response" title="Regenerate response" onClick={regenerateResponse}><Icon name="regenerate" /></button><button className={feedback === "like" ? "selected" : ""} type="button" aria-label="Like response" title="Like response" aria-pressed={feedback === "like"} onClick={() => setFeedback("like")}><Icon name="like" /></button><button className={feedback === "dislike" ? "selected" : ""} type="button" aria-label="Dislike response" title="Dislike response" aria-pressed={feedback === "dislike"} onClick={() => setFeedback("dislike")}><Icon name="dislike" /></button><button className={copied ? "selected" : ""} type="button" aria-label={copied ? "Response copied" : "Copy response"} title={copied ? "Copied" : "Copy response"} onClick={copyResponse}><Icon name="copy" /></button></div>}
+                  {message.role === "assistant" && <div className="assistant-actions" aria-label="Response actions"><button type="button" aria-label="Regenerate response" title="Regenerate response" onClick={regenerateResponse}><Icon name="regenerate" /></button><button className={feedback === "like" ? "selected" : ""} type="button" aria-label="Like response" title="Like response" aria-pressed={feedback === "like"} onClick={() => setFeedback("like")}><Icon name="like" /></button><button className={feedback === "dislike" ? "selected" : ""} type="button" aria-label="Dislike response" title="Dislike response" aria-pressed={feedback === "dislike"} onClick={() => setFeedback("dislike")}><Icon name="dislike" /></button><button className={copied ? "selected" : ""} type="button" aria-label={copied ? "Response copied" : "Copy response"} title={copied ? "Copied" : "Copy response"} onClick={() => copyResponse(message.response)}><Icon name="copy" /></button></div>}
                 </article>
               ))}
               {apiError && <div className="api-error" role="alert"><strong>Couldn&apos;t check the manuals.</strong><span>{apiError}</span><button type="button" onClick={() => { const latestUserMessage = [...messages].reverse().find((message) => message.role === "user"); if (latestUserMessage) void runTroubleshoot(latestUserMessage.text, "", false); }}>Try again</button></div>}
