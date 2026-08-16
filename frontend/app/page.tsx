@@ -22,7 +22,7 @@ import {
   UserCircleIcon,
   WifiIcon,
 } from "@heroicons/react/24/outline";
-import { troubleshoot, TroubleshootingApiError, type DiagnosticOption, type TroubleshootingResponse } from "../lib/api";
+import { API_BASE_URL, troubleshoot, TroubleshootingApiError, type DiagnosticOption, type TroubleshootingResponse } from "../lib/api";
 
 type Message = { id: number; role: "user" | "assistant"; text: string; meta?: string; response?: TroubleshootingResponse };
 type SessionState = "ready" | "listening" | "thinking" | "speaking" | "interrupted";
@@ -284,6 +284,7 @@ export default function Home() {
                       {message.response?.status === "abstained" ? <ul className="missing-observations">{message.response.missing_observations.map((observation) => <li key={observation}>{observation}</li>)}</ul> : <>
                         {message.response?.step && <div className="procedure-content"><div className="procedure-copy"><p className="instruction">{message.response.step.question}</p></div>{selectedCategory === "router" && <ManualFigure />}</div>}
                         {message.response?.step && message.response.step.options.length > 0 && <div className="answer-options" aria-label="Diagnostic answer options">{message.response.step.options.map((option) => <button className={selectedAnswer === option.label ? "selected" : ""} key={option.id} type="button" aria-pressed={selectedAnswer === option.label} onClick={() => submitAnswer(option)}>{option.label}</button>)}</div>}
+                        {message.response?.images && message.response.images.length > 0 && <div className="manual-images" aria-label="Figures from the manufacturer manual">{message.response.images.map((image) => <figure key={image.asset_id}><img src={`${API_BASE_URL}${image.url}`} alt={`${image.document_title}, page ${image.page}`} /><figcaption>{image.document_title} · p. {image.page}</figcaption></figure>)}</div>}
                         <button className="why-button" type="button" aria-expanded={whyOpen} onClick={() => setWhyOpen((open) => !open)}>Why this step?</button>
                         {whyOpen && <p className="why-copy">The retrieved manual evidence is used to choose the next observation before changing any settings.</p>}
                       </>}

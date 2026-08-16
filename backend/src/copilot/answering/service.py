@@ -3,6 +3,7 @@
 from collections.abc import Sequence
 from typing import Protocol
 
+from ..ingestion.assets.images import images_for_chunks
 from ..ingestion.models import DocumentChunk
 from ..retrieval.cache import RetrievalSessionCache
 from ..retrieval.contracts import EmbeddingProvider, MetadataFilter, VectorHit, VectorIndex
@@ -13,6 +14,7 @@ from .models import (
     DiagnosticSessionState,
     DiagnosticStep,
     EvidenceContext,
+    ManualImage,
     RetrievalSummary,
     TroubleshootingRequest,
     TroubleshootingResponse,
@@ -67,6 +69,7 @@ class TroubleshootingService:
         answer_generator: AnswerGenerator | None = None,
         session_cache: RetrievalSessionCache | None = None,
         session_store: DiagnosticSessionStore | None = None,
+        image_manifest: dict[str, object] | None = None,
     ) -> None:
         self.embedding_provider = embedding_provider
         self.vector_index = vector_index
@@ -75,6 +78,7 @@ class TroubleshootingService:
         self.answer_generator = answer_generator or EvidenceOnlyAnswerGenerator()
         self.session_cache = session_cache or RetrievalSessionCache()
         self.session_store = session_store or DiagnosticSessionStore()
+        self.image_manifest = image_manifest or {"assets": {}}
 
     async def answer(self, request: TroubleshootingRequest) -> TroubleshootingResponse:
         state = self.session_store.record_turn(request)
@@ -146,12 +150,14 @@ class TroubleshootingService:
                 ),
             )
         state.current_step_id = step.step_id
+        images = _images_for_evidence(self.image_manifest, evidence)
         return TroubleshootingResponse(
             session_id=request.session_id,
             status="ready",
             answer=step.instruction,
             step=step,
             awaiting_observation=True,
+            images=images,
             evidence=evidence,
             citations=[item.citation for item in evidence],
             retrieval=retrieval,
@@ -241,3 +247,17 @@ def _retrieval_query(request: TroubleshootingRequest) -> str:
     if request.selected_option:
         parts.append(f"Selected result: {request.selected_option}")
     return " ".join(parts)
+
+
+def _images_for_evidence(manifest: dict[str, object], evidence: Sequence[EvidenceContext]) -> list[ManualImage]:
+    references = images_for_chunks(manifest, {item.chunk_id for item in evidence})
+    return [
+        ManualImage(
+            asset_id=str(reference["asset_id"]),
+            url=f"/v1/assets/images/{reference['asset_id']}",
+            mime_type=str(reference["mime_type"]),
+            document_title=str(reference["document_title"]),
+            page=int(reference["page"]),
+        )
+        for reference in references
+    ]

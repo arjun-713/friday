@@ -1,8 +1,10 @@
 import asyncio
+import json
 import os
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException
+from fastapi.responses import FileResponse
 
 from .answering import (
     EvidenceOnlyAnswerGenerator,
@@ -21,11 +23,33 @@ from .retrieval.qdrant import QdrantSettings, QdrantVectorIndex
 app = FastAPI(title="Troubleshooting Copilot", version="0.1.0")
 _service: TroubleshootingService | None = None
 _service_lock = asyncio.Lock()
+_image_manifest: dict[str, object] = {"assets": {}}
 
 
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "phase": "text-only-answering"}
+
+
+@app.get("/v1/assets/images/{asset_id}")
+def get_image(asset_id: str) -> FileResponse:
+    global _image_manifest
+    if not _image_manifest.get("assets"):
+        _image_manifest = _load_image_manifest()
+    asset = _image_manifest.get("assets", {})
+    if not isinstance(asset, dict) or asset_id not in asset:
+        raise HTTPException(status_code=404, detail="image asset not found")
+    metadata = asset[asset_id]
+    if not isinstance(metadata, dict):
+        raise HTTPException(status_code=404, detail="image asset not found")
+    relative_path = metadata.get("path")
+    if not isinstance(relative_path, str):
+        raise HTTPException(status_code=404, detail="image asset not found")
+    path = (Path("data") / relative_path).resolve()
+    image_root = (Path("data") / "assets" / "images").resolve()
+    if image_root not in path.parents or not path.is_file():
+        raise HTTPException(status_code=404, detail="image asset not found")
+    return FileResponse(path, media_type=str(metadata.get("mime_type", "application/octet-stream")))
 
 
 async def get_troubleshooting_service() -> TroubleshootingService:
@@ -52,7 +76,9 @@ async def troubleshoot(
 
 
 def _build_service() -> TroubleshootingService:
+    global _image_manifest
     chunks_root = Path(os.getenv("CHUNKS_ROOT", "data/chunks"))
+    _image_manifest = _load_image_manifest()
     chunks = load_vector_chunks(chunks_root)
     lexical = CombinedLexicalRetriever(
         InMemoryBM25Retriever.from_directory(chunks_root),
@@ -64,6 +90,7 @@ def _build_service() -> TroubleshootingService:
         lexical_retriever=lexical,
         parent_store=JsonlParentChunkStore.from_directory(chunks_root),
         answer_generator=_answer_generator(),
+        image_manifest=_image_manifest,
     )
 
 
@@ -72,3 +99,14 @@ def _answer_generator() -> EvidenceOnlyAnswerGenerator | LiteLLMAnswerGenerator:
     if settings.enabled:
         return LiteLLMAnswerGenerator(settings)
     return EvidenceOnlyAnswerGenerator()
+
+
+def _load_image_manifest() -> dict[str, object]:
+    path = Path(os.getenv("IMAGE_MANIFEST", "data/assets/image_manifest.json"))
+    if not path.is_file():
+        return {"assets": {}}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"assets": {}}
+    return payload if isinstance(payload, dict) else {"assets": {}}

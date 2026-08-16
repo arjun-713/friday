@@ -55,4 +55,12 @@ Create auditable cleaned output without changing the raw JSON:
 PYTHONPATH=backend/src python -m copilot.ingestion.cleaning.runner
 ```
 
+Extract manual figures and build the local content-addressed image registry after chunking:
+
+```bash
+make assets
+```
+
+The registry is written to `data/assets/image_manifest.json` and the binaries to `data/assets/images/`. Each image is stored once by SHA-256 and records document, page, and matching chunk IDs. These generated assets are intentionally ignored by Git and can be recreated from the source PDFs.
+
 Cleaned JSON is retrieval-oriented. It removes layout-only formatting and boilerplate, excludes contents/empty/duplicate pages from future chunking without renumbering them, and records every removal. Positioned spans remain in `data/raw` and are referenced by source file plus page number instead of being duplicated in `data/cleaned`.

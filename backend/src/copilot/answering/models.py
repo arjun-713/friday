@@ -36,6 +36,14 @@ class DiagnosticSessionState(BaseModel):
     current_step_id: str | None = None
 
 
+class ManualImage(BaseModel):
+    asset_id: str
+    url: str
+    mime_type: str
+    document_title: str
+    page: int = Field(gt=0)
+
+
 class Citation(BaseModel):
     chunk_id: str
     document_id: str
@@ -68,6 +76,7 @@ class TroubleshootingResponse(BaseModel):
     answer: str | None = None
     step: DiagnosticStep | None = None
     awaiting_observation: bool = False
+    images: list[ManualImage] = Field(default_factory=list)
     evidence: list[EvidenceContext] = Field(default_factory=list)
     citations: list[Citation] = Field(default_factory=list)
     missing_observations: list[str] = Field(default_factory=list)

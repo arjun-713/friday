@@ -272,6 +272,10 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid 
 .response-copy { max-width: 70ch; margin: 0 0 17px; }
 .missing-observations { display: grid; gap: 8px; margin: 0; padding-left: 20px; color: var(--ink-soft); font-size: 14px; line-height: 1.5; }
 .manual-figure { align-self: start; }
+.manual-images { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 18px; }
+.manual-images figure { width: min(100%, 260px); margin: 0; }
+.manual-images img { display: block; width: 100%; max-height: 220px; object-fit: contain; border: 1px solid var(--line); border-radius: 8px; background: var(--figure-bg); }
+.manual-images figcaption { margin-top: 6px; color: var(--ink-soft); font-size: 10px; }
 .answer-options { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 18px; }
 .answer-options button { min-height: 44px; padding: 9px 12px; border: 1px solid var(--line-dark); border-radius: 7px; background: var(--white); color: var(--ink); font-size: 13px; font-weight: 700; }
 .answer-options button:hover, .answer-options button.selected { border-color: var(--signal); background: var(--signal-soft); color: var(--signal-dark); }

@@ -260,6 +260,22 @@ def test_text_endpoint_runs_litellm_answer_layer() -> None:
         lexical_retriever=base_service.lexical_retriever,
         parent_store=base_service.parent_store,
         answer_generator=LiteLLMAnswerGenerator(completion=completion),
+        image_manifest={
+            "assets": {
+                "asset-1": {
+                    "path": "assets/images/asset-1.png",
+                    "mime_type": "image/png",
+                    "occurrences": [
+                        {
+                            "document_title": "Example Manual",
+                            "source_file": "data/manuals/example.pdf",
+                            "page": 4,
+                            "chunk_ids": ["child-1"],
+                        }
+                    ],
+                }
+            }
+        },
     )
     app.dependency_overrides[get_troubleshooting_service] = lambda: service
     try:
@@ -274,6 +290,8 @@ def test_text_endpoint_runs_litellm_answer_layer() -> None:
     assert response.status_code == 200
     assert body["status"] == "ready"
     assert body["answer"] == "Check the cable. [Example Manual · p. 4 · Troubleshooting > Connection]"
+    assert body["images"][0]["asset_id"] == "asset-1"
+    assert body["images"][0]["url"] == "/v1/assets/images/asset-1"
 
 
 def test_session_advances_to_the_next_step_after_observation() -> None:

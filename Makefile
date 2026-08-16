@@ -2,7 +2,7 @@ PYTHON ?= python
 BACKEND_PYTHONPATH := backend/src
 MODULE := PYTHONPATH=$(BACKEND_PYTHONPATH) $(PYTHON) -m
 
-.PHONY: prepare chunk ingest qdrant-up qdrant-down index-vectors benchmark-retrieval benchmark-retrieval-optimized benchmark-embedding export-embedding eval-retrieval eval-retrieval-optimized backend-venv
+.PHONY: prepare chunk assets ingest qdrant-up qdrant-down index-vectors benchmark-retrieval benchmark-retrieval-optimized benchmark-embedding export-embedding eval-retrieval eval-retrieval-optimized backend-venv
 
 # Run after adding or replacing manuals in data/manuals.
 prepare:
@@ -14,8 +14,12 @@ prepare:
 chunk:
 	$(MODULE) copilot.ingestion.chunking.runner
 
+# Extract content-addressed PDF images and map them to document pages/chunks.
+assets:
+	$(MODULE) copilot.ingestion.assets.images
+
 # Complete RAG ingestion workflow for the current manual corpus.
-ingest: prepare chunk
+ingest: prepare chunk assets
 
 qdrant-up:
 	docker compose -f docker-compose.qdrant.yml up -d qdrant

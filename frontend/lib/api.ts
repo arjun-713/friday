@@ -21,6 +21,14 @@ export type DiagnosticStep = {
   source_ids: string[];
 };
 
+export type ManualImage = {
+  asset_id: string;
+  url: string;
+  mime_type: string;
+  document_title: string;
+  page: number;
+};
+
 export type Citation = {
   chunk_id: string;
   document_id: string;
@@ -53,6 +61,7 @@ export type TroubleshootingResponse = {
   answer?: string | null;
   step?: DiagnosticStep | null;
   awaiting_observation: boolean;
+  images: ManualImage[];
   evidence: EvidenceContext[];
   citations: Citation[];
   missing_observations: string[];
@@ -69,7 +78,7 @@ export class TroubleshootingApiError extends Error {
   }
 }
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+export const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
 export async function troubleshoot(request: TroubleshootingRequest, signal?: AbortSignal): Promise<TroubleshootingResponse> {
   let response: Response;
