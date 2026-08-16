@@ -16,6 +16,7 @@
   --figure-line: #8d99a9;
   --figure-panel: #dce3ec;
   --figure-border: #b8c2d0;
+  --selection: #2563eb;
   --mint: #d9f2e7;
   --white: #ffffff;
   --shadow: 0 14px 34px rgba(23, 32, 51, 0.07);
@@ -201,7 +202,8 @@ h1 { max-width: 14ch; margin: 11px 0 0; font-size: clamp(35px, 4vw, 58px); line-
 .rail-footer .icon { width: 14px; height: 14px; flex: 0 0 auto; color: var(--signal-dark); }
 
 button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid rgba(231, 106, 61, 0.45); outline-offset: 3px; }
-::selection { background: var(--amber); color: var(--ink); }
+::selection { background: var(--selection); color: var(--white); }
+::-moz-selection { background: var(--selection); color: var(--white); }
 ::-webkit-scrollbar { width: 10px; }
 ::-webkit-scrollbar-track { background: var(--paper-deep); }
 ::-webkit-scrollbar-thumb { border: 3px solid var(--paper-deep); border-radius: 8px; background: var(--line-dark); }
@@ -255,6 +257,9 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid 
 .session-menu { position: absolute; z-index: 2; top: 44px; right: 0; display: grid; width: 170px; padding: 5px; border: 1px solid var(--line); border-radius: 8px; background: var(--white); box-shadow: var(--shadow); }
 .session-menu button { padding: 9px 10px; border: 0; border-radius: 5px; background: transparent; color: var(--ink); font-size: 12px; text-align: left; }
 .session-menu button:hover { background: var(--paper-deep); }
+.evidence-toggle { display: none; align-items: center; gap: 5px; min-height: 36px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--white); color: var(--ink); font-size: 12px; font-weight: 700; }
+.evidence-toggle .icon { width: 14px; height: 14px; transition: transform 140ms ease; }
+.evidence-toggle[aria-expanded="true"] .icon { transform: rotate(180deg); }
 .message-list { display: flex; flex-direction: column; }
 .message.assistant { width: 100%; margin-right: auto; }
 .message.assistant .step-panel { margin-top: 0; }
@@ -274,6 +279,10 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid 
 .source-line .icon { width: 14px; height: 14px; flex: 0 0 auto; }
 .source-line a { color: inherit; text-decoration: none; }
 .source-line a:hover { text-decoration: underline; text-underline-offset: 3px; }
+.assistant-actions { display: flex; align-items: center; gap: 3px; margin-top: 8px; }
+.assistant-actions button { display: grid; width: 32px; height: 32px; place-items: center; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--ink-soft); }
+.assistant-actions button:hover, .assistant-actions button.selected { background: var(--paper-deep); color: var(--signal-dark); }
+.assistant-actions .icon { width: 16px; height: 16px; }
 .new-session-quiet { display: flex; align-items: center; gap: 7px; width: fit-content; margin: 22px 0 26px; padding: 8px 10px; border: 1px solid var(--line-dark); border-radius: 7px; background: var(--white); color: var(--ink); font-size: 12px; font-weight: 700; }
 .new-session-quiet:hover { border-color: var(--signal); color: var(--signal-dark); }
 .new-session-quiet span { font-size: 17px; font-weight: 400; line-height: 0.7; }
@@ -339,7 +348,9 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid 
 
 @media (max-width: 980px) {
   .workspace { grid-template-columns: clamp(210px, 24vw, 250px) minmax(0, 1fr); }
-  .diagnostic-rail { display: none; }
+  .diagnostic-rail { position: fixed; z-index: 5; top: 0; right: 0; display: block; width: min(360px, 88vw); height: 100dvh; overflow-y: auto; border-left: 1px solid var(--line); box-shadow: -18px 0 40px rgba(23, 32, 51, 0.12); transform: translateX(102%); transition: transform 180ms ease; }
+  .diagnostic-rail.mobile-open { transform: translateX(0); }
+  .evidence-toggle { display: inline-flex; }
   .troubleshooting-thread { width: min(calc(100% - 40px), 820px); }
 }
 
@@ -352,6 +363,9 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid 
   .troubleshooting-thread { width: 100%; }
   .conversation-header { padding-bottom: 27px; }
   .conversation-header h1 { font-size: 30px; }
+  .conversation-header { flex-wrap: wrap; }
+  .conversation-header > div:first-child { flex: 1 1 100%; }
+  .evidence-toggle { order: 3; }
   .message.user { width: min(88%, 640px); }
   .procedure-content { grid-template-columns: 1fr; }
   .manual-figure { width: 100%; }

@@ -1,6 +1,27 @@
 "use client";
 
 import { ChangeEvent, FormEvent, useState } from "react";
+import type { ComponentType, SVGProps } from "react";
+import {
+  ArrowPathIcon,
+  ArrowRightIcon,
+  ArrowTopRightOnSquareIcon,
+  BookOpenIcon,
+  CheckIcon,
+  ChevronDownIcon,
+  ClipboardDocumentIcon,
+  ComputerDesktopIcon,
+  EllipsisHorizontalIcon,
+  HandThumbDownIcon,
+  HandThumbUpIcon,
+  MicrophoneIcon,
+  PaperAirplaneIcon,
+  PaperClipIcon,
+  PauseIcon,
+  PrinterIcon,
+  UserCircleIcon,
+  WifiIcon,
+} from "@heroicons/react/24/outline";
 
 type Message = { id: number; role: "user" | "assistant"; text: string; meta?: string };
 type SessionState = "ready" | "listening" | "thinking" | "speaking" | "interrupted";
@@ -32,25 +53,31 @@ const initialMessages: Message[] = [
   { id: 2, role: "assistant", text: "Check the WAN light.", meta: "Friday" },
 ];
 
-function Icon({ name }: { name: "arrow" | "mic" | "send" | "check" | "pause" | "chevron" | "laptop" | "router" | "printer" | "external" | "manual" | "more" | "paperclip" | "user" }) {
-  const paths = {
-    arrow: "M4 12h15m0 0-5-5m5 5-5 5",
-    mic: "M12 15a3 3 0 0 0 3-3V7a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3Zm-6-3a6 6 0 0 0 12 0M12 18v3m-3 0h6",
-    send: "m4 4 16 8-16 8 3-8-3-8Zm3 8h13",
-    check: "m5 12 4 4L19 6",
-    pause: "M8 5v14M16 5v14",
-    chevron: "m7 9 5 5 5-5",
-    laptop: "M4 5h16v11H4zM2 19h20",
-    router: "M4 10h16v8H4zM7 7l5-3 5 3M8 14h.01M12 14h.01M16 14h.01",
-    printer: "M6 9V4h12v5M6 17H4a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2M6 14h12v7H6z",
-    external: "M14 4h6v6m-1-5-8 8M19 13v6a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h6",
-    manual: "M5 3h11a3 3 0 0 1 3 3v15H8a3 3 0 0 1-3-3V3Zm0 0v15a3 3 0 0 0 3 3M8 7h7M8 11h7",
-    more: "M5 12h.01M12 12h.01M19 12h.01",
-    paperclip: "m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48",
-    user: "M20 21a8 8 0 0 0-16 0M12 13a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z",
-  } as const;
+type IconName = "arrow" | "mic" | "send" | "check" | "pause" | "chevron" | "laptop" | "router" | "printer" | "external" | "manual" | "more" | "paperclip" | "user" | "regenerate" | "like" | "dislike" | "copy";
+const iconMap: Record<IconName, ComponentType<SVGProps<SVGSVGElement>>> = {
+  arrow: ArrowRightIcon,
+  mic: MicrophoneIcon,
+  send: PaperAirplaneIcon,
+  check: CheckIcon,
+  pause: PauseIcon,
+  chevron: ChevronDownIcon,
+  laptop: ComputerDesktopIcon,
+  router: WifiIcon,
+  printer: PrinterIcon,
+  external: ArrowTopRightOnSquareIcon,
+  manual: BookOpenIcon,
+  more: EllipsisHorizontalIcon,
+  paperclip: PaperClipIcon,
+  user: UserCircleIcon,
+  regenerate: ArrowPathIcon,
+  like: HandThumbUpIcon,
+  dislike: HandThumbDownIcon,
+  copy: ClipboardDocumentIcon,
+};
 
-  return <svg aria-hidden="true" className="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d={paths[name]} /></svg>;
+function Icon({ name }: { name: IconName }) {
+  const Component = iconMap[name];
+  return <Component aria-hidden="true" className="icon" />;
 }
 
 function ManualFigure({ compact = false }: { compact?: boolean }) {
@@ -72,7 +99,10 @@ export default function Home() {
   const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
   const [whyOpen, setWhyOpen] = useState(false);
   const [sessionMenuOpen, setSessionMenuOpen] = useState(false);
+  const [evidenceOpen, setEvidenceOpen] = useState(false);
   const [attachment, setAttachment] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<"like" | "dislike" | null>(null);
+  const [copied, setCopied] = useState(false);
 
   const selectedDevice = deviceProfiles[selectedCategory];
 
@@ -113,6 +143,17 @@ export default function Home() {
   function handleAttachment(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (file) setAttachment(file.name);
+  }
+
+  function regenerateResponse() {
+    setState("thinking");
+    window.setTimeout(() => setState("ready"), 650);
+  }
+
+  async function copyResponse() {
+    await navigator.clipboard?.writeText("Check the WAN light. Look at the light labelled Internet or WAN. Is it off, solid, or blinking? Archer C6 User Guide, page 42, LED descriptions.");
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1400);
   }
 
   const isListening = state === "listening";
@@ -164,6 +205,7 @@ export default function Home() {
                 <button className="session-menu-button" type="button" aria-label="Session actions" aria-expanded={sessionMenuOpen} onClick={() => setSessionMenuOpen((open) => !open)}><Icon name="more" /></button>
                 {sessionMenuOpen && <div className="session-menu" role="menu"><button type="button">Rename session</button><button type="button" onClick={() => setMessages([])}>Start over</button><button type="button" onClick={() => setMessages([])}>Clear conversation</button></div>}
               </div>
+              <button className="evidence-toggle" type="button" aria-expanded={evidenceOpen} onClick={() => setEvidenceOpen((open) => !open)}>What we know <Icon name="chevron" /></button>
             </div>
 
             <div className="message-list" aria-live="polite">
@@ -187,6 +229,7 @@ export default function Home() {
                       <div className="source-line"><Icon name="manual" /><a href="#source">Archer C6 User Guide · p. 42 · LED descriptions</a><Icon name="external" /></div>
                     </div>
                   )}
+                  {message.role === "assistant" && <div className="assistant-actions" aria-label="Response actions"><button type="button" aria-label="Regenerate response" title="Regenerate response" onClick={regenerateResponse}><Icon name="regenerate" /></button><button className={feedback === "like" ? "selected" : ""} type="button" aria-label="Like response" title="Like response" aria-pressed={feedback === "like"} onClick={() => setFeedback("like")}><Icon name="like" /></button><button className={feedback === "dislike" ? "selected" : ""} type="button" aria-label="Dislike response" title="Dislike response" aria-pressed={feedback === "dislike"} onClick={() => setFeedback("dislike")}><Icon name="dislike" /></button><button className={copied ? "selected" : ""} type="button" aria-label={copied ? "Response copied" : "Copy response"} title={copied ? "Copied" : "Copy response"} onClick={copyResponse}><Icon name="copy" /></button></div>}
                 </article>
               ))}
               {isThinking && <div className="thinking-line" role="status"><span className="thinking-pulse" /> Checking the manual</div>}
@@ -206,7 +249,7 @@ export default function Home() {
           </div>
         </section>
 
-        <aside className="diagnostic-rail" aria-label="Evidence ledger">
+        <aside className={`diagnostic-rail ${evidenceOpen ? "mobile-open" : ""}`} aria-label="Evidence ledger">
           <div className="rail-header"><h2>What we know</h2><button className="rail-toggle" type="button" aria-label="Collapse evidence ledger"><Icon name="chevron" /></button></div>
           <div className="rail-section"><div className="rail-label">OBSERVED</div><ul className="observation-list"><li><span className="observation-dot done" /> <span>Router has power</span></li><li><span className="observation-dot done" /> <span>Wi-Fi network is visible</span></li></ul></div>
           <div className="rail-section"><div className="rail-label">{selectedAnswer ? "OBSERVED" : "NEED TO VERIFY"}</div><ul className="observation-list"><li className={selectedAnswer ? "observation-known" : ""}><span className={`observation-dot ${selectedAnswer ? "done" : "pending"}`} /> <span>{selectedAnswer ? `WAN light ${selectedAnswer.toLowerCase()}` : "WAN light state"}</span></li></ul></div>
