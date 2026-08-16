@@ -1,6 +1,6 @@
 "use client";
 
-import { ChangeEvent, FormEvent, useState } from "react";
+import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react";
 import type { ComponentType, SVGProps } from "react";
 import {
   ArrowPathIcon,
@@ -22,8 +22,9 @@ import {
   UserCircleIcon,
   WifiIcon,
 } from "@heroicons/react/24/outline";
+import { troubleshoot, TroubleshootingApiError, type TroubleshootingResponse } from "../lib/api";
 
-type Message = { id: number; role: "user" | "assistant"; text: string; meta?: string };
+type Message = { id: number; role: "user" | "assistant"; text: string; meta?: string; response?: TroubleshootingResponse };
 type SessionState = "ready" | "listening" | "thinking" | "speaking" | "interrupted";
 type DeviceCategory = "laptop" | "router" | "printer";
 type SessionStatus = "active" | "open" | "resolved";
@@ -50,7 +51,6 @@ const deviceProfiles = {
 
 const initialMessages: Message[] = [
   { id: 1, role: "user", text: "My router is on, but nothing can get online. The Wi-Fi name still shows up.", meta: "just now" },
-  { id: 2, role: "assistant", text: "Check the WAN light.", meta: "Friday" },
 ];
 
 type IconName = "arrow" | "mic" | "send" | "check" | "pause" | "chevron" | "laptop" | "router" | "printer" | "external" | "manual" | "more" | "paperclip" | "user" | "regenerate" | "like" | "dislike" | "copy";
@@ -103,41 +103,64 @@ export default function Home() {
   const [attachment, setAttachment] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<"like" | "dislike" | null>(null);
   const [copied, setCopied] = useState(false);
+  const [apiError, setApiError] = useState<string | null>(null);
+  const requestController = useRef<AbortController | null>(null);
 
   const selectedDevice = deviceProfiles[selectedCategory];
 
   function startNewSession(category = selectedCategory) {
+    requestController.current?.abort();
     setSelectedCategory(category);
     setActiveSession("new");
     setMessages([]);
     setSelectedAnswer(null);
     setState("ready");
+    setApiError(null);
   }
 
   function chooseSession(session: Session) {
+    requestController.current?.abort();
     setActiveSession(session.id);
     setSelectedCategory(session.id === "printer-02" ? "printer" : session.id === "laptop-03" ? "laptop" : "router");
     setMessages(session.id === "router-01" ? initialMessages : []);
     setSelectedAnswer(null);
     setState("ready");
+    setApiError(null);
+  }
+
+  async function runTroubleshoot(query: string, displayText = query, addUser = true) {
+    requestController.current?.abort();
+    const controller = new AbortController();
+    requestController.current = controller;
+    setApiError(null);
+    setState("thinking");
+    if (addUser) setMessages((current) => [...current, { id: Date.now(), role: "user", text: displayText, meta: "just now" }]);
+
+    const manufacturer = selectedCategory === "router" ? "TP-Link" : selectedCategory === "printer" ? "HP" : "Lenovo";
+    try {
+      const result = await troubleshoot({ query, manufacturer, model: selectedDevice.name }, controller.signal);
+      const answerText = result.status === "ready" ? result.answer ?? "The manual does not provide an answer for this observation." : result.missing_observations.length > 0 ? `I need one more observation: ${result.missing_observations.join(", ")}.` : "I could not verify a safe next step from the available manuals.";
+      setMessages((current) => [...current, { id: Date.now() + 1, role: "assistant", text: answerText, meta: "just now", response: result }]);
+      setState("ready");
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      setApiError(error instanceof TroubleshootingApiError ? error.message : "The troubleshooting service could not be reached.");
+      setState("interrupted");
+    }
   }
 
   function submitAnswer(answer: string) {
     setSelectedAnswer(answer);
-    setMessages((current) => [...current, { id: Date.now(), role: "user", text: `The WAN light is ${answer.toLowerCase()}.`, meta: "just now" }]);
-    setState("thinking");
-    window.setTimeout(() => setState("ready"), 650);
+    void runTroubleshoot(`The WAN light on the ${selectedDevice.name} is ${answer.toLowerCase()}.`, `The WAN light is ${answer.toLowerCase()}.`);
   }
 
   function submitMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const text = draft.trim();
     if (!text) return;
-    setMessages((current) => [...current, { id: Date.now(), role: "user", text: attachment ? `${text} · ${attachment}` : text, meta: "just now" }]);
+    void runTroubleshoot(attachment ? `${text} Attached file: ${attachment}.` : text, attachment ? `${text} · ${attachment}` : text);
     setDraft("");
     setAttachment(null);
-    setState("thinking");
-    window.setTimeout(() => setState("ready"), 650);
   }
 
   function handleAttachment(event: ChangeEvent<HTMLInputElement>) {
@@ -151,10 +174,15 @@ export default function Home() {
   }
 
   async function copyResponse() {
-    await navigator.clipboard?.writeText("Check the WAN light. Look at the light labelled Internet or WAN. Is it off, solid, or blinking? Archer C6 User Guide, page 42, LED descriptions.");
+    await navigator.clipboard?.writeText("Friday response");
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1400);
   }
+
+  useEffect(() => {
+    void runTroubleshoot(initialMessages[0].text, "", false);
+    return () => requestController.current?.abort();
+  }, []);
 
   const isListening = state === "listening";
   const isThinking = state === "thinking";
@@ -215,23 +243,22 @@ export default function Home() {
                   {message.role === "user" && <div className="message-meta"><span>You</span><span>{message.meta}</span></div>}
                   {message.role === "user" && <p>{message.text}</p>}
                   {message.role === "assistant" && (
-                    <div className="step-panel">
-                      <div className="step-heading"><h2>Check the WAN light</h2></div>
-                      <div className="procedure-content">
-                        <div className="procedure-copy"><p className="instruction">Look at the light labelled <strong>Internet</strong> or <strong>WAN</strong>. Is it off, solid, or blinking?</p></div>
-                        <ManualFigure />
-                      </div>
-                      <div className="answer-options" aria-label="WAN light state">
-                        {["Off", "Solid", "Blinking", "Not sure"].map((answer) => <button className={selectedAnswer === answer ? "selected" : ""} key={answer} type="button" aria-pressed={selectedAnswer === answer} onClick={() => submitAnswer(answer)}>{answer}</button>)}
-                      </div>
-                      <button className="why-button" type="button" aria-expanded={whyOpen} onClick={() => setWhyOpen((open) => !open)}>Why this step?</button>
-                      {whyOpen && <p className="why-copy">The WAN light tells us whether the router sees the upstream connection. Checking it first avoids changing settings unnecessarily.</p>}
-                      <div className="source-line"><Icon name="manual" /><a href="#source">Archer C6 User Guide · p. 42 · LED descriptions</a><Icon name="external" /></div>
+                    <div className={`step-panel ${message.response?.status === "abstained" ? "abstained-panel" : ""}`}>
+                      <div className="step-heading"><h2>{message.response?.status === "abstained" ? "I need another observation" : "Next check"}</h2></div>
+                      <p className="instruction response-copy">{message.text}</p>
+                      {message.response?.status === "abstained" ? <ul className="missing-observations">{message.response.missing_observations.map((observation) => <li key={observation}>{observation}</li>)}</ul> : <>
+                        {selectedCategory === "router" && <div className="procedure-content"><div className="procedure-copy"><p className="instruction">Look at the light labelled <strong>Internet</strong> or <strong>WAN</strong>. Is it off, solid, or blinking?</p></div><ManualFigure /></div>}
+                        {selectedCategory === "router" && <div className="answer-options" aria-label="WAN light state">{["Off", "Solid", "Blinking", "Not sure"].map((answer) => <button className={selectedAnswer === answer ? "selected" : ""} key={answer} type="button" aria-pressed={selectedAnswer === answer} onClick={() => submitAnswer(answer)}>{answer}</button>)}</div>}
+                        <button className="why-button" type="button" aria-expanded={whyOpen} onClick={() => setWhyOpen((open) => !open)}>Why this step?</button>
+                        {whyOpen && <p className="why-copy">The retrieved manual evidence is used to choose the next observation before changing any settings.</p>}
+                      </>}
+                      {message.response?.citations[0] && <div className="source-line"><Icon name="manual" /><a href={message.response.citations[0].source_url || "#source"}>{message.response.citations[0].document_title} · p. {message.response.citations[0].page} · {message.response.citations[0].section}</a><Icon name="external" /></div>}
                     </div>
                   )}
                   {message.role === "assistant" && <div className="assistant-actions" aria-label="Response actions"><button type="button" aria-label="Regenerate response" title="Regenerate response" onClick={regenerateResponse}><Icon name="regenerate" /></button><button className={feedback === "like" ? "selected" : ""} type="button" aria-label="Like response" title="Like response" aria-pressed={feedback === "like"} onClick={() => setFeedback("like")}><Icon name="like" /></button><button className={feedback === "dislike" ? "selected" : ""} type="button" aria-label="Dislike response" title="Dislike response" aria-pressed={feedback === "dislike"} onClick={() => setFeedback("dislike")}><Icon name="dislike" /></button><button className={copied ? "selected" : ""} type="button" aria-label={copied ? "Response copied" : "Copy response"} title={copied ? "Copied" : "Copy response"} onClick={copyResponse}><Icon name="copy" /></button></div>}
                 </article>
               ))}
+              {apiError && <div className="api-error" role="alert"><strong>Couldn&apos;t check the manuals.</strong><span>{apiError}</span><button type="button" onClick={() => { const latestUserMessage = [...messages].reverse().find((message) => message.role === "user"); if (latestUserMessage) void runTroubleshoot(latestUserMessage.text, "", false); }}>Try again</button></div>}
               {isThinking && <div className="thinking-line" role="status"><span className="thinking-pulse" /> Checking the manual</div>}
             </div>
 
