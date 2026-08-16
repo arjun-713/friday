@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import re
 from collections.abc import Awaitable, Callable, Sequence
@@ -9,7 +11,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..prompts import build_messages
-from .models import EvidenceContext
+from .models import DiagnosticSessionState, DiagnosticStep, EvidenceContext
 
 
 class AnswerGenerationError(RuntimeError):
@@ -78,7 +80,39 @@ class LiteLLMAnswerGenerator:
         _validate_answer(answer, evidence)
         return _expand_citations(answer, evidence)
 
-    async def _complete(self, query: str, evidence: Sequence[EvidenceContext]) -> Any:
+    async def generate_step(
+        self,
+        query: str,
+        evidence: Sequence[EvidenceContext],
+        state: DiagnosticSessionState,
+    ) -> DiagnosticStep:
+        response = await self._complete(query, evidence, state)
+        answer = _response_text(response).strip()
+        if answer.upper() == _UNSUPPORTED:
+            raise UnsupportedAnswerError("the model could not answer from the supplied evidence")
+        try:
+            payload = json.loads(_strip_json_fence(answer))
+            if not isinstance(payload, dict):
+                raise TypeError("step response must be a JSON object")
+            step = DiagnosticStep(
+                step_id=_step_id(payload),
+                title=payload["title"],
+                instruction=payload["instruction"],
+                question=payload["question"],
+                options=payload.get("options", []),
+                source_ids=payload["source_ids"],
+            )
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
+            raise InvalidAnswerError("LLM response was not a valid diagnostic step") from error
+        _validate_step(step, evidence)
+        return _expand_step_citations(step, evidence)
+
+    async def _complete(
+        self,
+        query: str,
+        evidence: Sequence[EvidenceContext],
+        state: DiagnosticSessionState | None = None,
+    ) -> Any:
         completion = self._completion
         if completion is None:
             try:
@@ -89,7 +123,7 @@ class LiteLLMAnswerGenerator:
 
         request: dict[str, Any] = {
             "model": self.settings.model,
-            "messages": build_messages(query, evidence),
+            "messages": build_messages(query, evidence, state),
             "temperature": self.settings.temperature,
             "max_tokens": self.settings.max_tokens,
             "timeout": self.settings.timeout_seconds,
@@ -113,6 +147,41 @@ def _response_text(response: Any) -> str:
         parts = [item.get("text", "") for item in content if isinstance(item, dict)]
         return "".join(str(part) for part in parts)
     raise InvalidAnswerError("LLM response content was not text")
+
+
+def _strip_json_fence(answer: str) -> str:
+    if answer.startswith("```") and answer.endswith("```"):
+        lines = answer.splitlines()
+        return "\n".join(lines[1:-1]).strip()
+    return answer
+
+
+def _step_id(payload: dict[str, Any]) -> str:
+    stable = f"{payload.get('title', '')}|{payload.get('instruction', '')}|{payload.get('source_ids', '')}"
+    digest = hashlib.sha256(stable.encode()).hexdigest()[:16]
+    return f"step-{digest}"
+
+
+def _validate_step(step: DiagnosticStep, evidence: Sequence[EvidenceContext]) -> None:
+    known_ids = {item.chunk_id for item in evidence}
+    if any(source_id not in known_ids for source_id in step.source_ids):
+        raise InvalidAnswerError("diagnostic step cited evidence outside the retrieved context")
+    if len({option.id for option in step.options}) != len(step.options):
+        raise InvalidAnswerError("diagnostic step contains duplicate options")
+    evidence_text = " ".join(item.content.casefold() for item in evidence)
+    for option in step.options:
+        if option.label.casefold() not in evidence_text and option.label.casefold() not in {"not sure", "unknown"}:
+            raise InvalidAnswerError("diagnostic option was not supported by retrieved evidence")
+
+
+def _expand_step_citations(step: DiagnosticStep, evidence: Sequence[EvidenceContext]) -> DiagnosticStep:
+    by_id = {item.chunk_id: item for item in evidence}
+    citation_text = " ".join(
+        f"[{by_id[source_id].citation.document_title} · p. {by_id[source_id].citation.page} · "
+        f"{by_id[source_id].citation.section}]"
+        for source_id in step.source_ids
+    )
+    return step.model_copy(update={"instruction": f"{step.instruction} {citation_text}"})
 
 
 def _validate_answer(answer: str, evidence: Sequence[EvidenceContext]) -> None:

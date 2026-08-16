@@ -8,11 +8,24 @@ from ..retrieval.cache import RetrievalSessionCache
 from ..retrieval.contracts import EmbeddingProvider, MetadataFilter, VectorHit, VectorIndex
 from ..retrieval.hybrid import LexicalRetriever
 from .litellm import InvalidAnswerError, UnsupportedAnswerError
-from .models import Citation, EvidenceContext, RetrievalSummary, TroubleshootingRequest, TroubleshootingResponse
+from .models import (
+    Citation,
+    DiagnosticSessionState,
+    DiagnosticStep,
+    EvidenceContext,
+    RetrievalSummary,
+    TroubleshootingRequest,
+    TroubleshootingResponse,
+)
+from .session import DiagnosticSessionStore
 
 
 class AnswerGenerator(Protocol):
     async def generate(self, query: str, evidence: Sequence[EvidenceContext]) -> str: ...
+
+    async def generate_step(
+        self, query: str, evidence: Sequence[EvidenceContext], state: DiagnosticSessionState
+    ) -> DiagnosticStep: ...
 
 
 class ParentChunkStore(Protocol):
@@ -28,6 +41,21 @@ class EvidenceOnlyAnswerGenerator:
             raise ValueError("cannot generate an answer without evidence")
         return evidence[0].content
 
+    async def generate_step(
+        self, query: str, evidence: Sequence[EvidenceContext], state: DiagnosticSessionState
+    ) -> DiagnosticStep:
+        del query, state
+        if not evidence:
+            raise InvalidAnswerError("cannot generate a step without evidence")
+        first = evidence[0]
+        return DiagnosticStep(
+            step_id=f"evidence-{first.chunk_id}",
+            title="Next diagnostic step",
+            instruction=first.content,
+            question="Did you complete this step, and what did you observe?",
+            source_ids=[first.chunk_id],
+        )
+
 
 class TroubleshootingService:
     def __init__(
@@ -38,6 +66,7 @@ class TroubleshootingService:
         parent_store: ParentChunkStore,
         answer_generator: AnswerGenerator | None = None,
         session_cache: RetrievalSessionCache | None = None,
+        session_store: DiagnosticSessionStore | None = None,
     ) -> None:
         self.embedding_provider = embedding_provider
         self.vector_index = vector_index
@@ -45,14 +74,16 @@ class TroubleshootingService:
         self.parent_store = parent_store
         self.answer_generator = answer_generator or EvidenceOnlyAnswerGenerator()
         self.session_cache = session_cache or RetrievalSessionCache()
+        self.session_store = session_store or DiagnosticSessionStore()
 
     async def answer(self, request: TroubleshootingRequest) -> TroubleshootingResponse:
+        state = self.session_store.record_turn(request)
         metadata_filter = MetadataFilter(
             manufacturer=request.manufacturer,
             model=request.model,
         )
         result = await self.session_cache.retrieve(
-            request.query,
+            _retrieval_query(request),
             self.embedding_provider,
             self.vector_index,
             lexical_retriever=self.lexical_retriever,
@@ -74,6 +105,7 @@ class TroubleshootingService:
         if result.abstained or not result.hits:
             return TroubleshootingResponse(
                 status="abstained",
+                session_id=request.session_id,
                 missing_observations=_missing_observations(request),
                 retrieval=retrieval,
             )
@@ -82,6 +114,7 @@ class TroubleshootingService:
         if not evidence:
             return TroubleshootingResponse(
                 status="abstained",
+                session_id=request.session_id,
                 missing_observations=_missing_observations(request),
                 retrieval=RetrievalSummary(
                     abstained=True,
@@ -90,10 +123,11 @@ class TroubleshootingService:
                 ),
             )
         try:
-            answer = await self.answer_generator.generate(request.query, evidence)
+            step = await self.answer_generator.generate_step(request.query, evidence, state)
         except UnsupportedAnswerError:
             return TroubleshootingResponse(
                 status="abstained",
+                session_id=request.session_id,
                 missing_observations=_missing_observations(request),
                 retrieval=RetrievalSummary(
                     abstained=True,
@@ -111,9 +145,13 @@ class TroubleshootingService:
                     timings_ms=result.timings_ms,
                 ),
             )
+        state.current_step_id = step.step_id
         return TroubleshootingResponse(
+            session_id=request.session_id,
             status="ready",
-            answer=answer,
+            answer=step.instruction,
+            step=step,
+            awaiting_observation=True,
             evidence=evidence,
             citations=[item.citation for item in evidence],
             retrieval=retrieval,
@@ -194,3 +232,12 @@ def _missing_observations(request: TroubleshootingRequest) -> list[str]:
     if not request.model:
         missing.append("model")
     return missing
+
+
+def _retrieval_query(request: TroubleshootingRequest) -> str:
+    parts = [request.query]
+    if request.observation:
+        parts.append(f"Observed: {request.observation}")
+    if request.selected_option:
+        parts.append(f"Selected result: {request.selected_option}")
+    return " ".join(parts)

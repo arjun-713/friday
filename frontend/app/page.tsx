@@ -22,7 +22,7 @@ import {
   UserCircleIcon,
   WifiIcon,
 } from "@heroicons/react/24/outline";
-import { troubleshoot, TroubleshootingApiError, type TroubleshootingResponse } from "../lib/api";
+import { troubleshoot, TroubleshootingApiError, type DiagnosticOption, type TroubleshootingResponse } from "../lib/api";
 
 type Message = { id: number; role: "user" | "assistant"; text: string; meta?: string; response?: TroubleshootingResponse };
 type SessionState = "ready" | "listening" | "thinking" | "speaking" | "interrupted";
@@ -95,6 +95,8 @@ export default function Home() {
   const [draft, setDraft] = useState("");
   const [state, setState] = useState<SessionState>("ready");
   const [activeSession, setActiveSession] = useState("router-01");
+  const [sessionId, setSessionId] = useState("router-01");
+  const [caseQuery, setCaseQuery] = useState(initialMessages[0].text);
   const [selectedCategory, setSelectedCategory] = useState<DeviceCategory>("router");
   const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
   const [whyOpen, setWhyOpen] = useState(false);
@@ -112,6 +114,9 @@ export default function Home() {
     requestController.current?.abort();
     setSelectedCategory(category);
     setActiveSession("new");
+    const nextSessionId = `session-${Date.now()}`;
+    setSessionId(nextSessionId);
+    setCaseQuery("");
     setMessages([]);
     setSelectedAnswer(null);
     setState("ready");
@@ -121,6 +126,8 @@ export default function Home() {
   function chooseSession(session: Session) {
     requestController.current?.abort();
     setActiveSession(session.id);
+    setSessionId(session.id);
+    setCaseQuery(session.title);
     setSelectedCategory(session.id === "printer-02" ? "printer" : session.id === "laptop-03" ? "laptop" : "router");
     setMessages(session.id === "router-01" ? initialMessages : []);
     setSelectedAnswer(null);
@@ -128,7 +135,12 @@ export default function Home() {
     setApiError(null);
   }
 
-  async function runTroubleshoot(query: string, displayText = query, addUser = true) {
+  async function runTroubleshoot(
+    query: string,
+    displayText = query,
+    addUser = true,
+    interaction: { observation?: string; selectedOption?: string } = {},
+  ) {
     requestController.current?.abort();
     const controller = new AbortController();
     requestController.current = controller;
@@ -138,8 +150,18 @@ export default function Home() {
 
     const manufacturer = selectedCategory === "router" ? "TP-Link" : selectedCategory === "printer" ? "HP" : "Lenovo";
     try {
-      const result = await troubleshoot({ query, manufacturer, model: selectedDevice.name }, controller.signal);
-      const answerText = result.status === "ready" ? result.answer ?? "The manual does not provide an answer for this observation." : result.missing_observations.length > 0 ? `I need one more observation: ${result.missing_observations.join(", ")}.` : "I could not verify a safe next step from the available manuals.";
+      const result = await troubleshoot(
+        {
+          query,
+          manufacturer,
+          model: selectedDevice.name,
+          session_id: sessionId,
+          observation: interaction.observation,
+          selected_option: interaction.selectedOption,
+        },
+        controller.signal,
+      );
+      const answerText = result.status === "ready" ? result.step?.instruction ?? result.answer ?? "The manual does not provide an answer for this observation." : result.missing_observations.length > 0 ? `I need one more observation: ${result.missing_observations.join(", ")}.` : "I could not verify a safe next step from the available manuals.";
       setMessages((current) => [...current, { id: Date.now() + 1, role: "assistant", text: answerText, meta: "just now", response: result }]);
       setState("ready");
     } catch (error) {
@@ -149,16 +171,27 @@ export default function Home() {
     }
   }
 
-  function submitAnswer(answer: string) {
-    setSelectedAnswer(answer);
-    void runTroubleshoot(`The WAN light on the ${selectedDevice.name} is ${answer.toLowerCase()}.`, `The WAN light is ${answer.toLowerCase()}.`);
+  function submitAnswer(option: DiagnosticOption) {
+    setSelectedAnswer(option.label);
+    void runTroubleshoot(
+      `${caseQuery || selectedDevice.name} Observation: ${option.label}`,
+      option.label,
+      true,
+      { selectedOption: option.id },
+    );
   }
 
   function submitMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const text = draft.trim();
     if (!text) return;
-    void runTroubleshoot(attachment ? `${text} Attached file: ${attachment}.` : text, attachment ? `${text} · ${attachment}` : text);
+    if (!caseQuery) setCaseQuery(text);
+    void runTroubleshoot(
+      attachment ? `${text} Attached file: ${attachment}.` : text,
+      attachment ? `${text} · ${attachment}` : text,
+      true,
+      { observation: text },
+    );
     setDraft("");
     setAttachment(null);
   }
@@ -246,11 +279,11 @@ export default function Home() {
                   {message.role === "user" && <p>{message.text}</p>}
                   {message.role === "assistant" && (
                     <div className={`step-panel ${message.response?.status === "abstained" ? "abstained-panel" : ""}`}>
-                      <div className="step-heading"><h2>{message.response?.status === "abstained" ? "I need another observation" : "Next check"}</h2></div>
+                      <div className="step-heading"><h2>{message.response?.status === "abstained" ? "I need another observation" : message.response?.step?.title ?? "Next check"}</h2></div>
                       <p className="instruction response-copy">{message.text}</p>
                       {message.response?.status === "abstained" ? <ul className="missing-observations">{message.response.missing_observations.map((observation) => <li key={observation}>{observation}</li>)}</ul> : <>
-                        {selectedCategory === "router" && <div className="procedure-content"><div className="procedure-copy"><p className="instruction">Look at the light labelled <strong>Internet</strong> or <strong>WAN</strong>. Is it off, solid, or blinking?</p></div><ManualFigure /></div>}
-                        {selectedCategory === "router" && <div className="answer-options" aria-label="WAN light state">{["Off", "Solid", "Blinking", "Not sure"].map((answer) => <button className={selectedAnswer === answer ? "selected" : ""} key={answer} type="button" aria-pressed={selectedAnswer === answer} onClick={() => submitAnswer(answer)}>{answer}</button>)}</div>}
+                        {message.response?.step && <div className="procedure-content"><div className="procedure-copy"><p className="instruction">{message.response.step.question}</p></div>{selectedCategory === "router" && <ManualFigure />}</div>}
+                        {message.response?.step && message.response.step.options.length > 0 && <div className="answer-options" aria-label="Diagnostic answer options">{message.response.step.options.map((option) => <button className={selectedAnswer === option.label ? "selected" : ""} key={option.id} type="button" aria-pressed={selectedAnswer === option.label} onClick={() => submitAnswer(option)}>{option.label}</button>)}</div>}
                         <button className="why-button" type="button" aria-expanded={whyOpen} onClick={() => setWhyOpen((open) => !open)}>Why this step?</button>
                         {whyOpen && <p className="why-copy">The retrieved manual evidence is used to choose the next observation before changing any settings.</p>}
                       </>}

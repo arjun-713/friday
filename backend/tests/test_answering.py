@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from fastapi.testclient import TestClient
 
 from copilot.answering.litellm import InvalidAnswerError, LiteLLMAnswerGenerator, LiteLLMSettings
-from copilot.answering.models import TroubleshootingRequest
+from copilot.answering.models import DiagnosticSessionState, DiagnosticStep, TroubleshootingRequest
 from copilot.answering.service import TroubleshootingService
 from copilot.ingestion.models import ChunkKind, DocumentChunk, Evidence, RetrievalProfile, SourceDocument
 from copilot.main import app, get_troubleshooting_service
@@ -59,6 +59,32 @@ class FakeParentStore:
 
     async def fetch(self, ids: Sequence[str]) -> list[DocumentChunk]:
         return [chunk for chunk in self.chunks if chunk.chunk_id in ids]
+
+
+class SequentialStepGenerator:
+    async def generate(self, query: str, evidence) -> str:
+        del query, evidence
+        return "legacy"
+
+    async def generate_step(self, query: str, evidence, state: DiagnosticSessionState) -> DiagnosticStep:
+        del query, evidence
+        if state.completed_steps:
+            return DiagnosticStep(
+                step_id="step-2",
+                title="Check the connection",
+                instruction="Check the upstream connection.",
+                question="Is the connection seated firmly?",
+                options=[],
+                source_ids=["child-1"],
+            )
+        return DiagnosticStep(
+            step_id="step-1",
+            title="Check the WAN light",
+            instruction="Check the WAN light.",
+            question="Is it off or on?",
+            options=[],
+            source_ids=["child-1"],
+        )
 
 
 def _chunk() -> DocumentChunk:
@@ -215,7 +241,16 @@ def test_text_endpoint_runs_litellm_answer_layer() -> None:
     async def completion(**request):
         del request
         return SimpleNamespace(
-            choices=[SimpleNamespace(message=SimpleNamespace(content="Check the cable. [source:child-1]"))]
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(
+                        content=(
+                            '{"title":"Check the cable","instruction":"Check the cable.",'
+                            '"question":"Did you find a problem?","options":[],"source_ids":["child-1"]}'
+                        )
+                    )
+                )
+            ]
         )
 
     base_service = _service([_hit()])
@@ -239,3 +274,42 @@ def test_text_endpoint_runs_litellm_answer_layer() -> None:
     assert response.status_code == 200
     assert body["status"] == "ready"
     assert body["answer"] == "Check the cable. [Example Manual · p. 4 · Troubleshooting > Connection]"
+
+
+def test_session_advances_to_the_next_step_after_observation() -> None:
+    base_service = _service([_hit()])
+    service = TroubleshootingService(
+        embedding_provider=base_service.embedding_provider,
+        vector_index=base_service.vector_index,
+        lexical_retriever=base_service.lexical_retriever,
+        parent_store=base_service.parent_store,
+        answer_generator=SequentialStepGenerator(),
+    )
+
+    first = asyncio.run(
+        service.answer(
+            TroubleshootingRequest(
+                query="Wi-Fi is visible but there is no internet",
+                manufacturer="Example",
+                model="Example 1",
+                session_id="session-1",
+            )
+        )
+    )
+    second = asyncio.run(
+        service.answer(
+            TroubleshootingRequest(
+                query="Wi-Fi is visible but there is no internet",
+                manufacturer="Example",
+                model="Example 1",
+                session_id="session-1",
+                selected_option="on",
+            )
+        )
+    )
+
+    assert first.step is not None
+    assert first.step.step_id == "step-1"
+    assert second.step is not None
+    assert second.step.step_id == "step-2"
+    assert service.session_store.get("session-1").observations == {"step-1": "on"}

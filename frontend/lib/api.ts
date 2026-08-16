@@ -2,6 +2,23 @@ export type TroubleshootingRequest = {
   query: string;
   manufacturer?: string;
   model?: string;
+  session_id?: string;
+  observation?: string;
+  selected_option?: string;
+};
+
+export type DiagnosticOption = {
+  id: string;
+  label: string;
+};
+
+export type DiagnosticStep = {
+  step_id: string;
+  title: string;
+  instruction: string;
+  question: string;
+  options: DiagnosticOption[];
+  source_ids: string[];
 };
 
 export type Citation = {
@@ -31,8 +48,11 @@ export type RetrievalSummary = {
 };
 
 export type TroubleshootingResponse = {
+  session_id: string;
   status: "ready" | "abstained";
   answer?: string | null;
+  step?: DiagnosticStep | null;
+  awaiting_observation: boolean;
   evidence: EvidenceContext[];
   citations: Citation[];
   missing_observations: string[];
