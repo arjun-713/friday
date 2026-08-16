@@ -126,7 +126,16 @@ def _assemble_evidence(hits: Sequence[VectorHit], parents: Sequence[DocumentChun
 
 def _citation(hit: VectorHit, parent: DocumentChunk | None) -> Citation | None:
     payload = hit.payload
-    required = ("document_id", "document_title", "manufacturer", "model", "document_version", "page", "section", "source_url")
+    required = (
+        "document_id",
+        "document_title",
+        "manufacturer",
+        "model",
+        "document_version",
+        "page",
+        "section",
+        "source_url",
+    )
     if any(field not in payload or payload[field] in (None, "") for field in required):
         if parent is None:
             return None

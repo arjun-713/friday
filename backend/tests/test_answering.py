@@ -31,7 +31,9 @@ class FakeVectorIndex:
     async def upsert(self, records) -> None:
         del records
 
-    async def search(self, vector, metadata_filter=None, limit=10, exact=False, candidate_count=None, score_threshold=None):
+    async def search(
+        self, vector, metadata_filter=None, limit=10, exact=False, candidate_count=None, score_threshold=None
+    ):
         del vector, metadata_filter, exact, candidate_count, score_threshold
         return self.hits[:limit]
 
@@ -76,7 +78,14 @@ def _chunk() -> DocumentChunk:
         content="Verify that the network cable is connected.",
         kind=ChunkKind.PARENT,
         parser="fixture",
-        evidence=[Evidence(source_file="manual.pdf", page=4, section="Troubleshooting > Connection", content="Verify that the network cable is connected.")],
+        evidence=[
+            Evidence(
+                source_file="manual.pdf",
+                page=4,
+                section="Troubleshooting > Connection",
+                content="Verify that the network cable is connected.",
+            )
+        ],
         retrieval_profiles=[RetrievalProfile.CONTEXT_STORE],
     )
 

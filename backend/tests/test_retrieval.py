@@ -282,9 +282,7 @@ def test_granite_provider_batches_and_normalizes_configuration() -> None:
 
 def test_granite_provider_caches_normalized_query_embeddings() -> None:
     model = FakeSentenceTransformer([[0.6, 0.8, 0.0]])
-    provider = GraniteEmbeddingProvider(
-        GraniteEmbeddingSettings(dimension=3, query_cache_size=2), model=model
-    )
+    provider = GraniteEmbeddingProvider(GraniteEmbeddingSettings(dimension=3, query_cache_size=2), model=model)
 
     first = asyncio.run(provider.embed_query("  Error E42  "))
     second = asyncio.run(provider.embed_query("error e42"))
