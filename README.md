@@ -37,6 +37,18 @@ The active corpus path is native-only parsing for all PDFs, including mixed PDFs
 PYTHONPATH=backend/src python -m copilot.ingestion.parsing.native
 ```
 
+## LiteLLM answer layer
+
+The text endpoint can use LiteLLM to route answer generation to any supported provider. It is disabled by default so retrieval and the evidence-only path work without credentials. Copy `backend/.env.example` into a local, ignored environment file, set `LLM_ENABLED=true`, choose a provider-prefixed `LLM_MODEL`, and provide that provider's API key through its documented environment variable. For example:
+
+```bash
+LLM_ENABLED=true
+LLM_MODEL=deepseek/deepseek-chat
+DEEPSEEK_API_KEY=...
+```
+
+The backend sends only retrieved evidence to the model. Responses must cite a retrieved chunk; the server expands that marker into the document title, page, and section, and abstains when the model returns `UNSUPPORTED` or an unknown citation. Provider failures are returned as service-unavailable errors without logging credentials or prompt contents.
+
 Create auditable cleaned output without changing the raw JSON:
 
 ```bash

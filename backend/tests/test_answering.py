@@ -1,8 +1,10 @@
 import asyncio
 from collections.abc import Sequence
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
+from copilot.answering.litellm import InvalidAnswerError, LiteLLMAnswerGenerator, LiteLLMSettings
 from copilot.answering.models import TroubleshootingRequest
 from copilot.answering.service import TroubleshootingService
 from copilot.ingestion.models import ChunkKind, DocumentChunk, Evidence, RetrievalProfile, SourceDocument
@@ -153,3 +155,87 @@ def test_text_endpoint_returns_typed_response_without_qdrant() -> None:
     assert response.status_code == 200
     assert response.json()["status"] == "ready"
     assert response.json()["citations"][0]["page"] == 4
+
+
+def test_litellm_generator_sends_evidence_and_accepts_known_citation() -> None:
+    captured: dict[str, object] = {}
+
+    async def completion(**request):
+        captured.update(request)
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="Check the cable. [source:child-1]"))]
+        )
+
+    evidence = _service([_hit()])
+    response = asyncio.run(
+        evidence.answer(
+            TroubleshootingRequest(query="The router cannot connect", manufacturer="Example", model="Example 1")
+        )
+    )
+    generator = LiteLLMAnswerGenerator(
+        LiteLLMSettings(enabled=True, model="deepseek/deepseek-chat"), completion=completion
+    )
+    answer = asyncio.run(generator.generate("The router cannot connect", response.evidence))
+
+    assert answer.endswith("[Example Manual · p. 4 · Troubleshooting > Connection]")
+    assert captured["model"] == "deepseek/deepseek-chat"
+    messages = captured["messages"]
+    assert isinstance(messages, list)
+    assert "Example Manual" in messages[1]["content"]
+    assert "[source:child-1]" in messages[1]["content"]
+    assert "exactly one diagnostic step" in messages[0]["content"]
+    assert "Do not use general world knowledge" in messages[0]["content"]
+    assert "troubleshooting-v1" in messages[0]["content"]
+
+
+def test_litellm_generator_rejects_unknown_citation() -> None:
+    async def completion(**request):
+        del request
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="Reset it. [source:not-retrieved]"))]
+        )
+
+    service = _service([_hit()])
+    response = asyncio.run(
+        service.answer(
+            TroubleshootingRequest(query="The router cannot connect", manufacturer="Example", model="Example 1")
+        )
+    )
+    generator = LiteLLMAnswerGenerator(completion=completion)
+
+    try:
+        asyncio.run(generator.generate("The router cannot connect", response.evidence))
+    except InvalidAnswerError as error:
+        assert "outside the retrieved context" in str(error)
+    else:
+        raise AssertionError("unknown citation should be rejected")
+
+
+def test_text_endpoint_runs_litellm_answer_layer() -> None:
+    async def completion(**request):
+        del request
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="Check the cable. [source:child-1]"))]
+        )
+
+    base_service = _service([_hit()])
+    service = TroubleshootingService(
+        embedding_provider=base_service.embedding_provider,
+        vector_index=base_service.vector_index,
+        lexical_retriever=base_service.lexical_retriever,
+        parent_store=base_service.parent_store,
+        answer_generator=LiteLLMAnswerGenerator(completion=completion),
+    )
+    app.dependency_overrides[get_troubleshooting_service] = lambda: service
+    try:
+        response = TestClient(app).post(
+            "/v1/troubleshoot",
+            json={"query": "The router cannot connect", "manufacturer": "Example", "model": "Example 1"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["status"] == "ready"
+    assert body["answer"] == "Check the cable. [Example Manual · p. 4 · Troubleshooting > Connection]"

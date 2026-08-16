@@ -12,6 +12,7 @@ dependencies = [
   "uvicorn[standard]>=0.30,<1",
   "pdf-inspector>=0.2.6,<0.3",
   "qdrant-client>=1.14.1,<1.15",
+  "litellm>=1.74,<2",
 ]
 
 [project.optional-dependencies]

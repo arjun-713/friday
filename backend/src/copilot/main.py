@@ -4,7 +4,14 @@ from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException
 
-from .answering import TroubleshootingRequest, TroubleshootingResponse, TroubleshootingService
+from .answering import (
+    EvidenceOnlyAnswerGenerator,
+    LiteLLMAnswerGenerator,
+    LiteLLMSettings,
+    TroubleshootingRequest,
+    TroubleshootingResponse,
+    TroubleshootingService,
+)
 from .retrieval.bm25 import CombinedLexicalRetriever, InMemoryBM25Retriever, InMemoryExactIdentifierRetriever
 from .retrieval.context_store import JsonlParentChunkStore
 from .retrieval.granite import GraniteEmbeddingProvider
@@ -56,4 +63,12 @@ def _build_service() -> TroubleshootingService:
         vector_index=QdrantVectorIndex(QdrantSettings()),
         lexical_retriever=lexical,
         parent_store=JsonlParentChunkStore.from_directory(chunks_root),
+        answer_generator=_answer_generator(),
     )
+
+
+def _answer_generator() -> EvidenceOnlyAnswerGenerator | LiteLLMAnswerGenerator:
+    settings = LiteLLMSettings.from_env()
+    if settings.enabled:
+        return LiteLLMAnswerGenerator(settings)
+    return EvidenceOnlyAnswerGenerator()

@@ -7,6 +7,7 @@ from ..ingestion.models import DocumentChunk
 from ..retrieval.cache import RetrievalSessionCache
 from ..retrieval.contracts import EmbeddingProvider, MetadataFilter, VectorHit, VectorIndex
 from ..retrieval.hybrid import LexicalRetriever
+from .litellm import InvalidAnswerError, UnsupportedAnswerError
 from .models import Citation, EvidenceContext, RetrievalSummary, TroubleshootingRequest, TroubleshootingResponse
 
 
@@ -88,7 +89,28 @@ class TroubleshootingService:
                     timings_ms=result.timings_ms,
                 ),
             )
-        answer = await self.answer_generator.generate(request.query, evidence)
+        try:
+            answer = await self.answer_generator.generate(request.query, evidence)
+        except UnsupportedAnswerError:
+            return TroubleshootingResponse(
+                status="abstained",
+                missing_observations=_missing_observations(request),
+                retrieval=RetrievalSummary(
+                    abstained=True,
+                    reason="answer_not_supported_by_retrieved_evidence",
+                    timings_ms=result.timings_ms,
+                ),
+            )
+        except InvalidAnswerError:
+            return TroubleshootingResponse(
+                status="abstained",
+                missing_observations=_missing_observations(request),
+                retrieval=RetrievalSummary(
+                    abstained=True,
+                    reason="answer_failed_evidence_validation",
+                    timings_ms=result.timings_ms,
+                ),
+            )
         return TroubleshootingResponse(
             status="ready",
             answer=answer,
