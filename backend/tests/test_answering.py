@@ -11,6 +11,7 @@ from copilot.answering.litellm import (
     InvalidAnswerError,
     LiteLLMAnswerGenerator,
     LiteLLMSettings,
+    _expand_step_citations,
 )
 from copilot.answering.models import DiagnosticSessionState, DiagnosticStep, TroubleshootingRequest
 from copilot.answering.service import TroubleshootingService, _assemble_evidence, _relevant_evidence
@@ -811,3 +812,20 @@ def test_evidence_uses_exact_retrieved_child_not_broad_parent_context() -> None:
 
     assert evidence[0].content == child.content
     assert evidence[0].pages == [4]
+
+
+def test_step_citation_display_deduplicates_identical_manual_locations() -> None:
+    evidence = _assemble_evidence([_hit()], [_chunk()])
+    duplicate = evidence[0].model_copy(update={"chunk_id": "child-duplicate"})
+    step = DiagnosticStep(
+        step_id="step",
+        title="Check",
+        instruction="Check the connection.",
+        question="What do you see?",
+        options=[],
+        source_ids=["child-1", "child-duplicate"],
+    )
+
+    expanded = _expand_step_citations(step, [*evidence, duplicate])
+
+    assert expanded.instruction.count("[Example Manual · p. 4 · Troubleshooting > Connection]") == 1

@@ -300,11 +300,16 @@ def _validate_step(step: DiagnosticStep, evidence: Sequence[EvidenceContext]) ->
 
 def _expand_step_citations(step: DiagnosticStep, evidence: Sequence[EvidenceContext]) -> DiagnosticStep:
     by_id = {item.chunk_id: item for item in evidence}
-    citation_text = " ".join(
-        f"[{by_id[source_id].citation.document_title} · p. {by_id[source_id].citation.page} · "
-        f"{by_id[source_id].citation.section}]"
-        for source_id in step.source_ids
-    )
+    visible_citations: list[str] = []
+    seen: set[tuple[str, int, str]] = set()
+    for source_id in step.source_ids:
+        citation = by_id[source_id].citation
+        key = (citation.document_id, citation.page, citation.section)
+        if key in seen:
+            continue
+        seen.add(key)
+        visible_citations.append(f"[{citation.document_title} · p. {citation.page} · {citation.section}]")
+    citation_text = " ".join(visible_citations)
     return step.model_copy(update={"instruction": f"{step.instruction} {citation_text}"})
 
 
