@@ -115,6 +115,7 @@ class TroubleshootingService:
             dense_weight=1.0,
             lexical_weight=1.5,
             rrf_k=30,
+            diversify=True,
             include_diagnostics=True,
             abstention_dense_threshold=None,
         )
@@ -201,6 +202,7 @@ class TroubleshootingService:
             dense_weight=1.0,
             lexical_weight=1.5,
             rrf_k=30,
+            diversify=True,
             include_diagnostics=True,
             abstention_dense_threshold=None,
         )

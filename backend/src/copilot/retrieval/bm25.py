@@ -221,6 +221,13 @@ def _lexical_query_tokens(query: str, metadata_filter: MetadataFilter | None) ->
         expanded.extend(expansions.get(token, ()))
     if "turn" in filtered and "off" in filtered:
         expanded.extend(("power", "button"))
+    # A broad failure report ("it won't print") is how ordinary device owners
+    # start a repair conversation. Manuals commonly phrase the matching heading
+    # as "The printer does not print", so bridge that wording deterministically
+    # before semantic retrieval and BM25 run in parallel.
+    failure_terms = {"not", "cannot", "unable", "wont", "fails", "failure", "offline"}
+    if "print" in filtered and failure_terms.intersection(filtered):
+        expanded.extend(("printer", "does", "not", "print", "troubleshoot", "problem", "solve"))
     if "topic" in filtered or "topics" in filtered:
         expanded = [token for token in expanded if token in {"topic", "topics", "chapter", "section"}]
     return expanded
@@ -238,6 +245,10 @@ def _field_weights(query: str) -> list[tuple[str, float]]:
     if any(term in normalized for term in ("chapter", "topic", "section", "where is")):
         weights["body"] = 0.35
         weights["section"] = 6.0
+    if "print" in normalized and any(term in normalized for term in ("not", "cannot", "unable", "won't", "wont", "offline")):
+        # Symptom headings are short and high-signal. Weight them above broad
+        # body matches such as unrelated print-driver configuration procedures.
+        weights["section"] = max(weights["section"], 4.0)
     return list(weights.items())
 
 

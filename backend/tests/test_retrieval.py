@@ -222,6 +222,24 @@ def test_scoped_bm25_does_not_rank_device_identity_above_evidence() -> None:
     assert [hit.id for hit in hits] == ["evidence"]
 
 
+def test_scoped_bm25_expands_plain_printer_failure_into_manual_symptom_wording() -> None:
+    generic = _chunk("generic-problems", RetrievalProfile.BM25)
+    generic.section = "Solve problems"
+    generic.content = "Solve printer problems using the printer manual."
+    symptom = _chunk("printer-does-not-print", RetrievalProfile.BM25)
+    symptom.section = "The printer does not print after wireless configuration completes"
+    symptom.content = "If the printer does not print, follow these solutions."
+    scope = MetadataFilter(manufacturer="Example", model="Example 1")
+
+    hits = asyncio.run(
+        InMemoryBM25Retriever([generic, symptom]).scoped(scope).search(
+            "My printer is powered on but it will not print", scope, limit=1
+        )
+    )
+
+    assert [hit.id for hit in hits] == ["printer-does-not-print"]
+
+
 def test_exact_identifier_retriever_normalizes_punctuation() -> None:
     chunk = _chunk("exact-match", RetrievalProfile.EXACT)
     chunk.metadata = {"normalized_value": "E42"}
