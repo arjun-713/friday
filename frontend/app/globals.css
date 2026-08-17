@@ -53,6 +53,7 @@ h1, h2, p { margin-top: 0; }
 .device-model-select { display: block; margin-top: 5px; }
 .device-model-select select { width: 100%; min-height: 30px; padding: 4px 22px 4px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-raised); color: var(--text); font-size: 11px; }
 .device-model-select select:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+.catalog-error { margin: 9px 9px 0; color: var(--danger); font-size: 11px; line-height: 1.45; }
 .new-session-quiet { display: inline-flex; align-items: center; gap: 7px; width: fit-content; margin: 24px 9px 24px; padding: 7px 0; border: 0; background: transparent; color: var(--text); font-size: 12px; font-weight: 700; }
 .new-session-quiet:hover { color: var(--accent-strong); }
 .new-session-quiet span { color: var(--accent); font-size: 19px; font-weight: 400; line-height: 0.65; }
@@ -133,17 +134,11 @@ h1, h2, p { margin-top: 0; }
 .api-error button { justify-self: start; padding: 5px 0; border: 0; background: transparent; color: inherit; font-size: 12px; font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
 
 .composer-wrap { margin-top: auto; padding-top: 28px; position: sticky; bottom: 0; background: linear-gradient(to bottom, transparent, var(--bg) 22%); }
-.composer-attachment { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; margin-bottom: 7px; padding: 5px 7px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-raised); color: var(--muted); font-size: 11px; }
-.composer-attachment span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.composer-attachment button { padding: 0; border: 0; background: transparent; color: var(--muted); font-size: 16px; }
 .composer { display: flex; align-items: center; gap: 6px; min-height: 54px; padding: 7px 8px 7px 14px; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--surface-raised); box-shadow: 0 8px 18px rgba(23, 32, 51, 0.06); }
 .composer:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--focus); }
 .composer.listening { border-color: var(--accent); }
 .composer textarea { min-width: 0; max-height: 160px; flex: 1; padding: 7px 0; border: 0; outline: 0; resize: none; background: transparent; color: var(--text); font-size: 14px; line-height: 1.5; overflow-y: auto; }
 .composer textarea::placeholder { color: var(--muted); }
-.attach-button { display: inline-flex; align-items: center; gap: 5px; min-height: 35px; padding: 0 7px; border-radius: 6px; color: var(--muted); font-size: 11px; font-weight: 700; cursor: pointer; }
-.attach-button:hover { background: #eef2f7; color: var(--text); }
-.attach-button .icon { width: 16px; }
 .mic-button, .send-button { display: grid; width: 36px; height: 36px; place-items: center; padding: 0; border: 0; border-radius: 7px; }
 .mic-button { background: #eef2f7; color: var(--text); }
 .mic-button.primary, .send-button { background: var(--accent); color: white; }
@@ -203,7 +198,6 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   .step-panel { padding: 18px 16px 15px; }
   .answer-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .answer-options button { width: 100%; }
-  .attach-button span { display: none; }
   .composer-wrap { padding-top: 20px; }
 }
 @media (prefers-reduced-motion: reduce) {

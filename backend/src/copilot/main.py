@@ -50,7 +50,46 @@ def _runtime_path(environment_variable: str, default: str) -> Path:
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    return {"status": "ok", "phase": "text-only-answering"}
+    return {"status": "ok", "phase": "conversational-troubleshooting"}
+
+
+@app.get("/v1/devices")
+def supported_devices() -> dict[str, list[dict[str, str]]]:
+    """Expose only device models backed by a registered manufacturer manual."""
+
+    registry_path = _runtime_path("SOURCE_REGISTRY", "data/raw/source_registry.json")
+    try:
+        payload = json.loads(registry_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"devices": []}
+    documents = payload.get("documents") if isinstance(payload, dict) else None
+    if not isinstance(documents, list):
+        return {"devices": []}
+
+    category_by_directory = {"computers": "laptop", "routers": "router", "printers": "printer"}
+    devices: dict[tuple[str, str, str], dict[str, str]] = {}
+    for document in documents:
+        if not isinstance(document, dict):
+            continue
+        source_file = document.get("source_file")
+        manufacturer = document.get("manufacturer")
+        model = document.get("model")
+        if (
+            not isinstance(source_file, str)
+            or not source_file.strip()
+            or not isinstance(manufacturer, str)
+            or not manufacturer.strip()
+            or not isinstance(model, str)
+            or not model.strip()
+        ):
+            continue
+        directories = Path(source_file).parts
+        category = next((category_by_directory[item] for item in directories if item in category_by_directory), None)
+        if category is None:
+            continue
+        key = (category, manufacturer.strip(), model.strip())
+        devices[key] = {"category": category, "manufacturer": manufacturer.strip(), "model": model.strip()}
+    return {"devices": sorted(devices.values(), key=lambda item: (item["category"], item["manufacturer"], item["model"]))}
 
 
 @app.get("/v1/assets/images/{asset_id}")

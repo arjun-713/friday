@@ -1,6 +1,6 @@
 "use client";
 
-import { ChangeEvent, FormEvent, KeyboardEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, KeyboardEvent, useEffect, useRef, useState } from "react";
 import type { ComponentType, SVGProps } from "react";
 import {
   ArrowPathIcon,
@@ -16,7 +16,6 @@ import {
   HandThumbUpIcon,
   MicrophoneIcon,
   PaperAirplaneIcon,
-  PaperClipIcon,
   PauseIcon,
   PrinterIcon,
   UserCircleIcon,
@@ -25,15 +24,17 @@ import {
 import {
   API_BASE_URL,
   deleteDiagnosticSession,
+  getSupportedDevices,
   troubleshootStream,
   TroubleshootingApiError,
   type DiagnosticOption,
+  type SupportedDevice,
   type TroubleshootingResponse,
 } from "../lib/api";
 import { FridayVoiceClient, type VoiceEvent } from "../lib/voice";
 
 type Message = { id: string; role: "user" | "assistant"; text: string; meta?: string; response?: TroubleshootingResponse };
-type SessionState = "ready" | "listening" | "thinking" | "speaking" | "interrupted";
+type SessionState = "ready" | "connecting" | "listening" | "thinking" | "speaking" | "interrupted";
 type DeviceCategory = "laptop" | "router" | "printer";
 type SessionStatus = "active" | "open" | "resolved";
 
@@ -89,15 +90,21 @@ const deviceCategories: Record<DeviceCategory, { label: string; icon: IconName }
   router: { label: "Wi-Fi Router", icon: "router" },
   printer: { label: "Printer", icon: "printer" },
 };
-// Derived from the ingested public-manual registry. Each option is therefore a
-// model Friday can actually retrieve and cite, not a demonstration placeholder.
-const deviceCatalog: DeviceProfile[] = [
-  ["Dell", "Latitude 7490", "laptop"], ["Dell", "OptiPlex 7060 SFF", "laptop"], ["HP", "EliteBook 855 G8", "laptop"], ["HP", "EliteDesk 800 G5 SFF", "laptop"], ["Lenovo", "ThinkPad T14 Gen 3 / P14s Gen 3", "laptop"],
-  ["TP-Link", "Archer C6", "router"], ["TP-Link", "Archer C1200", "router"], ["NETGEAR", "Nighthawk RAX40", "router"], ["NETGEAR", "Orbi RBK752", "router"], ["ASUS", "RT-AX3000", "router"], ["ASUS", "RT-BE58U", "router"], ["Linksys", "MR7300 Series", "router"], ["Linksys", "E9450", "router"],
-  ["HP", "LaserJet Pro M404/M405", "printer"], ["HP", "LaserJet 1022 Series", "printer"], ["Brother", "HL-L2350DW Series", "printer"], ["Epson", "ET-2800 / ET-2803", "printer"], ["Epson", "L3150", "printer"], ["Canon", "G2000 Series", "printer"], ["Canon", "TS5300 Series", "printer"],
-].map(([manufacturer, name, category]) => ({ manufacturer, name, category: category as DeviceCategory, detail: deviceCategories[category as DeviceCategory].label, icon: deviceCategories[category as DeviceCategory].icon }));
+const fallbackDeviceCatalog: DeviceProfile[] = [
+  { manufacturer: "TP-Link", name: "Archer C6", category: "router", detail: deviceCategories.router.label, icon: deviceCategories.router.icon },
+];
 
-type IconName = "arrow" | "mic" | "send" | "check" | "pause" | "chevron" | "laptop" | "router" | "printer" | "external" | "manual" | "more" | "paperclip" | "user" | "regenerate" | "like" | "dislike" | "copy";
+function deviceProfile(device: SupportedDevice): DeviceProfile {
+  return {
+    manufacturer: device.manufacturer,
+    name: device.model,
+    category: device.category,
+    detail: deviceCategories[device.category].label,
+    icon: deviceCategories[device.category].icon,
+  };
+}
+
+type IconName = "arrow" | "mic" | "send" | "check" | "pause" | "chevron" | "laptop" | "router" | "printer" | "external" | "manual" | "more" | "user" | "regenerate" | "like" | "dislike" | "copy";
 const iconMap: Record<IconName, ComponentType<SVGProps<SVGSVGElement>>> = {
   arrow: ArrowRightIcon,
   mic: MicrophoneIcon,
@@ -111,7 +118,6 @@ const iconMap: Record<IconName, ComponentType<SVGProps<SVGSVGElement>>> = {
   external: ArrowTopRightOnSquareIcon,
   manual: BookOpenIcon,
   more: EllipsisHorizontalIcon,
-  paperclip: PaperClipIcon,
   user: UserCircleIcon,
   regenerate: ArrowPathIcon,
   like: HandThumbUpIcon,
@@ -133,13 +139,14 @@ export default function Home() {
   const [caseQuery, setCaseQuery] = useState("");
   const [sessions, setSessions] = useState<Session[]>([]);
   const [sessionsHydrated, setSessionsHydrated] = useState(false);
+  const [deviceCatalog, setDeviceCatalog] = useState<DeviceProfile[]>(fallbackDeviceCatalog);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<DeviceCategory>("router");
   const [selectedModel, setSelectedModel] = useState("Archer C6");
   const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
   const [whyOpen, setWhyOpen] = useState(false);
   const [sessionMenuOpen, setSessionMenuOpen] = useState(false);
   const [evidenceOpen, setEvidenceOpen] = useState(false);
-  const [attachment, setAttachment] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<"like" | "dislike" | null>(null);
   const [copied, setCopied] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
@@ -148,6 +155,8 @@ export default function Home() {
   const voiceClient = useRef<FridayVoiceClient | null>(null);
   const voiceAssistantId = useRef<string | null>(null);
   const composerInput = useRef<HTMLTextAreaElement | null>(null);
+  const [voiceConnected, setVoiceConnected] = useState(false);
+  const threadEnd = useRef<HTMLDivElement | null>(null);
 
   function resizeComposer() {
     const input = composerInput.current;
@@ -299,25 +308,14 @@ export default function Home() {
     event.preventDefault();
     const text = draft.trim();
     if (!text) return;
-    void runTroubleshoot(
-      attachment ? `${text} Attached file: ${attachment}.` : text,
-      attachment ? `${text} · ${attachment}` : text,
-      true,
-      { observation: text },
-    );
+    void runTroubleshoot(text, text, true, { observation: text });
     setDraft("");
-    setAttachment(null);
   }
 
   function handleComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
     event.preventDefault();
     event.currentTarget.form?.requestSubmit();
-  }
-
-  function handleAttachment(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (file) setAttachment(file.name);
   }
 
   function regenerateResponse() {
@@ -396,12 +394,15 @@ export default function Home() {
       return;
     }
     if (event.type === "voice.error") {
+      setVoiceConnected(false);
+      voiceClient.current = null;
       setApiError(event.message);
       setState("interrupted");
       return;
     }
     if (event.type === "voice.closed") {
       voiceClient.current = null;
+      setVoiceConnected(false);
       setApiError(event.message);
       setState("interrupted");
     }
@@ -412,12 +413,14 @@ export default function Home() {
       if (voiceClient.current) return;
       const client = new FridayVoiceClient(handleVoiceEvent);
       voiceClient.current = client;
-      setState("listening");
+      setState("connecting");
       await client.start({ sessionId, manufacturer: selectedDevice.manufacturer, model: selectedDevice.name });
       setApiError(null);
+      setVoiceConnected(true);
       setState("listening");
     } catch (error) {
       voiceClient.current = null;
+      setVoiceConnected(false);
       setApiError(error instanceof Error ? error.message : "Could not start the microphone.");
       setState("interrupted");
     }
@@ -427,6 +430,7 @@ export default function Home() {
     const client = voiceClient.current;
     voiceClient.current = null;
     await client?.stop();
+    setVoiceConnected(false);
     setDraft("");
     setState("ready");
   }
@@ -443,6 +447,22 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    const controller = new AbortController();
+    void getSupportedDevices(controller.signal)
+      .then((devices) => {
+        if (devices.length > 0) {
+          setDeviceCatalog(devices.map(deviceProfile));
+          setCatalogError(null);
+        }
+      })
+      .catch((error) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        setCatalogError("The supported-device catalog is unavailable. Troubleshooting remains limited to the current device.");
+      });
+    return () => controller.abort();
+  }, []);
+
+  useEffect(() => {
     if (!sessionsHydrated) return;
     window.localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(sessions));
   }, [sessions, sessionsHydrated]);
@@ -450,6 +470,11 @@ export default function Home() {
   useEffect(() => {
     resizeComposer();
   }, [draft]);
+
+  useEffect(() => {
+    if (messages.length === 0) return;
+    threadEnd.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [messages]);
 
   useEffect(() => {
     if (!sessionsHydrated || activeSession === "new") return;
@@ -473,12 +498,11 @@ export default function Home() {
 
   const isListening = state === "listening";
   const isThinking = state === "thinking";
-  const voiceConnected = voiceClient.current !== null;
   const latestAssistantMessage = [...messages].reverse().find((message) => message.role === "assistant" && message.response);
   const latestResponse = latestAssistantMessage?.response;
   const latestCitation = latestResponse?.citations[0];
   const activeQuestion = latestResponse?.status === "ready" ? latestResponse.step?.question : undefined;
-  const observations = selectedAnswer ? [selectedAnswer] : [];
+  const observations = latestResponse?.observations ?? [];
   const orderedSessions = [...sessions].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
 
   return (
@@ -502,6 +526,7 @@ export default function Home() {
           <div className="current-device">
             <span className="sidebar-title">CURRENT DEVICE</span>
             <div className="current-device-card"><span className="current-device-image"><Icon name={selectedDevice.icon} /></span><div><strong>{selectedDevice.manufacturer} {selectedDevice.name}</strong><span>{selectedDevice.detail}</span><label className="device-model-select"><span className="sr-only">Select a supported device model</span><select value={selectedDevice.name} onChange={(event) => startNewSession(selectedCategory, event.target.value)}>{devicesInCategory.map((device) => <option key={`${device.manufacturer}-${device.name}`} value={device.name}>{device.manufacturer} {device.name}</option>)}</select></label></div></div>
+            {catalogError && <p className="catalog-error" role="status">{catalogError}</p>}
           </div>
 
           <button className="new-session-quiet" type="button" onClick={() => startNewSession()}><span>＋</span> New session</button>
@@ -560,10 +585,10 @@ export default function Home() {
               ))}
               {apiError && <div className="api-error" role="alert"><strong>Couldn&apos;t check the manuals.</strong><span>{apiError}</span><button type="button" onClick={() => { const latestUserMessage = [...messages].reverse().find((message) => message.role === "user"); if (latestUserMessage) void runTroubleshoot(latestUserMessage.text, "", false); }}>Try again</button></div>}
               {isThinking && <div className="thinking-line" role="status"><span className="thinking-pulse" /> Checking the manual</div>}
+              <div ref={threadEnd} />
             </div>
 
             <div className="composer-wrap">
-              {attachment && <div className="composer-attachment"><Icon name="paperclip" /><span>{attachment}</span><button type="button" aria-label="Remove attachment" onClick={() => setAttachment(null)}>×</button></div>}
               <form className={`composer ${isListening ? "listening" : ""}`} onSubmit={submitMessage}>
                 <label className="sr-only" htmlFor="message">Describe what you see</label>
                 <textarea
@@ -575,12 +600,10 @@ export default function Home() {
                   onKeyDown={handleComposerKeyDown}
                   placeholder={isListening ? "Voice input is ready; type if needed…" : "Describe what you see…"}
                 />
-                <input className="sr-only" id="attachment" type="file" accept="image/*,.pdf,.txt" onChange={handleAttachment} />
-                <label className="attach-button" htmlFor="attachment"><Icon name="paperclip" /><span>Attach</span></label>
-                {voiceConnected ? <button className="mic-button active" type="button" aria-label="Stop listening" onClick={() => void stopVoice()}><Icon name="pause" /></button> : <button className={`mic-button ${draft ? "quiet" : "primary"}`} type="button" aria-label="Start voice input" onClick={() => void startVoice()}><Icon name="mic" /></button>}
+                {voiceConnected ? <button className="mic-button active" type="button" aria-label="Stop listening" onClick={() => void stopVoice()}><Icon name="pause" /></button> : <button className={`mic-button ${draft ? "quiet" : "primary"}`} type="button" aria-label="Start voice input" disabled={state === "connecting"} onClick={() => void startVoice()}><Icon name="mic" /></button>}
                 <button className="send-button visible" type="submit" aria-label="Send observation" disabled={!draft.trim()}><Icon name="send" /></button>
               </form>
-              {voiceConnected && <div className="voice-status" role="status"><span className="waveform" aria-hidden="true"><i /><i /><i /><i /><i /></span><span>{isListening ? "Listening — speak naturally; Friday will send the final transcript." : "Friday is responding — interrupt at any time."}</span><button type="button" onClick={() => void stopVoice()}>Stop</button></div>}
+              {(voiceConnected || state === "connecting") && <div className="voice-status" role="status"><span className="waveform" aria-hidden="true"><i /><i /><i /><i /><i /></span><span>{state === "connecting" ? "Connecting your microphone…" : isListening ? "Listening — speak naturally; Friday sends each final transcript automatically." : "Friday is responding — speak to interrupt."}</span><button type="button" onClick={() => void stopVoice()}>Stop</button></div>}
             </div>
           </div>
         </section>

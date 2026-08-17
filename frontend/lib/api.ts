@@ -64,6 +64,7 @@ export type TroubleshootingResponse = {
   images: ManualImage[];
   evidence: EvidenceContext[];
   citations: Citation[];
+  observations: string[];
   missing_observations: string[];
   retrieval: RetrievalSummary;
 };
@@ -85,6 +86,31 @@ export class TroubleshootingApiError extends Error {
 }
 
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+
+export type SupportedDevice = {
+  category: "laptop" | "router" | "printer";
+  manufacturer: string;
+  model: string;
+};
+
+export async function getSupportedDevices(signal?: AbortSignal): Promise<SupportedDevice[]> {
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}/v1/devices`, { signal, headers: { Accept: "application/json" } });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") throw error;
+    throw new TroubleshootingApiError("The supported-device catalog could not be loaded.", 0);
+  }
+  if (!response.ok) throw new TroubleshootingApiError("The supported-device catalog could not be loaded.", response.status);
+  const payload = (await response.json()) as { devices?: unknown };
+  if (!Array.isArray(payload.devices)) return [];
+  return payload.devices.filter(
+    (device): device is SupportedDevice =>
+      Boolean(device) && typeof device === "object" &&
+      ((device as SupportedDevice).category === "laptop" || (device as SupportedDevice).category === "router" || (device as SupportedDevice).category === "printer") &&
+      typeof (device as SupportedDevice).manufacturer === "string" && typeof (device as SupportedDevice).model === "string",
+  );
+}
 
 export async function deleteDiagnosticSession(sessionId: string): Promise<void> {
   const response = await fetch(`${API_BASE_URL}/v1/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" });

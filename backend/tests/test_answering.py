@@ -1,4 +1,5 @@
 import asyncio
+import json
 from collections.abc import Sequence
 from types import SimpleNamespace
 
@@ -154,6 +155,47 @@ def test_runtime_paths_are_anchored_to_the_project_root(monkeypatch) -> None:
     assert path.name == "chunks"
     assert path.parent.name == "data"
     assert path.is_absolute()
+
+
+def test_supported_devices_are_derived_from_registered_manuals(tmp_path, monkeypatch) -> None:
+    registry = tmp_path / "source_registry.json"
+    registry.write_text(
+        json.dumps(
+            {
+                "documents": [
+                    {
+                        "source_file": "data/manuals/routers/example-router.pdf",
+                        "manufacturer": "Example",
+                        "model": "Router 1",
+                    },
+                    {
+                        "source_file": "data/manuals/printers/example-printer.pdf",
+                        "manufacturer": "Example",
+                        "model": "Printer 1",
+                    },
+                    # A second manual for the same model must not create a
+                    # duplicate selection in the product UI.
+                    {
+                        "source_file": "data/manuals/printers/example-printer-safety.pdf",
+                        "manufacturer": "Example",
+                        "model": "Printer 1",
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("SOURCE_REGISTRY", str(registry))
+
+    response = TestClient(app).get("/v1/devices")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "devices": [
+            {"category": "printer", "manufacturer": "Example", "model": "Printer 1"},
+            {"category": "router", "manufacturer": "Example", "model": "Router 1"},
+        ]
+    }
 
 
 def test_text_layer_returns_cited_evidence() -> None:
@@ -543,6 +585,7 @@ def test_session_advances_to_the_next_step_after_observation() -> None:
     assert second.step is not None
     assert second.step.step_id == "step-2"
     assert service.session_store.get("session-1").observations == {"step-1": "on"}
+    assert second.observations == ["on"]
 
 
 def test_session_does_not_complete_step_for_acknowledgement_only() -> None:

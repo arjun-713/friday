@@ -71,6 +71,10 @@ class TroubleshootingResponse(BaseModel):
     images: list[ManualImage] = Field(default_factory=list)
     evidence: list[EvidenceContext] = Field(default_factory=list)
     citations: list[Citation] = Field(default_factory=list)
+    # Confirmed results from completed diagnostic steps.  This is intentionally
+    # separate from the free-form conversation transcript: the client can show
+    # an evidence ledger without treating every sentence as a verified fact.
+    observations: list[str] = Field(default_factory=list)
     missing_observations: list[str] = Field(default_factory=list)
     retrieval: RetrievalSummary
 

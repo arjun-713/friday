@@ -128,6 +128,7 @@ class TroubleshootingService:
             return TroubleshootingResponse(
                 status="abstained",
                 session_id=request.session_id,
+                observations=_confirmed_observations(state),
                 missing_observations=_missing_observations(request),
                 retrieval=retrieval,
             )
@@ -138,6 +139,7 @@ class TroubleshootingService:
             return TroubleshootingResponse(
                 status="abstained",
                 session_id=request.session_id,
+                observations=_confirmed_observations(state),
                 missing_observations=_missing_observations(request, require_symptom_detail=True),
                 retrieval=RetrievalSummary(
                     abstained=True,
@@ -151,6 +153,7 @@ class TroubleshootingService:
             return TroubleshootingResponse(
                 status="abstained",
                 session_id=request.session_id,
+                observations=_confirmed_observations(state),
                 missing_observations=_missing_observations(request),
                 retrieval=RetrievalSummary(
                     abstained=True,
@@ -161,6 +164,8 @@ class TroubleshootingService:
         except InvalidAnswerError:
             return TroubleshootingResponse(
                 status="abstained",
+                session_id=request.session_id,
+                observations=_confirmed_observations(state),
                 missing_observations=_missing_observations(request),
                 retrieval=RetrievalSummary(
                     abstained=True,
@@ -178,6 +183,7 @@ class TroubleshootingService:
             images=images,
             evidence=evidence,
             citations=[item.citation for item in evidence],
+            observations=_confirmed_observations(state),
             retrieval=retrieval,
         )
         _remember_current_step(state, response)
@@ -215,6 +221,7 @@ class TroubleshootingService:
                 "response": TroubleshootingResponse(
                     status="abstained",
                     session_id=request.session_id,
+                    observations=_confirmed_observations(state),
                     missing_observations=_missing_observations(request),
                     retrieval=retrieval,
                 ).model_dump(),
@@ -228,6 +235,7 @@ class TroubleshootingService:
                 "response": TroubleshootingResponse(
                     status="abstained",
                     session_id=request.session_id,
+                    observations=_confirmed_observations(state),
                     missing_observations=_missing_observations(request, require_symptom_detail=True),
                     retrieval=RetrievalSummary(
                         abstained=True,
@@ -252,6 +260,7 @@ class TroubleshootingService:
                 "response": TroubleshootingResponse(
                     status="abstained",
                     session_id=request.session_id,
+                    observations=_confirmed_observations(state),
                     missing_observations=_missing_observations(request),
                     retrieval=RetrievalSummary(
                         abstained=True,
@@ -272,6 +281,7 @@ class TroubleshootingService:
             images=_images_for_evidence(self.image_manifest, evidence),
             evidence=evidence,
             citations=[item.citation for item in evidence],
+            observations=_confirmed_observations(state),
             retrieval=retrieval,
         )
         _remember_current_step(state, response)
@@ -306,11 +316,18 @@ def _awaiting_current_observation(state: DiagnosticSessionState, session_id: str
         images=state.current_images,
         evidence=state.current_evidence,
         citations=state.current_citations,
+        observations=_confirmed_observations(state),
         retrieval=RetrievalSummary(
             abstained=False,
             reason="awaiting_current_observation",
         ),
     )
+
+
+def _confirmed_observations(state: DiagnosticSessionState) -> list[str]:
+    """Expose completed-step results in their original diagnostic order."""
+
+    return list(state.observations.values())
 
 
 def _assemble_evidence(hits: Sequence[VectorHit], parents: Sequence[DocumentChunk]) -> list[EvidenceContext]:
