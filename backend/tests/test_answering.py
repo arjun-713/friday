@@ -265,6 +265,7 @@ def test_text_endpoint_runs_litellm_answer_layer() -> None:
                 "asset-1": {
                     "path": "assets/images/asset-1.png",
                     "mime_type": "image/png",
+                    "features": {"classification": "valid", "quality_score": 4},
                     "occurrences": [
                         {
                             "document_title": "Example Manual",
