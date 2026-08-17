@@ -1,6 +1,20 @@
 """Small in-memory diagnostic session store for the text interaction loop."""
 
+import re
+
 from .models import DiagnosticSessionState, TroubleshootingRequest
+
+_ACKNOWLEDGEMENT_ONLY = re.compile(
+    r"^\s*(?:yes|yeah|yep|okay|ok|got it|understood|done|thanks|thank you)"
+    r"(?:[\s,!.?]*(?:i(?:'ve| have)? (?:done|checked|got) it|what(?:'s| is) next|next|please|now))*[\s!.?]*$",
+    re.IGNORECASE,
+)
+
+
+def _is_acknowledgement_without_result(value: str) -> bool:
+    """Keep an acknowledgement from silently completing a diagnostic check."""
+
+    return bool(_ACKNOWLEDGEMENT_ONLY.fullmatch(value))
 
 
 class DiagnosticSessionStore:
@@ -16,8 +30,9 @@ class DiagnosticSessionStore:
 
     def record_turn(self, request: TroubleshootingRequest) -> DiagnosticSessionState:
         state = self.get(request.session_id)
-        observation = request.selected_option or request.observation
-        if observation and state.current_step_id:
+        observation = request.observation or request.selected_option
+        has_explicit_option = request.selected_option is not None
+        if observation and state.current_step_id and (has_explicit_option or not _is_acknowledgement_without_result(observation)):
             state.observations[state.current_step_id] = observation
             if state.current_step_id not in state.completed_steps:
                 state.completed_steps.append(state.current_step_id)

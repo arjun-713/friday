@@ -237,7 +237,7 @@ export default function Home() {
       `${caseQuery || selectedDevice.name} Observation: ${option.label}`,
       option.label,
       true,
-      { selectedOption: option.id },
+      { observation: option.label, selectedOption: option.id },
     );
   }
 

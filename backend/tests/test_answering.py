@@ -211,7 +211,7 @@ def test_litellm_generator_sends_evidence_and_accepts_known_citation() -> None:
     assert "[source:child-1]" in messages[1]["content"]
     assert "exactly one diagnostic step" in messages[0]["content"]
     assert "Do not use general world knowledge" in messages[0]["content"]
-    assert "troubleshooting-v1" in messages[0]["content"]
+    assert "troubleshooting-v2" in messages[0]["content"]
 
 
 def test_litellm_generator_rejects_unknown_citation() -> None:
@@ -496,3 +496,40 @@ def test_session_advances_to_the_next_step_after_observation() -> None:
     assert second.step is not None
     assert second.step.step_id == "step-2"
     assert service.session_store.get("session-1").observations == {"step-1": "on"}
+
+
+def test_session_does_not_complete_step_for_acknowledgement_only() -> None:
+    base_service = _service([_hit()])
+    service = TroubleshootingService(
+        embedding_provider=base_service.embedding_provider,
+        vector_index=base_service.vector_index,
+        lexical_retriever=base_service.lexical_retriever,
+        parent_store=base_service.parent_store,
+        answer_generator=SequentialStepGenerator(),
+    )
+
+    asyncio.run(
+        service.answer(
+            TroubleshootingRequest(
+                query="Wi-Fi is visible but there is no internet",
+                manufacturer="Example",
+                model="Example 1",
+                session_id="session-ack",
+            )
+        )
+    )
+    asyncio.run(
+        service.answer(
+            TroubleshootingRequest(
+                query="Yes, I got it. What's next?",
+                manufacturer="Example",
+                model="Example 1",
+                session_id="session-ack",
+                observation="Yes, I got it. What's next?",
+            )
+        )
+    )
+
+    state = service.session_store.get("session-ack")
+    assert state.completed_steps == []
+    assert state.observations == {}
