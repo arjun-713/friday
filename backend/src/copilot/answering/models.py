@@ -28,14 +28,6 @@ class DiagnosticStep(BaseModel):
     source_ids: list[str] = Field(min_length=1, max_length=8)
 
 
-class DiagnosticSessionState(BaseModel):
-    session_id: str
-    observations: dict[str, str] = Field(default_factory=dict)
-    completed_steps: list[str] = Field(default_factory=list)
-    ruled_out_causes: list[str] = Field(default_factory=list)
-    current_step_id: str | None = None
-
-
 class ManualImage(BaseModel):
     asset_id: str
     url: str
@@ -81,3 +73,16 @@ class TroubleshootingResponse(BaseModel):
     citations: list[Citation] = Field(default_factory=list)
     missing_observations: list[str] = Field(default_factory=list)
     retrieval: RetrievalSummary
+
+
+class DiagnosticSessionState(BaseModel):
+    session_id: str
+    observations: dict[str, str] = Field(default_factory=dict)
+    completed_steps: list[str] = Field(default_factory=list)
+    ruled_out_causes: list[str] = Field(default_factory=list)
+    current_step_id: str | None = None
+    current_step: DiagnosticStep | None = None
+    current_evidence: list[EvidenceContext] = Field(default_factory=list)
+    current_images: list[ManualImage] = Field(default_factory=list)
+    current_citations: list[Citation] = Field(default_factory=list)
+    last_turn_was_acknowledgement: bool = False

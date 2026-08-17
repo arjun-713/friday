@@ -508,7 +508,7 @@ def test_session_does_not_complete_step_for_acknowledgement_only() -> None:
         answer_generator=SequentialStepGenerator(),
     )
 
-    asyncio.run(
+    first = asyncio.run(
         service.answer(
             TroubleshootingRequest(
                 query="Wi-Fi is visible but there is no internet",
@@ -518,7 +518,7 @@ def test_session_does_not_complete_step_for_acknowledgement_only() -> None:
             )
         )
     )
-    asyncio.run(
+    second = asyncio.run(
         service.answer(
             TroubleshootingRequest(
                 query="Yes, I got it. What's next?",
@@ -533,3 +533,6 @@ def test_session_does_not_complete_step_for_acknowledgement_only() -> None:
     state = service.session_store.get("session-ack")
     assert state.completed_steps == []
     assert state.observations == {}
+    assert first.step is not None
+    assert second.step == first.step
+    assert second.retrieval.reason == "awaiting_current_observation"

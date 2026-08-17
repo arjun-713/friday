@@ -11,7 +11,7 @@ _ACKNOWLEDGEMENT_ONLY = re.compile(
 )
 
 
-def _is_acknowledgement_without_result(value: str) -> bool:
+def is_acknowledgement_without_result(value: str) -> bool:
     """Keep an acknowledgement from silently completing a diagnostic check."""
 
     return bool(_ACKNOWLEDGEMENT_ONLY.fullmatch(value))
@@ -32,7 +32,10 @@ class DiagnosticSessionStore:
         state = self.get(request.session_id)
         observation = request.observation or request.selected_option
         has_explicit_option = request.selected_option is not None
-        if observation and state.current_step_id and (has_explicit_option or not _is_acknowledgement_without_result(observation)):
+        state.last_turn_was_acknowledgement = bool(
+            observation and state.current_step_id and not has_explicit_option and is_acknowledgement_without_result(observation)
+        )
+        if observation and state.current_step_id and not state.last_turn_was_acknowledgement:
             state.observations[state.current_step_id] = observation
             if state.current_step_id not in state.completed_steps:
                 state.completed_steps.append(state.current_step_id)

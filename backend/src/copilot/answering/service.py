@@ -94,6 +94,8 @@ class TroubleshootingService:
 
     async def answer(self, request: TroubleshootingRequest) -> TroubleshootingResponse:
         state = self.session_store.record_turn(request)
+        if state.last_turn_was_acknowledgement and state.current_step is not None:
+            return _awaiting_current_observation(state, request.session_id)
         metadata_filter = MetadataFilter(
             manufacturer=request.manufacturer,
             model=request.model,
@@ -161,9 +163,8 @@ class TroubleshootingService:
                     timings_ms=result.timings_ms,
                 ),
             )
-        state.current_step_id = step.step_id
         images = _images_for_evidence(self.image_manifest, evidence)
-        return TroubleshootingResponse(
+        response = TroubleshootingResponse(
             session_id=request.session_id,
             status="ready",
             answer=step.instruction,
@@ -174,11 +175,16 @@ class TroubleshootingService:
             citations=[item.citation for item in evidence],
             retrieval=retrieval,
         )
+        _remember_current_step(state, response)
+        return response
 
     async def stream_answer(self, request: TroubleshootingRequest) -> AsyncIterator[dict[str, object]]:
         """Stream provider tokens while keeping the final response contract strict."""
 
         state = self.session_store.record_turn(request)
+        if state.last_turn_was_acknowledgement and state.current_step is not None:
+            yield {"type": "complete", "response": _awaiting_current_observation(state, request.session_id).model_dump()}
+            return
         result = await self.session_cache.retrieve(
             _retrieval_query(request),
             self.embedding_provider,
@@ -249,7 +255,6 @@ class TroubleshootingService:
                 ).model_dump(),
             }
             return
-        state.current_step_id = step.step_id
         response = TroubleshootingResponse(
             session_id=request.session_id,
             status="ready",
@@ -261,7 +266,42 @@ class TroubleshootingService:
             citations=[item.citation for item in evidence],
             retrieval=retrieval,
         )
+        _remember_current_step(state, response)
         yield {"type": "complete", "response": response.model_dump()}
+
+
+def _remember_current_step(state: DiagnosticSessionState, response: TroubleshootingResponse) -> None:
+    """Retain the active evidence-backed check for acknowledgement-only turns."""
+
+    if response.step is None:
+        return
+    state.current_step_id = response.step.step_id
+    state.current_step = response.step
+    state.current_evidence = response.evidence
+    state.current_images = response.images
+    state.current_citations = response.citations
+    state.last_turn_was_acknowledgement = False
+
+
+def _awaiting_current_observation(state: DiagnosticSessionState, session_id: str) -> TroubleshootingResponse:
+    """Repeat the unresolved check without retrieval or a provider call."""
+
+    step = state.current_step
+    assert step is not None
+    return TroubleshootingResponse(
+        session_id=session_id,
+        status="ready",
+        answer=f"Before I choose the next step, please report: {step.question}",
+        step=step,
+        awaiting_observation=True,
+        images=state.current_images,
+        evidence=state.current_evidence,
+        citations=state.current_citations,
+        retrieval=RetrievalSummary(
+            abstained=False,
+            reason="awaiting_current_observation",
+        ),
+    )
 
 
 def _assemble_evidence(hits: Sequence[VectorHit], parents: Sequence[DocumentChunk]) -> list[EvidenceContext]:
