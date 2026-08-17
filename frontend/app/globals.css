@@ -47,9 +47,9 @@ h1, h2, p { margin-top: 0; }
 .current-device { margin-top: 26px; }
 .current-device-card { display: grid; grid-template-columns: 36px minmax(0, 1fr); gap: 10px; margin: 0 9px; padding: 6px 0; }
 .current-device-image { display: grid; width: 36px; height: 36px; place-items: center; border: 1px solid var(--border); border-radius: 6px; color: var(--muted); }
-.current-device-card div, .profile-copy { display: grid; min-width: 0; gap: 2px; }
-.current-device-card strong, .profile-copy strong { font-size: 12px; line-height: 1.35; }
-.current-device-card span, .profile-copy span { overflow: hidden; color: var(--muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.current-device-card div { display: grid; min-width: 0; gap: 2px; }
+.current-device-card strong { font-size: 12px; line-height: 1.35; }
+.current-device-card span { overflow: hidden; color: var(--muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .device-model-select { display: block; margin-top: 5px; }
 .device-model-select select { width: 100%; min-height: 30px; padding: 4px 22px 4px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-raised); color: var(--text); font-size: 11px; }
 .device-model-select select:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
@@ -70,10 +70,7 @@ h1, h2, p { margin-top: 0; }
 .session-item-copy span, .session-time { overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .session-time { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .session-empty { margin: 7px 9px 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
-.profile-row { display: flex; align-items: center; gap: 9px; width: 100%; margin-top: auto; padding: 13px 9px 0; border: 0; border-top: 1px solid var(--border); background: transparent; color: var(--text); text-align: left; }
-.profile-avatar { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 50%; background: var(--text); color: white; }
-.profile-avatar .icon, .profile-row > .icon { width: 15px; }
-.profile-row > .icon { margin-left: auto; color: var(--muted); transform: rotate(-90deg); }
+.local-sessions-note { margin: auto 9px 0; padding-top: 13px; border-top: 1px solid var(--border); color: var(--muted); font-size: 11px; line-height: 1.45; }
 
 .conversation { display: flex; min-width: 0; padding: clamp(26px, 4vw, 50px) clamp(18px, 5vw, 80px) 22px; }
 .troubleshooting-thread { display: flex; width: min(100%, 960px); min-height: 100%; margin: 0 auto; flex-direction: column; }

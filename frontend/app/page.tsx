@@ -18,7 +18,6 @@ import {
   PaperAirplaneIcon,
   PauseIcon,
   PrinterIcon,
-  UserCircleIcon,
   WifiIcon,
 } from "@heroicons/react/24/outline";
 import {
@@ -104,7 +103,7 @@ function deviceProfile(device: SupportedDevice): DeviceProfile {
   };
 }
 
-type IconName = "arrow" | "mic" | "send" | "check" | "pause" | "chevron" | "laptop" | "router" | "printer" | "external" | "manual" | "more" | "user" | "regenerate" | "like" | "dislike" | "copy";
+type IconName = "arrow" | "mic" | "send" | "check" | "pause" | "chevron" | "laptop" | "router" | "printer" | "external" | "manual" | "more" | "regenerate" | "like" | "dislike" | "copy";
 const iconMap: Record<IconName, ComponentType<SVGProps<SVGSVGElement>>> = {
   arrow: ArrowRightIcon,
   mic: MicrophoneIcon,
@@ -118,7 +117,6 @@ const iconMap: Record<IconName, ComponentType<SVGProps<SVGSVGElement>>> = {
   external: ArrowTopRightOnSquareIcon,
   manual: BookOpenIcon,
   more: EllipsisHorizontalIcon,
-  user: UserCircleIcon,
   regenerate: ArrowPathIcon,
   like: HandThumbUpIcon,
   dislike: HandThumbDownIcon,
@@ -147,8 +145,8 @@ export default function Home() {
   const [whyOpen, setWhyOpen] = useState(false);
   const [sessionMenuOpen, setSessionMenuOpen] = useState(false);
   const [evidenceOpen, setEvidenceOpen] = useState(false);
-  const [feedback, setFeedback] = useState<"like" | "dislike" | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [feedbackByMessage, setFeedbackByMessage] = useState<Record<string, "like" | "dislike">>({});
+  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const [apiError, setApiError] = useState<string | null>(null);
   const requestController = useRef<AbortController | null>(null);
   const messageSequence = useRef(0);
@@ -193,6 +191,8 @@ export default function Home() {
     setWhyOpen(false);
     setEvidenceOpen(false);
     setSessionMenuOpen(false);
+    setFeedbackByMessage({});
+    setCopiedMessageId(null);
   }
 
   function chooseSession(session: Session) {
@@ -209,6 +209,8 @@ export default function Home() {
     setApiError(null);
     setWhyOpen(false);
     setEvidenceOpen(false);
+    setFeedbackByMessage({});
+    setCopiedMessageId(null);
   }
 
   async function deleteCurrentSession() {
@@ -230,6 +232,9 @@ export default function Home() {
     interaction: { observation?: string; selectedOption?: string; regenerate?: boolean } = {},
   ) {
     requestController.current?.abort();
+    // Typed answers and option choices must be able to interrupt a spoken
+    // answer without closing the persistent microphone session.
+    voiceClient.current?.cancelAssistant();
     const controller = new AbortController();
     requestController.current = controller;
     setApiError(null);
@@ -319,17 +324,17 @@ export default function Home() {
     event.currentTarget.form?.requestSubmit();
   }
 
-  function regenerateResponse() {
-    const latestUserMessage = [...messages].reverse().find((message) => message.role === "user");
-    if (latestUserMessage) void runTroubleshoot(latestUserMessage.text, "", false, { regenerate: true });
+  function regenerateResponse(messageIndex: number) {
+    const precedingUserMessage = messages.slice(0, messageIndex).reverse().find((message) => message.role === "user");
+    if (precedingUserMessage) void runTroubleshoot(precedingUserMessage.text, "", false, { regenerate: true });
   }
 
-  async function copyResponse(response?: TroubleshootingResponse) {
+  async function copyResponse(messageId: string, response?: TroubleshootingResponse) {
     if (!response) return;
     const citations = response.citations.map((citation) => `${citation.document_title}, page ${citation.page}, ${citation.section}`).join("; ");
     await navigator.clipboard?.writeText(`${response.answer ?? ""}${citations ? `\n\nSources: ${citations}` : ""}`);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1400);
+    setCopiedMessageId(messageId);
+    window.setTimeout(() => setCopiedMessageId((current) => (current === messageId ? null : current)), 1400);
   }
 
   function completeAssistant(id: string, response: TroubleshootingResponse) {
@@ -432,7 +437,6 @@ export default function Home() {
     voiceClient.current = null;
     await client?.stop();
     setVoiceConnected(false);
-    setDraft("");
     setState("ready");
   }
 
@@ -542,7 +546,7 @@ export default function Home() {
             ))}
             {sessionsHydrated && orderedSessions.length === 0 && <p className="session-empty">Your troubleshooting history will appear here.</p>}
           </div>
-          <button className="profile-row" type="button" aria-label="Open profile"><span className="profile-avatar"><Icon name="user" /></span><span className="profile-copy"><strong>Profile</strong><span>Account settings</span></span><Icon name="chevron" /></button>
+          <p className="local-sessions-note">Sessions stay in this browser until you delete them.</p>
         </aside>
 
         <section className="conversation" id="conversation" aria-labelledby="conversation-title">
@@ -558,7 +562,7 @@ export default function Home() {
 
             <div className="message-list" aria-live="polite">
               {messages.length === 0 && <div className="empty-thread"><h2>Describe the problem to start.</h2><p>Use your own words. Friday will ask for one observation at a time.</p></div>}
-              {messages.filter((message) => message.role !== "assistant" || message.text || message.response).map((message) => (
+              {messages.filter((message) => message.role !== "assistant" || message.text || message.response).map((message, index) => (
                 <article className={`message ${message.role}`} key={message.id}>
                   {message.role === "user" && <div className="message-meta"><span>You</span><span>{message.meta}</span></div>}
                   {message.role === "user" && <p>{message.text}</p>}
@@ -581,7 +585,7 @@ export default function Home() {
                       {message.response?.citations[0] && <div className="source-line"><Icon name="manual" /><a href={message.response.citations[0].source_url || "#source"}>{message.response.citations[0].document_title} · p. {message.response.citations[0].page} · {message.response.citations[0].section}</a><Icon name="external" /></div>}
                     </div>
                   )}
-                  {message.role === "assistant" && <div className="assistant-actions" aria-label="Response actions"><button type="button" aria-label="Regenerate response" title="Regenerate response" onClick={regenerateResponse}><Icon name="regenerate" /></button><button className={feedback === "like" ? "selected" : ""} type="button" aria-label="Like response" title="Like response" aria-pressed={feedback === "like"} onClick={() => setFeedback("like")}><Icon name="like" /></button><button className={feedback === "dislike" ? "selected" : ""} type="button" aria-label="Dislike response" title="Dislike response" aria-pressed={feedback === "dislike"} onClick={() => setFeedback("dislike")}><Icon name="dislike" /></button><button className={copied ? "selected" : ""} type="button" aria-label={copied ? "Response copied" : "Copy response"} title={copied ? "Copied" : "Copy response"} onClick={() => copyResponse(message.response)}><Icon name="copy" /></button></div>}
+                  {message.role === "assistant" && <div className="assistant-actions" aria-label="Response actions"><button type="button" aria-label="Regenerate response" title="Regenerate response" onClick={() => regenerateResponse(index)}><Icon name="regenerate" /></button><button className={feedbackByMessage[message.id] === "like" ? "selected" : ""} type="button" aria-label="Like response" title="Like response" aria-pressed={feedbackByMessage[message.id] === "like"} onClick={() => setFeedbackByMessage((current) => ({ ...current, [message.id]: "like" }))}><Icon name="like" /></button><button className={feedbackByMessage[message.id] === "dislike" ? "selected" : ""} type="button" aria-label="Dislike response" title="Dislike response" aria-pressed={feedbackByMessage[message.id] === "dislike"} onClick={() => setFeedbackByMessage((current) => ({ ...current, [message.id]: "dislike" }))}><Icon name="dislike" /></button><button className={copiedMessageId === message.id ? "selected" : ""} type="button" aria-label={copiedMessageId === message.id ? "Response copied" : "Copy response"} title={copiedMessageId === message.id ? "Copied" : "Copy response"} onClick={() => void copyResponse(message.id, message.response)}><Icon name="copy" /></button></div>}
                 </article>
               ))}
               {apiError && <div className="api-error" role="alert"><strong>Couldn&apos;t check the manuals.</strong><span>{apiError}</span><button type="button" onClick={() => { const latestUserMessage = [...messages].reverse().find((message) => message.role === "user"); if (latestUserMessage) void runTroubleshoot(latestUserMessage.text, "", false); }}>Try again</button></div>}
