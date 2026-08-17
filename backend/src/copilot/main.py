@@ -36,6 +36,16 @@ _service: TroubleshootingService | None = None
 _service_lock = asyncio.Lock()
 _image_manifest: dict[str, object] = {"assets": {}}
 _browser_origins = {"http://localhost:3000", "http://127.0.0.1:3000"}
+_PROJECT_ROOT = Path(__file__).resolve().parents[3]
+
+
+def _runtime_path(environment_variable: str, default: str) -> Path:
+    """Resolve runtime data independently of the process working directory."""
+
+    configured = Path(os.getenv(environment_variable, default))
+    if configured.is_absolute():
+        return configured
+    return _PROJECT_ROOT / configured
 
 
 @app.get("/health")
@@ -57,8 +67,8 @@ def get_image(asset_id: str) -> FileResponse:
     relative_path = metadata.get("path")
     if not isinstance(relative_path, str):
         raise HTTPException(status_code=404, detail="image asset not found")
-    path = (Path("data") / relative_path).resolve()
-    image_root = (Path("data") / "assets" / "images").resolve()
+    path = (_PROJECT_ROOT / "data" / relative_path).resolve()
+    image_root = (_PROJECT_ROOT / "data" / "assets" / "images").resolve()
     if image_root not in path.parents or not path.is_file():
         raise HTTPException(status_code=404, detail="image asset not found")
     return FileResponse(path, media_type=str(metadata.get("mime_type", "application/octet-stream")))
@@ -136,7 +146,7 @@ async def voice(websocket: WebSocket) -> None:
 
 def _build_service() -> TroubleshootingService:
     global _image_manifest
-    chunks_root = Path(os.getenv("CHUNKS_ROOT", "data/chunks"))
+    chunks_root = _runtime_path("CHUNKS_ROOT", "data/chunks")
     _image_manifest = _load_image_manifest()
     chunks = load_vector_chunks(chunks_root)
     lexical = CombinedLexicalRetriever(
@@ -149,7 +159,9 @@ def _build_service() -> TroubleshootingService:
         lexical_retriever=lexical,
         parent_store=JsonlParentChunkStore.from_directory(chunks_root),
         answer_generator=_answer_generator(),
-        session_store=SqliteDiagnosticSessionStore(Path(os.getenv("SESSION_STORE_PATH", "data/index/diagnostic_sessions.sqlite3"))),
+        session_store=SqliteDiagnosticSessionStore(
+            _runtime_path("SESSION_STORE_PATH", "data/index/diagnostic_sessions.sqlite3")
+        ),
         image_manifest=_image_manifest,
     )
 
@@ -162,7 +174,7 @@ def _answer_generator() -> EvidenceOnlyAnswerGenerator | LiteLLMAnswerGenerator:
 
 
 def _load_image_manifest() -> dict[str, object]:
-    path = Path(os.getenv("IMAGE_MANIFEST", "data/assets/image_manifest.json"))
+    path = _runtime_path("IMAGE_MANIFEST", "data/assets/image_manifest.json")
     if not path.is_file():
         return {"assets": {}}
     try:

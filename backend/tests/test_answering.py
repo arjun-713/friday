@@ -8,7 +8,7 @@ from copilot.answering.litellm import InvalidAnswerError, LiteLLMAnswerGenerator
 from copilot.answering.models import DiagnosticSessionState, DiagnosticStep, TroubleshootingRequest
 from copilot.answering.service import TroubleshootingService, _assemble_evidence, _relevant_evidence
 from copilot.ingestion.models import ChunkKind, DocumentChunk, Evidence, RetrievalProfile, SourceDocument
-from copilot.main import app, get_troubleshooting_service
+from copilot.main import _runtime_path, app, get_troubleshooting_service
 from copilot.retrieval.contracts import MetadataFilter, VectorHit
 
 
@@ -144,6 +144,16 @@ def _service(hits: list[VectorHit]) -> TroubleshootingService:
         lexical_retriever=FakeLexicalRetriever(hits),
         parent_store=FakeParentStore([_chunk()]),
     )
+
+
+def test_runtime_paths_are_anchored_to_the_project_root(monkeypatch) -> None:
+    monkeypatch.delenv("CHUNKS_ROOT", raising=False)
+
+    path = _runtime_path("CHUNKS_ROOT", "data/chunks")
+
+    assert path.name == "chunks"
+    assert path.parent.name == "data"
+    assert path.is_absolute()
 
 
 def test_text_layer_returns_cited_evidence() -> None:
