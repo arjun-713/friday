@@ -4,7 +4,7 @@ import os
 from collections.abc import AsyncIterator
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 
@@ -21,6 +21,7 @@ from .retrieval.context_store import JsonlParentChunkStore
 from .retrieval.granite import GraniteEmbeddingProvider
 from .retrieval.indexer import load_vector_chunks
 from .retrieval.qdrant import QdrantSettings, QdrantVectorIndex
+from .voice.bridge import SarvamVoiceBridge
 
 app = FastAPI(title="Troubleshooting Copilot", version="0.1.0")
 app.add_middleware(
@@ -33,6 +34,7 @@ app.add_middleware(
 _service: TroubleshootingService | None = None
 _service_lock = asyncio.Lock()
 _image_manifest: dict[str, object] = {"assets": {}}
+_browser_origins = {"http://localhost:3000", "http://127.0.0.1:3000"}
 
 
 @app.get("/health")
@@ -66,7 +68,7 @@ async def get_troubleshooting_service() -> TroubleshootingService:
     if _service is None:
         async with _service_lock:
             if _service is None:
-                _service = _build_service()
+                _service = await asyncio.to_thread(_build_service)
     return _service
 
 
@@ -107,6 +109,20 @@ async def troubleshoot_stream(
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
     )
+
+
+@app.websocket("/v1/voice")
+async def voice(websocket: WebSocket) -> None:
+    """Keep Sarvam credentials server-side while supporting browser duplex audio."""
+
+    origin = websocket.headers.get("origin")
+    if origin is not None and origin not in _browser_origins:
+        await websocket.close(code=1008)
+        return
+    await websocket.accept()
+    await websocket.send_json({"type": "voice.connecting"})
+    service = await get_troubleshooting_service()
+    await SarvamVoiceBridge(service).serve(websocket, accepted=True)
 
 
 def _build_service() -> TroubleshootingService:

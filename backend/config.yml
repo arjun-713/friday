@@ -14,7 +14,7 @@ llm:
 
 voice:
   stt:
-    enabled: false
+    enabled: true
     model: saaras:v3-realtime
     language: en-IN
     mode: transcribe
@@ -27,7 +27,7 @@ voice:
     min_speech_ms: 250
     endpoint: wss://api.sarvam.ai/speech-to-text-realtime/ws
   tts:
-    enabled: false
+    enabled: true
     model: bulbul:v3
     language: en-IN
     speaker: manan

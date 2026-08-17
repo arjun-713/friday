@@ -29,6 +29,7 @@ import {
   type DiagnosticOption,
   type TroubleshootingResponse,
 } from "../lib/api";
+import { FridayVoiceClient, type VoiceEvent } from "../lib/voice";
 
 type Message = { id: string; role: "user" | "assistant"; text: string; meta?: string; response?: TroubleshootingResponse };
 type SessionState = "ready" | "listening" | "thinking" | "speaking" | "interrupted";
@@ -124,6 +125,9 @@ export default function Home() {
   const [apiError, setApiError] = useState<string | null>(null);
   const requestController = useRef<AbortController | null>(null);
   const messageSequence = useRef(0);
+  const voiceClient = useRef<FridayVoiceClient | null>(null);
+  const voiceAssistantId = useRef<string | null>(null);
+  const voiceStreamedJson = useRef("");
 
   function createMessageId(role: "user" | "assistant"): string {
     messageSequence.current += 1;
@@ -134,6 +138,7 @@ export default function Home() {
 
   function startNewSession(category = selectedCategory) {
     requestController.current?.abort();
+    void stopVoice();
     setSelectedCategory(category);
     setActiveSession("new");
     const nextSessionId = `session-${Date.now()}`;
@@ -149,6 +154,7 @@ export default function Home() {
 
   function chooseSession(session: Session) {
     requestController.current?.abort();
+    void stopVoice();
     setActiveSession(session.id);
     setSessionId(session.id);
     setCaseQuery(session.title);
@@ -270,13 +276,113 @@ export default function Home() {
     window.setTimeout(() => setCopied(false), 1400);
   }
 
+  function setAssistantPreview(id: string, text: string) {
+    const preview = streamedInstruction(text);
+    if (preview) {
+      setMessages((current) => current.map((message) => (message.id === id ? { ...message, text: preview } : message)));
+    }
+  }
+
+  function completeAssistant(id: string, response: TroubleshootingResponse) {
+    const answerText =
+      response.status === "ready"
+        ? response.step?.instruction ?? response.answer ?? "The manual does not provide an answer for this observation."
+        : response.missing_observations.length > 0
+          ? `I need one more observation: ${response.missing_observations.join(", ")}.`
+          : "I could not verify a safe next step from the available manuals.";
+    setMessages((current) => current.map((message) => (message.id === id ? { ...message, text: answerText, response } : message)));
+  }
+
+  function handleVoiceEvent(event: VoiceEvent) {
+    if (event.type === "speech.start") {
+      requestController.current?.abort();
+      setState("listening");
+      return;
+    }
+    if (event.type === "transcript.partial") {
+      setDraft(event.text);
+      setState("listening");
+      return;
+    }
+    if (event.type === "transcript.final") {
+      const assistantId = createMessageId("assistant");
+      voiceAssistantId.current = assistantId;
+      voiceStreamedJson.current = "";
+      setDraft("");
+      setSelectedAnswer(null);
+      setApiError(null);
+      setMessages((current) => [
+        ...current,
+        { id: createMessageId("user"), role: "user", text: event.text, meta: "just now" },
+        { id: assistantId, role: "assistant", text: "", meta: "just now" },
+      ]);
+      if (!caseQuery) setCaseQuery(event.text);
+      setState("thinking");
+      return;
+    }
+    if (event.type === "assistant.token" && voiceAssistantId.current) {
+      voiceStreamedJson.current += event.text;
+      setAssistantPreview(voiceAssistantId.current, voiceStreamedJson.current);
+      return;
+    }
+    if (event.type === "assistant.complete" && voiceAssistantId.current) {
+      completeAssistant(voiceAssistantId.current, event.response);
+      setState(event.response.status === "ready" ? "speaking" : "listening");
+      return;
+    }
+    if (event.type === "assistant.audio_complete") {
+      setState("listening");
+      return;
+    }
+    if (event.type === "assistant.cancelled") {
+      const id = voiceAssistantId.current;
+      if (id) setMessages((current) => current.filter((message) => message.id !== id || Boolean(message.response)));
+      voiceAssistantId.current = null;
+      voiceStreamedJson.current = "";
+      setState("listening");
+      return;
+    }
+    if (event.type === "voice.error") {
+      setApiError(event.message);
+      setState("interrupted");
+    }
+  }
+
+  async function startVoice() {
+    try {
+      if (voiceClient.current) return;
+      const client = new FridayVoiceClient(handleVoiceEvent);
+      voiceClient.current = client;
+      setState("listening");
+      await client.start({ sessionId, manufacturer: selectedCategory === "router" ? "TP-Link" : selectedCategory === "printer" ? "HP" : "Lenovo", model: selectedDevice.name });
+      setApiError(null);
+      setState("listening");
+    } catch (error) {
+      voiceClient.current = null;
+      setApiError(error instanceof Error ? error.message : "Could not start the microphone.");
+      setState("interrupted");
+    }
+  }
+
+  async function stopVoice() {
+    const client = voiceClient.current;
+    voiceClient.current = null;
+    await client?.stop();
+    setDraft("");
+    setState("ready");
+  }
+
   useEffect(() => {
     void runTroubleshoot(initialMessages[0].text, "", false);
-    return () => requestController.current?.abort();
+    return () => {
+      requestController.current?.abort();
+      void voiceClient.current?.stop();
+    };
   }, []);
 
   const isListening = state === "listening";
   const isThinking = state === "thinking";
+  const voiceConnected = voiceClient.current !== null;
 
   return (
     <main className="app-shell">
@@ -361,10 +467,10 @@ export default function Home() {
                 <input id="message" value={draft} onChange={(event) => setDraft(event.target.value)} placeholder={isListening ? "Voice input is ready; type if needed…" : "Describe what you see…"} />
                 <input className="sr-only" id="attachment" type="file" accept="image/*,.pdf,.txt" onChange={handleAttachment} />
                 <label className="attach-button" htmlFor="attachment"><Icon name="paperclip" /><span>Attach</span></label>
-                {isListening ? <button className="mic-button active" type="button" aria-label="Stop listening" onClick={() => setState("interrupted")}><Icon name="pause" /></button> : <button className={`mic-button ${draft ? "quiet" : "primary"}`} type="button" aria-label="Start voice input" onClick={() => setState("listening")}><Icon name="mic" /></button>}
+                {voiceConnected ? <button className="mic-button active" type="button" aria-label="Stop listening" onClick={() => void stopVoice()}><Icon name="pause" /></button> : <button className={`mic-button ${draft ? "quiet" : "primary"}`} type="button" aria-label="Start voice input" onClick={() => void startVoice()}><Icon name="mic" /></button>}
                 <button className="send-button visible" type="submit" aria-label="Send observation" disabled={!draft.trim()}><Icon name="send" /></button>
               </form>
-              {isListening && <div className="voice-status" role="status"><span className="waveform" aria-hidden="true"><i /><i /><i /><i /><i /></span><span>Listening for an observation</span><button type="button" onClick={() => setState("interrupted")}>Stop</button></div>}
+              {voiceConnected && <div className="voice-status" role="status"><span className="waveform" aria-hidden="true"><i /><i /><i /><i /><i /></span><span>{isListening ? "Listening — speak naturally; Friday will send the final transcript." : "Friday is responding — interrupt at any time."}</span><button type="button" onClick={() => void stopVoice()}>Stop</button></div>}
             </div>
           </div>
         </section>
