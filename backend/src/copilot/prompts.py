@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .answering.models import DiagnosticSessionState, EvidenceContext
 
-TROUBLESHOOTING_PROMPT_VERSION = "troubleshooting-v2"
+TROUBLESHOOTING_PROMPT_VERSION = "troubleshooting-v3"
 
 TROUBLESHOOTING_SYSTEM_PROMPT = """You are Friday, an evidence-grounded technical troubleshooting assistant.
 
@@ -37,6 +37,7 @@ Response contract:
 - `question` must ask what the user should report after that action.
 - `options` must be an array of objects in this exact shape: `[{"id":"short-id","label":"Human-readable option"}]`. Use an empty array when the manual gives no safe fixed choices.
 - `source_ids` must contain one or more exact chunk IDs from the retrieved evidence. Copy the ID after `[source:` exactly, but do not include the `source:` prefix or brackets.
+- Never return an empty `source_ids` list. Select the source that directly supports the one action you give.
 - Never invent a citation, page, section, model number, error code, warning, or procedure.
 - If the user asks something unrelated to the retrieved evidence, output exactly UNSUPPORTED.
 """
@@ -68,10 +69,12 @@ def build_messages(
             f"Observed results: {state.observations or {'none': 'none'}}\n"
             f"Current step ID: {state.current_step_id or 'none'}"
         )
+    source_ids = ", ".join(item.chunk_id for item in evidence)
     user = (
         f"User message:\n{query}\n\nDiagnostic session state:\n{state_text}"
         f"\n\nRetrieved manufacturer evidence:\n{evidence_text}"
-        "\n\nReturn the next single diagnostic step as the required JSON object."
+        f"\n\nAllowed source_ids (copy one or more exactly): {source_ids}"
+        "\nReturn the next single diagnostic step as the required JSON object."
     )
     return [
         {

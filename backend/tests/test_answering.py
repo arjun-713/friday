@@ -211,7 +211,44 @@ def test_litellm_generator_sends_evidence_and_accepts_known_citation() -> None:
     assert "[source:child-1]" in messages[1]["content"]
     assert "exactly one diagnostic step" in messages[0]["content"]
     assert "Do not use general world knowledge" in messages[0]["content"]
-    assert "troubleshooting-v2" in messages[0]["content"]
+    assert "troubleshooting-v3" in messages[0]["content"]
+
+
+def test_litellm_generator_uses_strict_schema_for_diagnostic_steps() -> None:
+    captured: dict[str, object] = {}
+
+    async def completion(**request):
+        captured.update(request)
+        return SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(
+                        content=(
+                            '{"title":"Check the cable","instruction":"Check the cable.",'
+                            '"question":"Did you find a problem?","options":[],"source_ids":["child-1"]}'
+                        )
+                    )
+                )
+            ]
+        )
+
+    generator = LiteLLMAnswerGenerator(
+        LiteLLMSettings(enabled=True, model="openai/sarvam-105b-conversations", response_format="json_schema"),
+        completion=completion,
+    )
+    asyncio.run(
+        generator.generate_step(
+            "The router cannot connect",
+            _assemble_evidence([_hit()], [_chunk()]),
+            DiagnosticSessionState(session_id="structured-output-test"),
+        )
+    )
+
+    response_format = captured["response_format"]
+    assert response_format["type"] == "json_schema"
+    schema = response_format["json_schema"]
+    assert schema["strict"] is True
+    assert schema["schema"]["properties"]["source_ids"]["minItems"] == 1
 
 
 def test_litellm_generator_rejects_unknown_citation() -> None:

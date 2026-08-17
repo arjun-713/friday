@@ -65,6 +65,36 @@ CompletionFunction = Callable[..., Awaitable[Any]]
 _SOURCE_MARKER = re.compile(r"\[source:([^\]]+)\]")
 _UNSUPPORTED = "UNSUPPORTED"
 
+_DIAGNOSTIC_STEP_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "title": {"type": "string"},
+        "instruction": {"type": "string"},
+        "question": {"type": "string"},
+        "options": {
+            "type": "array",
+            "maxItems": 6,
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "id": {"type": "string"},
+                    "label": {"type": "string"},
+                },
+                "required": ["id", "label"],
+            },
+        },
+        "source_ids": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 8,
+            "items": {"type": "string"},
+        },
+    },
+    "required": ["title", "instruction", "question", "options", "source_ids"],
+}
+
 
 class LiteLLMAnswerGenerator:
     """Generate one cited troubleshooting answer through LiteLLM's async SDK."""
@@ -171,7 +201,7 @@ class LiteLLMAnswerGenerator:
                 request["api_key"] = api_key
                 request["extra_headers"] = {"api-subscription-key": api_key}
         if structured and self.settings.response_format:
-            request["response_format"] = {"type": self.settings.response_format}
+            request["response_format"] = _response_format(self.settings.response_format)
         if self.settings.reasoning_effort:
             request["reasoning_effort"] = self.settings.reasoning_effort
         try:
@@ -259,6 +289,8 @@ def _canonical_source_id(value: object) -> str:
 
 def _validate_step(step: DiagnosticStep, evidence: Sequence[EvidenceContext]) -> None:
     known_ids = {item.chunk_id for item in evidence}
+    if not step.source_ids:
+        raise InvalidAnswerError("diagnostic step omitted source evidence")
     if any(source_id not in known_ids for source_id in step.source_ids):
         raise InvalidAnswerError("diagnostic step cited evidence outside the retrieved context")
     if len({option.id for option in step.options}) != len(step.options):
@@ -273,6 +305,26 @@ def _expand_step_citations(step: DiagnosticStep, evidence: Sequence[EvidenceCont
         for source_id in step.source_ids
     )
     return step.model_copy(update={"instruction": f"{step.instruction} {citation_text}"})
+
+
+def _response_format(mode: str) -> dict[str, object]:
+    """Use strict JSON Schema when the selected provider supports it.
+
+    JSON object mode remains available for OpenAI-compatible providers that do
+    not offer schema-constrained structured output.
+    """
+
+    if mode == "json_schema":
+        return {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "diagnostic_step",
+                "description": "One evidence-backed troubleshooting check.",
+                "strict": True,
+                "schema": _DIAGNOSTIC_STEP_SCHEMA,
+            },
+        }
+    return {"type": mode}
 
 
 def _validate_answer(answer: str, evidence: Sequence[EvidenceContext]) -> None:
