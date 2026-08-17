@@ -124,6 +124,18 @@ class QdrantVectorIndex(VectorIndex):
                 wait=True,
             )
 
+    async def delete(self, metadata_filter: MetadataFilter) -> None:
+        """Remove a bounded document scope before its chunks are regenerated."""
+
+        query_filter = _qdrant_filter(metadata_filter)
+        if query_filter is None:
+            raise ValueError("refusing to delete an unfiltered vector collection")
+        await self.client.delete(
+            collection_name=self.settings.collection_name,
+            points_selector=models.FilterSelector(filter=query_filter),
+            wait=True,
+        )
+
     async def search(
         self,
         vector: Sequence[float],

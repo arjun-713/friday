@@ -51,6 +51,8 @@ class VectorIndex(Protocol):
 
     async def upsert(self, records: Sequence[VectorRecord]) -> None: ...
 
+    async def delete(self, metadata_filter: MetadataFilter) -> None: ...
+
     async def search(
         self,
         vector: Sequence[float],

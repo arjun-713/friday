@@ -159,6 +159,28 @@ def test_structure_preserves_excluded_pages_without_creating_headings() -> None:
     assert [heading.title for heading in structured.headings] == ["Setup"]
 
 
+def test_structure_promotes_numbered_bold_faq_lines_to_section_headings() -> None:
+    structured = structure_document(
+        {
+            "source_file": "manual.json",
+            "pages": [
+                {
+                    "page_number": 1,
+                    "parser": "pdf-inspector",
+                    "text": "# Troubleshooting\n## Q2. Reset access\n**Q4. Internet is unavailable**\n1. Open Status.",
+                }
+            ],
+        }
+    )
+
+    assert [heading.section for heading in structured.headings] == [
+        "Troubleshooting",
+        "Troubleshooting > Q2. Reset access",
+        "Troubleshooting > Q4. Internet is unavailable",
+    ]
+    assert structured.pages[0].lines[-1].section == "Troubleshooting > Q4. Internet is unavailable"
+
+
 def test_procedure_extraction_preserves_steps_prerequisites_and_warnings() -> None:
     document = {
         "source_file": "manual.json",

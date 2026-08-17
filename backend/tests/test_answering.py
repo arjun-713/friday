@@ -40,6 +40,9 @@ class FakeVectorIndex:
     async def upsert(self, records) -> None:
         del records
 
+    async def delete(self, metadata_filter) -> None:
+        del metadata_filter
+
     async def search(
         self, vector, metadata_filter=None, limit=10, exact=False, candidate_count=None, score_threshold=None
     ):

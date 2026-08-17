@@ -35,6 +35,14 @@ class FakeIndex:
     async def upsert(self, records: Sequence[VectorRecord]) -> None:
         self.records.extend(records)
 
+    async def delete(self, metadata_filter: MetadataFilter) -> None:
+        required = metadata_filter.model_dump(exclude_none=True)
+        self.records = [
+            record
+            for record in self.records
+            if not all(record.payload.get(field) == value for field, value in required.items())
+        ]
+
     async def search(
         self,
         vector,
@@ -86,6 +94,19 @@ def test_vector_ingestion_selects_only_vector_profile_and_batches() -> None:
     assert indexed == 1
     assert vector_chunks(chunks) == [chunks[0]]
     assert len(index.records) == 1
+
+
+def test_vector_loader_can_scope_to_one_regenerated_document(tmp_path) -> None:
+    first = _chunk("first", RetrievalProfile.VECTOR)
+    second = _chunk("second", RetrievalProfile.VECTOR)
+    second.document.document_id = "other-manual"
+    path = tmp_path / "routers" / "manual.jsonl"
+    path.parent.mkdir()
+    path.write_text("\n".join(chunk.model_dump_json() for chunk in (first, second)), encoding="utf-8")
+
+    chunks = load_vector_chunks(tmp_path, document_id="other-manual")
+
+    assert [chunk.chunk_id for chunk in chunks] == ["second"]
 
 
 def test_hybrid_retrieval_applies_filter_and_abstains_without_hits() -> None:

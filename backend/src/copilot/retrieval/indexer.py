@@ -10,7 +10,7 @@ from pathlib import Path
 from time import perf_counter
 
 from ..ingestion.models import DocumentChunk, RetrievalProfile
-from .contracts import EmbeddingProvider, VectorIndex
+from .contracts import EmbeddingProvider, MetadataFilter, VectorIndex
 from .granite import GraniteEmbeddingProvider
 from .ingest import index_chunks
 from .qdrant import QdrantSettings, QdrantVectorIndex
@@ -31,6 +31,7 @@ class IndexingReport:
 def load_vector_chunks(
     chunks_root: Path = Path("data/chunks"),
     category: str | None = None,
+    document_id: str | None = None,
     limit: int | None = None,
 ) -> list[DocumentChunk]:
     """Load vector-profile chunks in stable path and line order."""
@@ -48,6 +49,8 @@ def load_vector_chunks(
             except (json.JSONDecodeError, ValueError) as error:
                 raise ValueError(f"invalid chunk at {path}:{line_number}") from error
             if RetrievalProfile.VECTOR in chunk.retrieval_profiles:
+                if document_id is not None and chunk.document.document_id != document_id:
+                    continue
                 chunks.append(chunk)
                 if limit is not None and len(chunks) >= limit:
                     return chunks
@@ -78,12 +81,15 @@ async def index_from_chunks(
 
 
 async def run_indexing(args: argparse.Namespace) -> IndexingReport:
-    chunks = load_vector_chunks(Path(args.chunks_root), args.category, args.limit)
+    chunks = load_vector_chunks(Path(args.chunks_root), args.category, args.document_id, args.limit)
     if not chunks:
         raise ValueError("no vector-profile chunks found")
     provider = GraniteEmbeddingProvider()
     index = QdrantVectorIndex(QdrantSettings(batch_size=args.qdrant_batch_size))
     try:
+        if args.document_id is not None:
+            await index.ensure_collection(provider.dimension)
+            await index.delete(MetadataFilter(document_id=args.document_id))
         report = await index_from_chunks(chunks, provider, index, args.embedding_batch_size)
     finally:
         await index.close()
@@ -104,6 +110,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--chunks-root", default="data/chunks")
     parser.add_argument("--category", choices=("computers", "routers", "printers"))
+    parser.add_argument("--document-id", help="replace and index one generated document scope")
     parser.add_argument("--limit", type=int, help="index only the first N vector chunks")
     parser.add_argument("--embedding-batch-size", type=int, default=8)
     parser.add_argument("--qdrant-batch-size", type=int, default=128)
