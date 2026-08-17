@@ -48,5 +48,5 @@ def test_source_registry_rejects_unregistered_manual(tmp_path: Path) -> None:
 
 
 def test_source_registry_file_contains_all_expected_entries() -> None:
-    registry = load_registry(Path("../config/source_registry.json"))
+    registry = load_registry(Path(__file__).resolve().parents[2] / "config" / "source_registry.json")
     assert len(registry) == 21
