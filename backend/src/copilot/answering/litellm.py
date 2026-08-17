@@ -197,9 +197,10 @@ class LiteLLMAnswerGenerator:
             api_key_env = "SARVAM_API_KEY"
         if api_key_env:
             api_key = os.getenv(api_key_env)
-            if api_key:
-                request["api_key"] = api_key
-                request["extra_headers"] = {"api-subscription-key": api_key}
+            if not api_key:
+                raise AnswerProviderUnavailable("configured LLM provider has no API key")
+            request["api_key"] = api_key
+            request["extra_headers"] = {"api-subscription-key": api_key}
         if structured and self.settings.response_format:
             request["response_format"] = _response_format(self.settings.response_format)
         if self.settings.reasoning_effort:

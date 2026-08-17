@@ -3,9 +3,15 @@ import json
 from collections.abc import Sequence
 from types import SimpleNamespace
 
+import pytest
 from fastapi.testclient import TestClient
 
-from copilot.answering.litellm import InvalidAnswerError, LiteLLMAnswerGenerator, LiteLLMSettings
+from copilot.answering.litellm import (
+    AnswerProviderUnavailable,
+    InvalidAnswerError,
+    LiteLLMAnswerGenerator,
+    LiteLLMSettings,
+)
 from copilot.answering.models import DiagnosticSessionState, DiagnosticStep, TroubleshootingRequest
 from copilot.answering.service import TroubleshootingService, _assemble_evidence, _relevant_evidence
 from copilot.ingestion.models import ChunkKind, DocumentChunk, Evidence, RetrievalProfile, SourceDocument
@@ -217,6 +223,36 @@ def test_text_layer_abstains_and_requests_device_observations() -> None:
     assert response.status == "abstained"
     assert response.answer is None
     assert response.missing_observations == ["manufacturer", "model"]
+
+
+def test_litellm_refuses_to_send_a_request_without_the_configured_key(monkeypatch) -> None:
+    monkeypatch.delenv("MISSING_PROVIDER_KEY", raising=False)
+
+    async def completion(**request):
+        raise AssertionError(f"provider call must not happen without a key: {request}")
+
+    generator = LiteLLMAnswerGenerator(
+        LiteLLMSettings(enabled=True, model="openai/example", api_key_env="MISSING_PROVIDER_KEY"),
+        completion=completion,
+    )
+
+    with pytest.raises(AnswerProviderUnavailable, match="no API key"):
+        asyncio.run(
+            generator.generate_step(
+                "The router cannot connect",
+                _assemble_evidence([_hit()], [_chunk()]),
+                DiagnosticSessionState(session_id="key-check"),
+            )
+        )
+
+
+def test_health_reports_configuration_state_without_contacting_providers() -> None:
+    payload = TestClient(app).get("/health").json()
+
+    assert payload["phase"] == "conversational-troubleshooting"
+    assert payload["components"]["retrieval"] == "configured"
+    assert payload["components"]["llm"] in {"configured", "not_configured"}
+    assert payload["components"]["voice"] in {"configured", "not_configured"}
 
 
 def test_text_endpoint_returns_typed_response_without_qdrant() -> None:
@@ -499,7 +535,9 @@ def test_sarvam_litellm_request_uses_compatible_endpoint_and_structured_output(m
             completion=completion,
         )
         await generator.generate_step(
-            "The router cannot connect", _assemble_evidence([_hit()], [_chunk()]), DiagnosticSessionState(session_id="test")
+            "The router cannot connect",
+            _assemble_evidence([_hit()], [_chunk()]),
+            DiagnosticSessionState(session_id="test"),
         )
 
     asyncio.run(run())

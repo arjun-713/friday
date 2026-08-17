@@ -17,6 +17,8 @@ from .answering import (
     TroubleshootingResponse,
     TroubleshootingService,
 )
+from .answering.litellm import AnswerProviderUnavailable
+from .config import config_section, load_runtime_config
 from .retrieval.bm25 import CombinedLexicalRetriever, InMemoryBM25Retriever, InMemoryExactIdentifierRetriever
 from .retrieval.context_store import JsonlParentChunkStore
 from .retrieval.granite import GraniteEmbeddingProvider
@@ -49,8 +51,20 @@ def _runtime_path(environment_variable: str, default: str) -> Path:
 
 
 @app.get("/health")
-def health() -> dict[str, str]:
-    return {"status": "ok", "phase": "conversational-troubleshooting"}
+def health() -> dict[str, object]:
+    """Report local configuration state without making paid provider calls."""
+
+    llm_ready = _answer_provider_configured()
+    voice_ready = _voice_provider_configured()
+    return {
+        "status": "ok" if llm_ready else "degraded",
+        "phase": "conversational-troubleshooting",
+        "components": {
+            "retrieval": "configured",
+            "llm": "configured" if llm_ready else "not_configured",
+            "voice": "configured" if voice_ready else "not_configured",
+        },
+    }
 
 
 @app.get("/v1/devices")
@@ -89,7 +103,9 @@ def supported_devices() -> dict[str, list[dict[str, str]]]:
             continue
         key = (category, manufacturer.strip(), model.strip())
         devices[key] = {"category": category, "manufacturer": manufacturer.strip(), "model": model.strip()}
-    return {"devices": sorted(devices.values(), key=lambda item: (item["category"], item["manufacturer"], item["model"]))}
+    return {
+        "devices": sorted(devices.values(), key=lambda item: (item["category"], item["manufacturer"], item["model"]))
+    }
 
 
 @app.get("/v1/assets/images/{asset_id}")
@@ -132,10 +148,16 @@ async def troubleshoot(
 ) -> TroubleshootingResponse:
     try:
         return await service.answer(request)
+    except AnswerProviderUnavailable as error:
+        raise HTTPException(
+            status_code=503, detail="The answer provider is not configured or temporarily unavailable"
+        ) from error
     except (ConnectionError, TimeoutError) as error:
         raise HTTPException(status_code=503, detail="retrieval service is unavailable") from error
     except Exception as error:
-        raise HTTPException(status_code=502, detail="answer provider failed while checking the retrieved manual evidence") from error
+        raise HTTPException(
+            status_code=502, detail="answer provider failed while checking the retrieved manual evidence"
+        ) from error
 
 
 @app.post("/v1/troubleshoot/stream")
@@ -147,6 +169,8 @@ async def troubleshoot_stream(
         try:
             async for event in service.stream_answer(request):
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+        except AnswerProviderUnavailable:
+            yield f"data: {json.dumps({'type': 'error', 'message': 'The answer provider is not configured or temporarily unavailable'})}\n\n"
         except (ConnectionError, TimeoutError) as error:
             yield f"data: {json.dumps({'type': 'error', 'message': 'retrieval service is unavailable'})}\n\n"
             del error
@@ -210,6 +234,24 @@ def _answer_generator() -> EvidenceOnlyAnswerGenerator | LiteLLMAnswerGenerator:
     if settings.enabled:
         return LiteLLMAnswerGenerator(settings)
     return EvidenceOnlyAnswerGenerator()
+
+
+def _answer_provider_configured() -> bool:
+    settings = LiteLLMSettings.from_env()
+    if not settings.enabled:
+        return True
+    api_key_env = settings.api_key_env
+    if api_key_env is None and "sarvam" in settings.model.casefold():
+        api_key_env = "SARVAM_API_KEY"
+    return bool(api_key_env and os.getenv(api_key_env))
+
+
+def _voice_provider_configured() -> bool:
+    settings = load_runtime_config()
+    stt = config_section(settings, "voice.stt")
+    tts = config_section(settings, "voice.tts")
+    voice_enabled = bool(stt.get("enabled", False)) and bool(tts.get("enabled", False))
+    return voice_enabled and bool(os.getenv("SARVAM_API_KEY"))
 
 
 def _load_image_manifest() -> dict[str, object]:
