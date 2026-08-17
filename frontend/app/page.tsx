@@ -83,16 +83,6 @@ function restoreSessions(raw: unknown): Session[] {
   });
 }
 
-function streamedInstruction(json: string): string {
-  const match = json.match(/"instruction"\s*:\s*"((?:\\.|[^"\\])*)/);
-  if (!match) return "";
-  try {
-    return JSON.parse(`"${match[1]}"`) as string;
-  } catch {
-    return "";
-  }
-}
-
 const deviceProfiles = {
   laptop: { name: "ThinkPad T480", detail: "Laptop / Desktop", icon: "laptop" as const },
   router: { name: "TP-Link Archer C6", detail: "Wi-Fi Router", icon: "router" as const },
@@ -148,7 +138,6 @@ export default function Home() {
   const messageSequence = useRef(0);
   const voiceClient = useRef<FridayVoiceClient | null>(null);
   const voiceAssistantId = useRef<string | null>(null);
-  const voiceStreamedJson = useRef("");
   const composerInput = useRef<HTMLTextAreaElement | null>(null);
 
   function resizeComposer() {
@@ -238,7 +227,6 @@ export default function Home() {
     try {
       const assistantId = createMessageId("assistant");
       setMessages((current) => [...current, { id: assistantId, role: "assistant", text: "", meta: "just now" }]);
-      let streamedJson = "";
       let completed: TroubleshootingResponse | null = null;
       await troubleshootStream(
         {
@@ -251,11 +239,9 @@ export default function Home() {
         },
         (event) => {
           if (event.type === "token") {
-            streamedJson += event.text;
-            const preview = streamedInstruction(streamedJson);
-            if (preview) {
-              setMessages((current) => current.map((message) => (message.id === assistantId ? { ...message, text: preview } : message)));
-            }
+            // The generator streams a JSON object. Do not render its partial
+            // instruction before the server has verified source IDs and schema.
+            // The visible "Checking the manual" state is clearer and safer.
           }
           if (event.type === "complete") {
             completed = event.response;
@@ -335,13 +321,6 @@ export default function Home() {
     window.setTimeout(() => setCopied(false), 1400);
   }
 
-  function setAssistantPreview(id: string, text: string) {
-    const preview = streamedInstruction(text);
-    if (preview) {
-      setMessages((current) => current.map((message) => (message.id === id ? { ...message, text: preview } : message)));
-    }
-  }
-
   function completeAssistant(id: string, response: TroubleshootingResponse) {
     const answerText =
       response.status === "ready"
@@ -366,7 +345,6 @@ export default function Home() {
     if (event.type === "transcript.final") {
       const assistantId = createMessageId("assistant");
       voiceAssistantId.current = assistantId;
-      voiceStreamedJson.current = "";
       setDraft("");
       setSelectedAnswer(null);
       setApiError(null);
@@ -385,8 +363,8 @@ export default function Home() {
       return;
     }
     if (event.type === "assistant.token" && voiceAssistantId.current) {
-      voiceStreamedJson.current += event.text;
-      setAssistantPreview(voiceAssistantId.current, voiceStreamedJson.current);
+      // Keep partial structured output off-screen until its citations have
+      // passed backend validation. Voice still receives the final step.
       return;
     }
     if (event.type === "assistant.complete" && voiceAssistantId.current) {
@@ -402,7 +380,6 @@ export default function Home() {
       const id = voiceAssistantId.current;
       if (id) setMessages((current) => current.filter((message) => message.id !== id || Boolean(message.response)));
       voiceAssistantId.current = null;
-      voiceStreamedJson.current = "";
       setState("listening");
       return;
     }
@@ -543,7 +520,7 @@ export default function Home() {
 
             <div className="message-list" aria-live="polite">
               {messages.length === 0 && <div className="empty-thread"><h2>Describe the problem to start.</h2><p>Use your own words. Friday will ask for one observation at a time.</p></div>}
-              {messages.map((message) => (
+              {messages.filter((message) => message.role !== "assistant" || message.text || message.response).map((message) => (
                 <article className={`message ${message.role}`} key={message.id}>
                   {message.role === "user" && <div className="message-meta"><span>You</span><span>{message.meta}</span></div>}
                   {message.role === "user" && <p>{message.text}</p>}
