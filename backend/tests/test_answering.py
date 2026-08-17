@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 from copilot.answering.litellm import InvalidAnswerError, LiteLLMAnswerGenerator, LiteLLMSettings
 from copilot.answering.models import DiagnosticSessionState, DiagnosticStep, TroubleshootingRequest
-from copilot.answering.service import TroubleshootingService, _assemble_evidence
+from copilot.answering.service import TroubleshootingService, _assemble_evidence, _relevant_evidence
 from copilot.ingestion.models import ChunkKind, DocumentChunk, Evidence, RetrievalProfile, SourceDocument
 from copilot.main import app, get_troubleshooting_service
 from copilot.retrieval.contracts import MetadataFilter, VectorHit
@@ -645,3 +645,16 @@ def test_session_uses_query_as_acknowledgement_when_observation_is_omitted() -> 
     assert first.step is not None
     assert second.step == first.step
     assert second.retrieval.reason == "awaiting_current_observation"
+
+
+def test_broad_print_failure_excludes_unreported_conditional_manual_branches() -> None:
+    evidence = _assemble_evidence([_hit()], [_chunk()])
+    conditional = evidence[0].model_copy(update={"section": "The printer does not print after wireless configuration"})
+    generic = evidence[0].model_copy(update={"section": "Solve problems"})
+
+    filtered = _relevant_evidence(
+        [conditional, generic],
+        TroubleshootingRequest(query="The printer will not print", manufacturer="Example", model="Example 1"),
+    )
+
+    assert filtered == []

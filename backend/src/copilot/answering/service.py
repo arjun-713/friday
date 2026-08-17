@@ -133,14 +133,15 @@ class TroubleshootingService:
             )
 
         evidence = _assemble_evidence(result.hits, result.parents)
+        evidence = _relevant_evidence(evidence, request)
         if not evidence:
             return TroubleshootingResponse(
                 status="abstained",
                 session_id=request.session_id,
-                missing_observations=_missing_observations(request),
+                missing_observations=_missing_observations(request, require_symptom_detail=True),
                 retrieval=RetrievalSummary(
                     abstained=True,
-                    reason="retrieved_chunks_have_no_citation_evidence",
+                    reason="retrieved_evidence_not_specific_to_symptom",
                     timings_ms=result.timings_ms,
                 ),
             )
@@ -220,16 +221,17 @@ class TroubleshootingService:
             }
             return
         evidence = _assemble_evidence(result.hits, result.parents)
+        evidence = _relevant_evidence(evidence, request)
         if not evidence:
             yield {
                 "type": "complete",
                 "response": TroubleshootingResponse(
                     status="abstained",
                     session_id=request.session_id,
-                    missing_observations=_missing_observations(request),
+                    missing_observations=_missing_observations(request, require_symptom_detail=True),
                     retrieval=RetrievalSummary(
                         abstained=True,
-                        reason="retrieved_chunks_have_no_citation_evidence",
+                        reason="retrieved_evidence_not_specific_to_symptom",
                         timings_ms=result.timings_ms,
                     ),
                 ).model_dump(),
@@ -378,12 +380,16 @@ def _citation(hit: VectorHit, parent: DocumentChunk | None) -> Citation | None:
     )
 
 
-def _missing_observations(request: TroubleshootingRequest) -> list[str]:
+def _missing_observations(
+    request: TroubleshootingRequest, *, require_symptom_detail: bool = False
+) -> list[str]:
     missing: list[str] = []
     if not request.manufacturer:
         missing.append("manufacturer")
     if not request.model:
         missing.append("model")
+    if require_symptom_detail and _is_broad_print_failure(request.query):
+        missing.append("any message or error code shown on the printer control panel")
     return missing
 
 
@@ -394,6 +400,54 @@ def _retrieval_query(request: TroubleshootingRequest) -> str:
     if request.selected_option:
         parts.append(f"Selected result: {request.selected_option}")
     return " ".join(parts)
+
+
+def _relevant_evidence(
+    evidence: Sequence[EvidenceContext], request: TroubleshootingRequest
+) -> list[EvidenceContext]:
+    """Keep conditional manual branches out of an unqualified symptom report.
+
+    A heading such as "does not print after wireless configuration" is useful
+    only after the user has said the printer is on Wi-Fi. Selecting it for a
+    generic "won't print" report produces a plausible but misleading repair
+    path. This intentionally small deterministic guard asks for the missing
+    observation instead.
+    """
+
+    if not _is_broad_print_failure(request.query):
+        return list(evidence)
+    query = request.query.casefold()
+    condition_groups = (
+        (("wireless", "wi-fi", "wifi", "wlan"), ("wireless", "wi-fi", "wifi", "wlan")),
+        (("firewall",), ("firewall",)),
+        (("multiple sheets", "misfeed", "pick up paper", "paper feed"), ("multiple sheets", "misfeed", "pick up paper", "paper feed")),
+        (("print quality", "image defect", "toner", "streak", "blur", "blank page"), ("print quality", "image defect", "toner", "streak", "blur", "blank page")),
+        (("job storage", "stored job", "private print", "delayed print"), ("job storage", "stored job", "private print", "delayed print")),
+    )
+    relevant: list[EvidenceContext] = []
+    for item in evidence:
+        haystack = f"{item.section}\n{item.content}".casefold()
+        section = item.section.casefold()
+        if "does not print" not in section and "cannot print" not in section:
+            continue
+        if any(
+            any(term in haystack for term in evidence_terms) and not any(term in query for term in query_terms)
+            for evidence_terms, query_terms in condition_groups
+        ):
+            continue
+        # A generic failure does not establish a manual branch whose heading
+        # itself depends on a circumstance the user did not report.
+        if "after " in section:
+            continue
+        relevant.append(item)
+    return relevant
+
+
+def _is_broad_print_failure(query: str) -> bool:
+    normalized = query.casefold()
+    return "print" in normalized and any(
+        term in normalized for term in ("not", "cannot", "unable", "won't", "wont", "fails", "offline")
+    )
 
 
 def _images_for_evidence(manifest: dict[str, object], evidence: Sequence[EvidenceContext]) -> list[ManualImage]:
