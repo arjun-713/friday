@@ -49,6 +49,8 @@ DEEPSEEK_API_KEY=...
 
 The backend sends only retrieved evidence to the model. Responses must cite a retrieved chunk; the server expands that marker into the document title, page, and section, and abstains when the model returns `UNSUPPORTED` or an unknown citation. Provider failures are returned as service-unavailable errors without logging credentials or prompt contents.
 
+The planned realtime voice configuration uses Sarvam Saaras v3 realtime STT. It is disabled by default and keeps the API key backend-only. The initial settings are 16 kHz linear16 audio, `fast` streaming, VAD endpointing, 500 ms silence detection, and a 250 ms minimum speech duration. The WebSocket transport is implemented separately from this configuration so STT provider setup does not become coupled to the text answer path.
+
 Create auditable cleaned output without changing the raw JSON:
 
 ```bash
