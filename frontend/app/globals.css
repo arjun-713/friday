@@ -334,6 +334,11 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid 
 .waveform i:nth-of-type(4) { animation-delay: -700ms; height: 7px; }
 .waveform i:nth-of-type(5) { animation-delay: -350ms; height: 13px; }
 @keyframes waveform { from { transform: scaleY(0.65); opacity: 0.55; } to { transform: scaleY(1); opacity: 1; } }
+.voice-status { display: flex; align-items: center; gap: 9px; margin-top: 8px; color: var(--signal-dark); font-size: 11px; }
+.voice-status .waveform { min-width: 28px; flex: 0 0 auto; }
+.voice-status .waveform i { height: 9px; }
+.voice-status button { margin-left: auto; padding: 0; border: 0; background: transparent; color: var(--ink-soft); font-size: 11px; text-decoration: underline; text-underline-offset: 3px; }
+.voice-status button:hover { color: var(--ink); }
 .diagnostic-rail { padding: 34px clamp(18px, 2vw, 28px) 26px; }
 .rail-header { padding-bottom: 25px; }
 .rail-header h2 { margin: 0; font-size: 21px; }

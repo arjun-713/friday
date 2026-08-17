@@ -137,6 +137,8 @@ export default function Home() {
     setSelectedAnswer(null);
     setState("ready");
     setApiError(null);
+    setWhyOpen(false);
+    setEvidenceOpen(false);
   }
 
   function chooseSession(session: Session) {
@@ -149,6 +151,8 @@ export default function Home() {
     setSelectedAnswer(null);
     setState("ready");
     setApiError(null);
+    setWhyOpen(false);
+    setEvidenceOpen(false);
   }
 
   async function runTroubleshoot(
@@ -207,7 +211,11 @@ export default function Home() {
       setState("ready");
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") return;
-      setApiError(error instanceof TroubleshootingApiError ? error.message : "The troubleshooting service could not be reached.");
+      setApiError(
+        error instanceof TroubleshootingApiError
+          ? error.message
+          : "The request failed before Friday received a response. Check that the backend is running on port 8000.",
+      );
       setMessages((current) => current.filter((message) => message.text || message.role === "user"));
       setState("interrupted");
     }
@@ -305,7 +313,7 @@ export default function Home() {
         <section className="conversation" id="conversation" aria-labelledby="conversation-title">
           <div className="troubleshooting-thread">
             <div className="conversation-header">
-              <div><span className="case-context">WI-FI ROUTER / TP-LINK ARCHER C6</span><h1 id="conversation-title">Wi-Fi visible, no internet</h1></div>
+              <div><span className="case-context">{selectedDevice.detail.toUpperCase()} / {selectedDevice.name.toUpperCase()}</span><h1 id="conversation-title">{caseQuery || "New troubleshooting session"}</h1></div>
               <div className="session-menu-wrap">
                 <button className="session-menu-button" type="button" aria-label="Session actions" aria-expanded={sessionMenuOpen} onClick={() => setSessionMenuOpen((open) => !open)}><Icon name="more" /></button>
                 {sessionMenuOpen && <div className="session-menu" role="menu"><button type="button">Rename session</button><button type="button" onClick={() => setMessages([])}>Start over</button><button type="button" onClick={() => setMessages([])}>Clear conversation</button></div>}
@@ -344,21 +352,22 @@ export default function Home() {
               {attachment && <div className="composer-attachment"><Icon name="paperclip" /><span>{attachment}</span><button type="button" aria-label="Remove attachment" onClick={() => setAttachment(null)}>×</button></div>}
               <form className={`composer ${isListening ? "listening" : ""}`} onSubmit={submitMessage}>
                 <label className="sr-only" htmlFor="message">Describe what you see</label>
-                {isListening ? <div className="waveform" aria-live="polite"><span>Listening</span><i /><i /><i /><i /><i /></div> : <input id="message" value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Describe what you see…" />}
+                <input id="message" value={draft} onChange={(event) => setDraft(event.target.value)} placeholder={isListening ? "Voice input is ready; type if needed…" : "Describe what you see…"} />
                 <input className="sr-only" id="attachment" type="file" accept="image/*,.pdf,.txt" onChange={handleAttachment} />
                 <label className="attach-button" htmlFor="attachment"><Icon name="paperclip" /><span>Attach</span></label>
                 {isListening ? <button className="mic-button active" type="button" aria-label="Stop listening" onClick={() => setState("interrupted")}><Icon name="pause" /></button> : <button className={`mic-button ${draft ? "quiet" : "primary"}`} type="button" aria-label="Start voice input" onClick={() => setState("listening")}><Icon name="mic" /></button>}
-                {!isListening && <button className={`send-button ${draft ? "visible" : ""}`} type="submit" aria-label="Send observation" disabled={!draft.trim()}><Icon name="send" /></button>}
+                <button className="send-button visible" type="submit" aria-label="Send observation" disabled={!draft.trim()}><Icon name="send" /></button>
               </form>
+              {isListening && <div className="voice-status" role="status"><span className="waveform" aria-hidden="true"><i /><i /><i /><i /><i /></span><span>Listening for an observation</span><button type="button" onClick={() => setState("interrupted")}>Stop</button></div>}
             </div>
           </div>
         </section>
 
         <aside className={`diagnostic-rail ${evidenceOpen ? "mobile-open" : ""}`} aria-label="Evidence ledger">
           <div className="rail-header"><h2>What we know</h2><button className="rail-toggle" type="button" aria-label="Collapse evidence ledger"><Icon name="chevron" /></button></div>
-          <div className="rail-section"><div className="rail-label">OBSERVED</div><ul className="observation-list"><li><span className="observation-dot done" /> <span>Router has power</span></li><li><span className="observation-dot done" /> <span>Wi-Fi network is visible</span></li></ul></div>
-          <div className="rail-section"><div className="rail-label">{selectedAnswer ? "OBSERVED" : "NEED TO VERIFY"}</div><ul className="observation-list"><li className={selectedAnswer ? "observation-known" : ""}><span className={`observation-dot ${selectedAnswer ? "done" : "pending"}`} /> <span>{selectedAnswer ? `WAN light ${selectedAnswer.toLowerCase()}` : "WAN light state"}</span></li></ul></div>
-          <div className="rail-section evidence-section"><div className="rail-label">MANUAL EVIDENCE</div><div className="evidence-card"><strong>Archer C6 User Guide</strong><span>Page 42 · LED descriptions</span><ManualFigure compact /><a href="#source">Open page 42 <Icon name="arrow" /></a></div></div>
+          <div className="rail-section"><div className="rail-label">OBSERVED</div><ul className="observation-list"><li><span className="observation-dot done" /> <span>{selectedCategory === "router" ? "Router has power" : `${selectedDevice.detail} selected`}</span></li>{selectedCategory === "router" && <li><span className="observation-dot done" /> <span>Wi-Fi network is visible</span></li>}</ul></div>
+          <div className="rail-section"><div className="rail-label">{selectedAnswer ? "OBSERVED" : "NEED TO VERIFY"}</div><ul className="observation-list"><li className={selectedAnswer ? "observation-known" : ""}><span className={`observation-dot ${selectedAnswer ? "done" : "pending"}`} /> <span>{selectedAnswer ? selectedAnswer : "Friday's next observation"}</span></li></ul></div>
+          <div className="rail-section evidence-section"><div className="rail-label">MANUAL EVIDENCE</div><div className="evidence-card"><strong>{selectedCategory === "router" ? "Archer C6 User Guide" : `${selectedDevice.name} manual`}</strong><span>{selectedCategory === "router" ? "Retrieved source evidence" : "Evidence appears after the first check"}</span>{selectedCategory === "router" && <ManualFigure compact />}<a href="#source">Open cited source <Icon name="arrow" /></a></div></div>
         </aside>
       </div>
     </main>
