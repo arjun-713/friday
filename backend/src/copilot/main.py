@@ -5,6 +5,7 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 
 from .answering import (
@@ -22,6 +23,13 @@ from .retrieval.indexer import load_vector_chunks
 from .retrieval.qdrant import QdrantSettings, QdrantVectorIndex
 
 app = FastAPI(title="Troubleshooting Copilot", version="0.1.0")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Content-Type", "Accept", "Authorization"],
+)
 _service: TroubleshootingService | None = None
 _service_lock = asyncio.Lock()
 _image_manifest: dict[str, object] = {"assets": {}}
@@ -74,6 +82,8 @@ async def troubleshoot(
         return await service.answer(request)
     except (ConnectionError, TimeoutError) as error:
         raise HTTPException(status_code=503, detail="retrieval service is unavailable") from error
+    except Exception as error:
+        raise HTTPException(status_code=502, detail="answer provider failed while checking the retrieved manual evidence") from error
 
 
 @app.post("/v1/troubleshoot/stream")
@@ -87,6 +97,9 @@ async def troubleshoot_stream(
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
         except (ConnectionError, TimeoutError) as error:
             yield f"data: {json.dumps({'type': 'error', 'message': 'retrieval service is unavailable'})}\n\n"
+            del error
+        except Exception as error:
+            yield f"data: {json.dumps({'type': 'error', 'message': 'answer provider failed while checking the retrieved manual evidence'})}\n\n"
             del error
 
     return StreamingResponse(
