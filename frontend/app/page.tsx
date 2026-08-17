@@ -83,11 +83,19 @@ function restoreSessions(raw: unknown): Session[] {
   });
 }
 
-const deviceProfiles = {
-  laptop: { name: "ThinkPad T480", detail: "Laptop / Desktop", icon: "laptop" as const },
-  router: { name: "TP-Link Archer C6", detail: "Wi-Fi Router", icon: "router" as const },
-  printer: { name: "LaserJet Pro M404/M405", detail: "Printer", icon: "printer" as const },
+type DeviceProfile = { manufacturer: string; name: string; category: DeviceCategory; detail: string; icon: IconName };
+const deviceCategories: Record<DeviceCategory, { label: string; icon: IconName }> = {
+  laptop: { label: "Laptop / Desktop", icon: "laptop" },
+  router: { label: "Wi-Fi Router", icon: "router" },
+  printer: { label: "Printer", icon: "printer" },
 };
+// Derived from the ingested public-manual registry. Each option is therefore a
+// model Friday can actually retrieve and cite, not a demonstration placeholder.
+const deviceCatalog: DeviceProfile[] = [
+  ["Dell", "Latitude 7490", "laptop"], ["Dell", "OptiPlex 7060 SFF", "laptop"], ["HP", "EliteBook 855 G8", "laptop"], ["HP", "EliteDesk 800 G5 SFF", "laptop"], ["Lenovo", "ThinkPad T14 Gen 3 / P14s Gen 3", "laptop"],
+  ["TP-Link", "Archer C6", "router"], ["TP-Link", "Archer C1200", "router"], ["NETGEAR", "Nighthawk RAX40", "router"], ["NETGEAR", "Orbi RBK752", "router"], ["ASUS", "RT-AX3000", "router"], ["ASUS", "RT-BE58U", "router"], ["Linksys", "MR7300 Series", "router"], ["Linksys", "E9450", "router"],
+  ["HP", "LaserJet Pro M404/M405", "printer"], ["HP", "LaserJet 1022 Series", "printer"], ["Brother", "HL-L2350DW Series", "printer"], ["Epson", "ET-2800 / ET-2803", "printer"], ["Epson", "L3150", "printer"], ["Canon", "G2000 Series", "printer"], ["Canon", "TS5300 Series", "printer"],
+].map(([manufacturer, name, category]) => ({ manufacturer, name, category: category as DeviceCategory, detail: deviceCategories[category as DeviceCategory].label, icon: deviceCategories[category as DeviceCategory].icon }));
 
 type IconName = "arrow" | "mic" | "send" | "check" | "pause" | "chevron" | "laptop" | "router" | "printer" | "external" | "manual" | "more" | "paperclip" | "user" | "regenerate" | "like" | "dislike" | "copy";
 const iconMap: Record<IconName, ComponentType<SVGProps<SVGSVGElement>>> = {
@@ -126,6 +134,7 @@ export default function Home() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [sessionsHydrated, setSessionsHydrated] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<DeviceCategory>("router");
+  const [selectedModel, setSelectedModel] = useState("Archer C6");
   const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
   const [whyOpen, setWhyOpen] = useState(false);
   const [sessionMenuOpen, setSessionMenuOpen] = useState(false);
@@ -156,12 +165,14 @@ export default function Home() {
     return `${role}-${uniquePart}`;
   }
 
-  const selectedDevice = deviceProfiles[selectedCategory];
+  const selectedDevice = deviceCatalog.find((device) => device.category === selectedCategory && device.name === selectedModel) ?? deviceCatalog[0];
+  const devicesInCategory = deviceCatalog.filter((device) => device.category === selectedCategory);
 
-  function startNewSession(category = selectedCategory) {
+  function startNewSession(category = selectedCategory, model?: string) {
     requestController.current?.abort();
     void stopVoice();
     setSelectedCategory(category);
+    setSelectedModel(model ?? deviceCatalog.find((device) => device.category === category)?.name ?? selectedModel);
     setActiveSession("new");
     const nextSessionId = `session-${globalThis.crypto?.randomUUID?.() ?? Date.now()}`;
     setSessionId(nextSessionId);
@@ -182,6 +193,7 @@ export default function Home() {
     setSessionId(session.id);
     setCaseQuery(session.title);
     setSelectedCategory(session.category);
+    setSelectedModel(session.device);
     setMessages(session.messages);
     setSelectedAnswer(session.selectedAnswer);
     setState("ready");
@@ -223,7 +235,7 @@ export default function Home() {
       }
     }
 
-    const manufacturer = selectedCategory === "router" ? "TP-Link" : selectedCategory === "printer" ? "HP" : "Lenovo";
+    const manufacturer = selectedDevice.manufacturer;
     try {
       const assistantId = createMessageId("assistant");
       setMessages((current) => [...current, { id: assistantId, role: "assistant", text: "", meta: "just now" }]);
@@ -401,7 +413,7 @@ export default function Home() {
       const client = new FridayVoiceClient(handleVoiceEvent);
       voiceClient.current = client;
       setState("listening");
-      await client.start({ sessionId, manufacturer: selectedCategory === "router" ? "TP-Link" : selectedCategory === "printer" ? "HP" : "Lenovo", model: selectedDevice.name });
+      await client.start({ sessionId, manufacturer: selectedDevice.manufacturer, model: selectedDevice.name });
       setApiError(null);
       setState("listening");
     } catch (error) {
@@ -480,16 +492,16 @@ export default function Home() {
         <aside className="session-sidebar" aria-label="Device and troubleshooting sessions">
           <div className="device-picker">
             <span className="sidebar-title">DEVICE CATEGORIES</span>
-            {Object.entries(deviceProfiles).map(([category, device]) => (
+            {Object.entries(deviceCategories).map(([category, device]) => (
               <button className={`device-category ${selectedCategory === category ? "selected" : ""}`} key={category} type="button" onClick={() => startNewSession(category as DeviceCategory)}>
-                <Icon name={device.icon} /><span>{device.detail}</span>
+                <Icon name={device.icon} /><span>{device.label}</span>
               </button>
             ))}
           </div>
 
           <div className="current-device">
             <span className="sidebar-title">CURRENT DEVICE</span>
-            <div className="current-device-card"><span className="current-device-image"><Icon name={selectedDevice.icon} /></span><div><strong>{selectedDevice.name}</strong><span>{selectedDevice.detail}</span><button type="button" onClick={() => startNewSession()}>Change</button></div></div>
+            <div className="current-device-card"><span className="current-device-image"><Icon name={selectedDevice.icon} /></span><div><strong>{selectedDevice.manufacturer} {selectedDevice.name}</strong><span>{selectedDevice.detail}</span><label className="device-model-select"><span className="sr-only">Select a supported device model</span><select value={selectedDevice.name} onChange={(event) => startNewSession(selectedCategory, event.target.value)}>{devicesInCategory.map((device) => <option key={`${device.manufacturer}-${device.name}`} value={device.name}>{device.manufacturer} {device.name}</option>)}</select></label></div></div>
           </div>
 
           <button className="new-session-quiet" type="button" onClick={() => startNewSession()}><span>＋</span> New session</button>

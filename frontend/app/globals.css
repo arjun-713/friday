@@ -50,7 +50,9 @@ h1, h2, p { margin-top: 0; }
 .current-device-card div, .profile-copy { display: grid; min-width: 0; gap: 2px; }
 .current-device-card strong, .profile-copy strong { font-size: 12px; line-height: 1.35; }
 .current-device-card span, .profile-copy span { overflow: hidden; color: var(--muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
-.current-device-card button { justify-self: start; padding: 0; border: 0; background: transparent; color: var(--accent-strong); font-size: 11px; }
+.device-model-select { display: block; margin-top: 5px; }
+.device-model-select select { width: 100%; min-height: 30px; padding: 4px 22px 4px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-raised); color: var(--text); font-size: 11px; }
+.device-model-select select:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
 .new-session-quiet { display: inline-flex; align-items: center; gap: 7px; width: fit-content; margin: 24px 9px 24px; padding: 7px 0; border: 0; background: transparent; color: var(--text); font-size: 12px; font-weight: 700; }
 .new-session-quiet:hover { color: var(--accent-strong); }
 .new-session-quiet span { color: var(--accent); font-size: 19px; font-weight: 400; line-height: 0.65; }
