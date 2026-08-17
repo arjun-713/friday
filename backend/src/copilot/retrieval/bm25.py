@@ -245,7 +245,9 @@ def _field_weights(query: str) -> list[tuple[str, float]]:
     if any(term in normalized for term in ("chapter", "topic", "section", "where is")):
         weights["body"] = 0.35
         weights["section"] = 6.0
-    if "print" in normalized and any(term in normalized for term in ("not", "cannot", "unable", "won't", "wont", "offline")):
+    if "print" in normalized and any(
+        term in normalized for term in ("not", "cannot", "unable", "won't", "wont", "offline")
+    ):
         # Symptom headings are short and high-signal. Weight them above broad
         # body matches such as unrelated print-driver configuration procedures.
         weights["section"] = max(weights["section"], 4.0)

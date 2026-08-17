@@ -96,7 +96,11 @@ class TroubleshootingService:
         self.session_store.delete(session_id)
 
     async def answer(self, request: TroubleshootingRequest) -> TroubleshootingResponse:
-        state = self.session_store.get(request.session_id) if request.regenerate else self.session_store.record_turn(request)
+        state = (
+            self.session_store.get(request.session_id)
+            if request.regenerate
+            else self.session_store.record_turn(request)
+        )
         if state.last_turn_was_acknowledgement and state.current_step is not None:
             return _awaiting_current_observation(state, request.session_id)
         metadata_filter = MetadataFilter(
@@ -193,9 +197,16 @@ class TroubleshootingService:
     async def stream_answer(self, request: TroubleshootingRequest) -> AsyncIterator[dict[str, object]]:
         """Stream provider tokens while keeping the final response contract strict."""
 
-        state = self.session_store.get(request.session_id) if request.regenerate else self.session_store.record_turn(request)
+        state = (
+            self.session_store.get(request.session_id)
+            if request.regenerate
+            else self.session_store.record_turn(request)
+        )
         if state.last_turn_was_acknowledgement and state.current_step is not None:
-            yield {"type": "complete", "response": _awaiting_current_observation(state, request.session_id).model_dump()}
+            yield {
+                "type": "complete",
+                "response": _awaiting_current_observation(state, request.session_id).model_dump(),
+            }
             return
         result = await self.session_cache.retrieve(
             _retrieval_query(request),
@@ -397,9 +408,7 @@ def _citation(hit: VectorHit, parent: DocumentChunk | None) -> Citation | None:
     )
 
 
-def _missing_observations(
-    request: TroubleshootingRequest, *, require_symptom_detail: bool = False
-) -> list[str]:
+def _missing_observations(request: TroubleshootingRequest, *, require_symptom_detail: bool = False) -> list[str]:
     missing: list[str] = []
     if not request.manufacturer:
         missing.append("manufacturer")
@@ -419,9 +428,7 @@ def _retrieval_query(request: TroubleshootingRequest) -> str:
     return " ".join(parts)
 
 
-def _relevant_evidence(
-    evidence: Sequence[EvidenceContext], request: TroubleshootingRequest
-) -> list[EvidenceContext]:
+def _relevant_evidence(evidence: Sequence[EvidenceContext], request: TroubleshootingRequest) -> list[EvidenceContext]:
     """Keep conditional manual branches out of an unqualified symptom report.
 
     A heading such as "does not print after wireless configuration" is useful
@@ -437,9 +444,18 @@ def _relevant_evidence(
     condition_groups = (
         (("wireless", "wi-fi", "wifi", "wlan"), ("wireless", "wi-fi", "wifi", "wlan")),
         (("firewall",), ("firewall",)),
-        (("multiple sheets", "misfeed", "pick up paper", "paper feed"), ("multiple sheets", "misfeed", "pick up paper", "paper feed")),
-        (("print quality", "image defect", "toner", "streak", "blur", "blank page"), ("print quality", "image defect", "toner", "streak", "blur", "blank page")),
-        (("job storage", "stored job", "private print", "delayed print"), ("job storage", "stored job", "private print", "delayed print")),
+        (
+            ("multiple sheets", "misfeed", "pick up paper", "paper feed"),
+            ("multiple sheets", "misfeed", "pick up paper", "paper feed"),
+        ),
+        (
+            ("print quality", "image defect", "toner", "streak", "blur", "blank page"),
+            ("print quality", "image defect", "toner", "streak", "blur", "blank page"),
+        ),
+        (
+            ("job storage", "stored job", "private print", "delayed print"),
+            ("job storage", "stored job", "private print", "delayed print"),
+        ),
     )
     relevant: list[EvidenceContext] = []
     for item in evidence:

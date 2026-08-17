@@ -126,7 +126,8 @@ def images_for_chunks(manifest: dict[str, Any], chunk_ids: set[str]) -> list[dic
                     continue
                 existing = references.get(asset_id)
                 if existing is None or (reference["page"], reference["document_title"]) < (
-                    existing["page"], existing["document_title"]
+                    existing["page"],
+                    existing["document_title"],
                 ):
                     references[asset_id] = reference
     ordered = sorted(references.values(), key=lambda item: (item["document_title"], item["page"], item["asset_id"]))
@@ -185,7 +186,7 @@ def _extract_images_with_pymupdf(pdf_path: Path) -> list[tuple[int, str, bytes]]
                 try:
                     payload = document.extract_image(image[0])
                     data = payload["image"]
-                    suffix = f'.{payload.get("ext", "bin")}'
+                    suffix = f".{payload.get('ext', 'bin')}"
                 except (KeyError, RuntimeError, ValueError):
                     continue
                 extracted.append((page_number, suffix, data))

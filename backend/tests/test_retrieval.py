@@ -232,9 +232,9 @@ def test_scoped_bm25_expands_plain_printer_failure_into_manual_symptom_wording()
     scope = MetadataFilter(manufacturer="Example", model="Example 1")
 
     hits = asyncio.run(
-        InMemoryBM25Retriever([generic, symptom]).scoped(scope).search(
-            "My printer is powered on but it will not print", scope, limit=1
-        )
+        InMemoryBM25Retriever([generic, symptom])
+        .scoped(scope)
+        .search("My printer is powered on but it will not print", scope, limit=1)
     )
 
     assert [hit.id for hit in hits] == ["printer-does-not-print"]

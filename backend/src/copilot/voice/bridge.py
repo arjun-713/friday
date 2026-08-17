@@ -69,7 +69,9 @@ class SarvamVoiceBridge:
                             await self._send(client, {"type": "session.ready", "session_id": context.session_id})
                         elif event_type == "audio":
                             if context is not None:
-                                await stt.send(json.dumps({"event": "audio_input", "audio": str(message.get("audio", ""))}))
+                                await stt.send(
+                                    json.dumps({"event": "audio_input", "audio": str(message.get("audio", ""))})
+                                )
                         elif event_type == "session.stop":
                             break
                         elif event_type == "assistant.cancel":
