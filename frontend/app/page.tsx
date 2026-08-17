@@ -30,7 +30,7 @@ import {
   type TroubleshootingResponse,
 } from "../lib/api";
 
-type Message = { id: number; role: "user" | "assistant"; text: string; meta?: string; response?: TroubleshootingResponse };
+type Message = { id: string; role: "user" | "assistant"; text: string; meta?: string; response?: TroubleshootingResponse };
 type SessionState = "ready" | "listening" | "thinking" | "speaking" | "interrupted";
 type DeviceCategory = "laptop" | "router" | "printer";
 type SessionStatus = "active" | "open" | "resolved";
@@ -62,11 +62,11 @@ const sessions: Session[] = [
 const deviceProfiles = {
   laptop: { name: "ThinkPad T480", detail: "Laptop / Desktop", icon: "laptop" as const },
   router: { name: "TP-Link Archer C6", detail: "Wi-Fi Router", icon: "router" as const },
-  printer: { name: "HP LaserJet Pro M428fdw", detail: "Printer", icon: "printer" as const },
+  printer: { name: "LaserJet Pro M404/M405", detail: "Printer", icon: "printer" as const },
 };
 
 const initialMessages: Message[] = [
-  { id: 1, role: "user", text: "My router is on, but nothing can get online. The Wi-Fi name still shows up.", meta: "just now" },
+  { id: "initial-user", role: "user", text: "My router is on, but nothing can get online. The Wi-Fi name still shows up.", meta: "just now" },
 ];
 
 type IconName = "arrow" | "mic" | "send" | "check" | "pause" | "chevron" | "laptop" | "router" | "printer" | "external" | "manual" | "more" | "paperclip" | "user" | "regenerate" | "like" | "dislike" | "copy";
@@ -123,6 +123,12 @@ export default function Home() {
   const [copied, setCopied] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
   const requestController = useRef<AbortController | null>(null);
+  const messageSequence = useRef(0);
+
+  function createMessageId(role: "user" | "assistant"): string {
+    messageSequence.current += 1;
+    return `${role}-${Date.now()}-${messageSequence.current}`;
+  }
 
   const selectedDevice = deviceProfiles[selectedCategory];
 
@@ -166,11 +172,11 @@ export default function Home() {
     requestController.current = controller;
     setApiError(null);
     setState("thinking");
-    if (addUser) setMessages((current) => [...current, { id: Date.now(), role: "user", text: displayText, meta: "just now" }]);
+    if (addUser) setMessages((current) => [...current, { id: createMessageId("user"), role: "user", text: displayText, meta: "just now" }]);
 
     const manufacturer = selectedCategory === "router" ? "TP-Link" : selectedCategory === "printer" ? "HP" : "Lenovo";
     try {
-      const assistantId = Date.now() + 1;
+      const assistantId = createMessageId("assistant");
       setMessages((current) => [...current, { id: assistantId, role: "assistant", text: "", meta: "just now" }]);
       let streamedJson = "";
       let completed: TroubleshootingResponse | null = null;
@@ -329,7 +335,7 @@ export default function Home() {
                   {message.role === "user" && <p>{message.text}</p>}
                   {message.role === "assistant" && (
                     <div className={`step-panel ${message.response?.status === "abstained" ? "abstained-panel" : ""}`}>
-                      <div className="step-heading"><h2>{message.response?.status === "abstained" ? "I need another observation" : message.response?.step?.title ?? "Next check"}</h2></div>
+                      <div className="step-heading"><h2>{message.response?.status === "abstained" ? (message.response.missing_observations.length > 0 ? "I need another observation" : "No verified step found") : message.response?.step?.title ?? "Next check"}</h2></div>
                       <p className="instruction response-copy">{message.text}</p>
                       {message.response?.status === "abstained" ? <ul className="missing-observations">{message.response.missing_observations.map((observation) => <li key={observation}>{observation}</li>)}</ul> : <>
                         {message.response?.step && <div className="procedure-content"><div className="procedure-copy"><p className="instruction">{message.response.step.question}</p></div>{selectedCategory === "router" && <ManualFigure />}</div>}
