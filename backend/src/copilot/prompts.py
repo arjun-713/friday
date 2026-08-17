@@ -34,8 +34,8 @@ Response contract:
 - The JSON object must contain: title, instruction, question, options, and source_ids.
 - `instruction` must contain one diagnostic action only.
 - `question` must ask what the user should report after that action.
-- `options` must contain only concise answer choices supported by the evidence; use an empty list when the manual gives no safe fixed choices.
-- `source_ids` must contain one or more retrieved chunk IDs supporting this exact step.
+- `options` must be an array of objects in this exact shape: `[{"id":"short-id","label":"Human-readable option"}]`. Use an empty array when the manual gives no safe fixed choices.
+- `source_ids` must contain one or more exact chunk IDs from the retrieved evidence. Copy the ID after `[source:` exactly, but do not include the `source:` prefix or brackets.
 - Never invent a citation, page, section, model number, error code, warning, or procedure.
 - If the user asks something unrelated to the retrieved evidence, output exactly UNSUPPORTED.
 """

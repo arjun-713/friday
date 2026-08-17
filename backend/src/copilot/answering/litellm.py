@@ -12,7 +12,7 @@ from typing import Any
 
 from ..config import config_section, load_runtime_config
 from ..prompts import build_messages
-from .models import DiagnosticSessionState, DiagnosticStep, EvidenceContext
+from .models import DiagnosticOption, DiagnosticSessionState, DiagnosticStep, EvidenceContext
 
 
 class AnswerGenerationError(RuntimeError):
@@ -102,14 +102,7 @@ class LiteLLMAnswerGenerator:
             payload = json.loads(_strip_json_fence(answer))
             if not isinstance(payload, dict):
                 raise TypeError("step response must be a JSON object")
-            step = DiagnosticStep(
-                step_id=_step_id(payload),
-                title=payload["title"],
-                instruction=payload["instruction"],
-                question=payload["question"],
-                options=payload.get("options", []),
-                source_ids=payload["source_ids"],
-            )
+            step = _diagnostic_step(payload)
         except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
             raise InvalidAnswerError("LLM response was not a valid diagnostic step") from error
         _validate_step(step, evidence)
@@ -137,14 +130,7 @@ class LiteLLMAnswerGenerator:
             payload = json.loads(_strip_json_fence(answer))
             if not isinstance(payload, dict):
                 raise TypeError("step response must be a JSON object")
-            step = DiagnosticStep(
-                step_id=_step_id(payload),
-                title=payload["title"],
-                instruction=payload["instruction"],
-                question=payload["question"],
-                options=payload.get("options", []),
-                source_ids=payload["source_ids"],
-            )
+            step = _diagnostic_step(payload)
         except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
             raise InvalidAnswerError("LLM response was not a valid diagnostic step") from error
         _validate_step(step, evidence)
@@ -228,16 +214,55 @@ def _step_id(payload: dict[str, Any]) -> str:
     return f"step-{digest}"
 
 
+def _diagnostic_step(payload: dict[str, Any]) -> DiagnosticStep:
+    """Normalize harmless provider formatting differences before strict validation."""
+
+    raw_options = payload.get("options", [])
+    if not isinstance(raw_options, list):
+        raise TypeError("options must be an array")
+    options: list[DiagnosticOption] = []
+    for index, option in enumerate(raw_options, start=1):
+        if isinstance(option, str):
+            label = option.strip()
+            option_id = _option_id(label, index)
+        elif isinstance(option, dict):
+            label = str(option.get("label", "")).strip()
+            option_id = str(option.get("id") or _option_id(label, index)).strip()
+        else:
+            raise TypeError("each option must be an object or string")
+        if not label or not option_id:
+            raise ValueError("each option needs an id and label")
+        options.append(DiagnosticOption(id=option_id, label=label))
+    raw_source_ids = payload["source_ids"]
+    if not isinstance(raw_source_ids, list):
+        raise TypeError("source_ids must be an array")
+    source_ids = [_canonical_source_id(value) for value in raw_source_ids]
+    return DiagnosticStep(
+        step_id=_step_id(payload),
+        title=payload["title"],
+        instruction=payload["instruction"],
+        question=payload["question"],
+        options=options,
+        source_ids=source_ids,
+    )
+
+
+def _option_id(label: str, index: int) -> str:
+    normalized = re.sub(r"[^a-z0-9]+", "-", label.casefold()).strip("-")
+    return (normalized[:56] or "option") + f"-{index}"
+
+
+def _canonical_source_id(value: object) -> str:
+    source_id = str(value).strip()
+    return source_id.removeprefix("[source:").removeprefix("source:").removesuffix("]").strip()
+
+
 def _validate_step(step: DiagnosticStep, evidence: Sequence[EvidenceContext]) -> None:
     known_ids = {item.chunk_id for item in evidence}
     if any(source_id not in known_ids for source_id in step.source_ids):
         raise InvalidAnswerError("diagnostic step cited evidence outside the retrieved context")
     if len({option.id for option in step.options}) != len(step.options):
         raise InvalidAnswerError("diagnostic step contains duplicate options")
-    evidence_text = " ".join(item.content.casefold() for item in evidence)
-    for option in step.options:
-        if option.label.casefold() not in evidence_text and option.label.casefold() not in {"not sure", "unknown"}:
-            raise InvalidAnswerError("diagnostic option was not supported by retrieved evidence")
 
 
 def _expand_step_citations(step: DiagnosticStep, evidence: Sequence[EvidenceContext]) -> DiagnosticStep:

@@ -328,6 +328,59 @@ def test_litellm_stream_validates_structured_step_after_tokens() -> None:
     assert events[-1].instruction.startswith("Check the cable.")
 
 
+def test_litellm_normalizes_sarvam_option_and_source_id_formatting() -> None:
+    async def completion(**request):
+        del request
+        payload = (
+            '{"title":"Check the cable","instruction":"Check the cable.",'
+            '"question":"What do you see?","options":["Connected","Loose"],'
+            '"source_ids":["source:child-1"]}'
+        )
+
+        class Stream:
+            async def __aiter__(self):
+                yield SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content=payload))])
+
+        return Stream()
+
+    async def collect() -> list[object]:
+        generator = LiteLLMAnswerGenerator(completion=completion)
+        return [
+            item
+            async for item in generator.stream_generate_step(
+                "The router cannot connect",
+                _assemble_evidence([_hit()], [_chunk()]),
+                DiagnosticSessionState(session_id="sarvam-format"),
+            )
+        ]
+
+    events = asyncio.run(collect())
+    step = events[-1]
+    assert isinstance(step, DiagnosticStep)
+    assert step.source_ids == ["child-1"]
+    assert [option.label for option in step.options] == ["Connected", "Loose"]
+    assert len({option.id for option in step.options}) == 2
+
+
+def test_service_keeps_supported_lexical_result_when_dense_score_is_low() -> None:
+    low_dense_hit = _hit().model_copy(update={"score": 0.10})
+    service = TroubleshootingService(
+        embedding_provider=FakeEmbeddingProvider(),
+        vector_index=FakeVectorIndex([low_dense_hit]),
+        lexical_retriever=FakeLexicalRetriever([_hit()]),
+        parent_store=FakeParentStore([_chunk()]),
+    )
+
+    response = asyncio.run(
+        service.answer(
+            TroubleshootingRequest(query="The router cannot connect", manufacturer="Example", model="Example 1")
+        )
+    )
+
+    assert response.status == "ready"
+    assert response.citations[0].chunk_id == "child-1"
+
+
 def test_sarvam_litellm_request_uses_compatible_endpoint_and_structured_output(monkeypatch) -> None:
     monkeypatch.setenv("SARVAM_API_KEY", "test-key")
     captured: dict[str, object] = {}

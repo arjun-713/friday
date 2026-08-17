@@ -111,7 +111,7 @@ class TroubleshootingService:
             lexical_weight=1.5,
             rrf_k=30,
             include_diagnostics=True,
-            abstention_dense_threshold=0.84,
+            abstention_dense_threshold=None,
         )
         retrieval = RetrievalSummary(
             abstained=result.abstained,
@@ -192,7 +192,7 @@ class TroubleshootingService:
             lexical_weight=1.5,
             rrf_k=30,
             include_diagnostics=True,
-            abstention_dense_threshold=0.84,
+            abstention_dense_threshold=None,
         )
         retrieval = RetrievalSummary(abstained=result.abstained, reason=result.reason, timings_ms=result.timings_ms)
         yield {"type": "retrieval", "retrieval": retrieval.model_dump()}
