@@ -43,8 +43,12 @@ The text endpoint can use LiteLLM to route answer generation to any supported pr
 
 ```bash
 LLM_ENABLED=true
-LLM_MODEL=deepseek/deepseek-chat
-DEEPSEEK_API_KEY=...
+LLM_MODEL=openai/sarvam-105b-conversations
+LLM_API_BASE=https://api.sarvam.ai/v1
+LLM_API_KEY_ENV=SARVAM_API_KEY
+SARVAM_API_KEY=...
+LLM_RESPONSE_FORMAT=json_object
+LLM_REASONING_EFFORT=
 ```
 
 The backend sends only retrieved evidence to the model. Responses must cite a retrieved chunk; the server expands that marker into the document title, page, and section, and abstains when the model returns `UNSUPPORTED` or an unknown citation. Provider failures are returned as service-unavailable errors without logging credentials or prompt contents.

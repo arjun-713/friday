@@ -40,6 +40,9 @@ class LiteLLMSettings:
     temperature: float = 0.0
     max_tokens: int = 400
     timeout_seconds: float = 20.0
+    api_key_env: str | None = None
+    response_format: str | None = "json_object"
+    reasoning_effort: str | None = None
 
     @classmethod
     def from_env(cls) -> LiteLLMSettings:
@@ -50,6 +53,9 @@ class LiteLLMSettings:
             temperature=float(os.getenv("LLM_TEMPERATURE", "0")),
             max_tokens=int(os.getenv("LLM_MAX_TOKENS", "400")),
             timeout_seconds=float(os.getenv("LLM_TIMEOUT_SECONDS", "20")),
+            api_key_env=os.getenv("LLM_API_KEY_ENV") or None,
+            response_format=os.getenv("LLM_RESPONSE_FORMAT", "json_object") or None,
+            reasoning_effort=os.getenv("LLM_REASONING_EFFORT") or None,
         )
 
 
@@ -86,7 +92,7 @@ class LiteLLMAnswerGenerator:
         evidence: Sequence[EvidenceContext],
         state: DiagnosticSessionState,
     ) -> DiagnosticStep:
-        response = await self._complete(query, evidence, state)
+        response = await self._complete(query, evidence, state, structured=True)
         answer = _response_text(response).strip()
         if answer.upper() == _UNSUPPORTED:
             raise UnsupportedAnswerError("the model could not answer from the supplied evidence")
@@ -115,7 +121,7 @@ class LiteLLMAnswerGenerator:
     ) -> AsyncIterator[str | DiagnosticStep]:
         """Stream provider text, then yield the validated structured step."""
 
-        response = await self._complete(query, evidence, state, stream=True)
+        response = await self._complete(query, evidence, state, stream=True, structured=True)
         pieces: list[str] = []
         async for chunk in response:
             text = _stream_text(chunk)
@@ -148,6 +154,7 @@ class LiteLLMAnswerGenerator:
         evidence: Sequence[EvidenceContext],
         state: DiagnosticSessionState | None = None,
         stream: bool = False,
+        structured: bool = False,
     ) -> Any:
         completion = self._completion
         if completion is None:
@@ -167,6 +174,18 @@ class LiteLLMAnswerGenerator:
         }
         if self.settings.api_base:
             request["api_base"] = self.settings.api_base
+        api_key_env = self.settings.api_key_env
+        if api_key_env is None and "sarvam" in self.settings.model.casefold():
+            api_key_env = "SARVAM_API_KEY"
+        if api_key_env:
+            api_key = os.getenv(api_key_env)
+            if api_key:
+                request["api_key"] = api_key
+                request["extra_headers"] = {"api-subscription-key": api_key}
+        if structured and self.settings.response_format:
+            request["response_format"] = {"type": self.settings.response_format}
+        if self.settings.reasoning_effort:
+            request["reasoning_effort"] = self.settings.reasoning_effort
         try:
             return await completion(**request)
         except Exception as error:  # LiteLLM maps provider failures to its own exception hierarchy.

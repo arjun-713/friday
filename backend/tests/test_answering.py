@@ -328,6 +328,46 @@ def test_litellm_stream_validates_structured_step_after_tokens() -> None:
     assert events[-1].instruction.startswith("Check the cable.")
 
 
+def test_sarvam_litellm_request_uses_compatible_endpoint_and_structured_output(monkeypatch) -> None:
+    monkeypatch.setenv("SARVAM_API_KEY", "test-key")
+    captured: dict[str, object] = {}
+
+    async def completion(**request):
+        captured.update(request)
+        return SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(
+                        content=(
+                            '{"title":"Check the cable","instruction":"Check the cable.",'
+                            '"question":"Did you find a problem?","options":[],"source_ids":["child-1"]}'
+                        )
+                    )
+                )
+            ]
+        )
+
+    async def run() -> None:
+        generator = LiteLLMAnswerGenerator(
+            settings=LiteLLMSettings(
+                enabled=True,
+                model="openai/sarvam-105b-conversations",
+                api_base="https://api.sarvam.ai/v1",
+            ),
+            completion=completion,
+        )
+        await generator.generate_step(
+            "The router cannot connect", _assemble_evidence([_hit()], [_chunk()]), DiagnosticSessionState(session_id="test")
+        )
+
+    asyncio.run(run())
+    assert captured["model"] == "openai/sarvam-105b-conversations"
+    assert captured["api_base"] == "https://api.sarvam.ai/v1"
+    assert captured["api_key"] == "test-key"
+    assert captured["extra_headers"] == {"api-subscription-key": "test-key"}
+    assert captured["response_format"] == {"type": "json_object"}
+
+
 def test_stream_endpoint_emits_tokens_and_final_response() -> None:
     async def completion(**request):
         del request
