@@ -227,7 +227,7 @@ export default function Home() {
     query: string,
     displayText = query,
     addUser = true,
-    interaction: { observation?: string; selectedOption?: string } = {},
+    interaction: { observation?: string; selectedOption?: string; regenerate?: boolean } = {},
   ) {
     requestController.current?.abort();
     const controller = new AbortController();
@@ -257,6 +257,7 @@ export default function Home() {
           session_id: sessionId,
           observation: interaction.observation,
           selected_option: interaction.selectedOption,
+          regenerate: interaction.regenerate,
         },
         (event) => {
           if (event.type === "token") {
@@ -320,7 +321,7 @@ export default function Home() {
 
   function regenerateResponse() {
     const latestUserMessage = [...messages].reverse().find((message) => message.role === "user");
-    if (latestUserMessage) void runTroubleshoot(latestUserMessage.text, "", false);
+    if (latestUserMessage) void runTroubleshoot(latestUserMessage.text, "", false, { regenerate: true });
   }
 
   async function copyResponse(response?: TroubleshootingResponse) {

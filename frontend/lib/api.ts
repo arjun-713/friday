@@ -5,6 +5,7 @@ export type TroubleshootingRequest = {
   session_id?: string;
   observation?: string;
   selected_option?: string;
+  regenerate?: boolean;
 };
 
 export type DiagnosticOption = {

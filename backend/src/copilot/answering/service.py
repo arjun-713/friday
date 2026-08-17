@@ -96,7 +96,7 @@ class TroubleshootingService:
         self.session_store.delete(session_id)
 
     async def answer(self, request: TroubleshootingRequest) -> TroubleshootingResponse:
-        state = self.session_store.record_turn(request)
+        state = self.session_store.get(request.session_id) if request.regenerate else self.session_store.record_turn(request)
         if state.last_turn_was_acknowledgement and state.current_step is not None:
             return _awaiting_current_observation(state, request.session_id)
         metadata_filter = MetadataFilter(
@@ -193,7 +193,7 @@ class TroubleshootingService:
     async def stream_answer(self, request: TroubleshootingRequest) -> AsyncIterator[dict[str, object]]:
         """Stream provider tokens while keeping the final response contract strict."""
 
-        state = self.session_store.record_turn(request)
+        state = self.session_store.get(request.session_id) if request.regenerate else self.session_store.record_turn(request)
         if state.last_turn_was_acknowledgement and state.current_step is not None:
             yield {"type": "complete", "response": _awaiting_current_observation(state, request.session_id).model_dump()}
             return

@@ -12,6 +12,7 @@ class TroubleshootingRequest(BaseModel):
     session_id: str = Field(default="default", min_length=1, max_length=128)
     observation: str | None = Field(default=None, min_length=1)
     selected_option: str | None = Field(default=None, min_length=1, max_length=64)
+    regenerate: bool = False
 
 
 class DiagnosticOption(BaseModel):
