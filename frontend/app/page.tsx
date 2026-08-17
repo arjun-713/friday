@@ -1,6 +1,6 @@
 "use client";
 
-import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react";
+import { ChangeEvent, FormEvent, KeyboardEvent, useEffect, useRef, useState } from "react";
 import type { ComponentType, SVGProps } from "react";
 import {
   ArrowPathIcon,
@@ -149,6 +149,14 @@ export default function Home() {
   const voiceClient = useRef<FridayVoiceClient | null>(null);
   const voiceAssistantId = useRef<string | null>(null);
   const voiceStreamedJson = useRef("");
+  const composerInput = useRef<HTMLTextAreaElement | null>(null);
+
+  function resizeComposer() {
+    const input = composerInput.current;
+    if (!input) return;
+    input.style.height = "0px";
+    input.style.height = `${Math.min(input.scrollHeight, 160)}px`;
+  }
 
   function createMessageId(role: "user" | "assistant"): string {
     messageSequence.current += 1;
@@ -303,6 +311,12 @@ export default function Home() {
     setAttachment(null);
   }
 
+  function handleComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
+    event.preventDefault();
+    event.currentTarget.form?.requestSubmit();
+  }
+
   function handleAttachment(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (file) setAttachment(file.name);
@@ -445,6 +459,10 @@ export default function Home() {
   }, [sessions, sessionsHydrated]);
 
   useEffect(() => {
+    resizeComposer();
+  }, [draft]);
+
+  useEffect(() => {
     if (!sessionsHydrated || activeSession === "new") return;
     setSessions((current) => current.map((session) => session.id === activeSession ? {
       ...session,
@@ -559,7 +577,15 @@ export default function Home() {
               {attachment && <div className="composer-attachment"><Icon name="paperclip" /><span>{attachment}</span><button type="button" aria-label="Remove attachment" onClick={() => setAttachment(null)}>×</button></div>}
               <form className={`composer ${isListening ? "listening" : ""}`} onSubmit={submitMessage}>
                 <label className="sr-only" htmlFor="message">Describe what you see</label>
-                <input id="message" value={draft} onChange={(event) => setDraft(event.target.value)} placeholder={isListening ? "Voice input is ready; type if needed…" : "Describe what you see…"} />
+                <textarea
+                  ref={composerInput}
+                  id="message"
+                  rows={1}
+                  value={draft}
+                  onChange={(event) => setDraft(event.target.value)}
+                  onKeyDown={handleComposerKeyDown}
+                  placeholder={isListening ? "Voice input is ready; type if needed…" : "Describe what you see…"}
+                />
                 <input className="sr-only" id="attachment" type="file" accept="image/*,.pdf,.txt" onChange={handleAttachment} />
                 <label className="attach-button" htmlFor="attachment"><Icon name="paperclip" /><span>Attach</span></label>
                 {voiceConnected ? <button className="mic-button active" type="button" aria-label="Stop listening" onClick={() => void stopVoice()}><Icon name="pause" /></button> : <button className={`mic-button ${draft ? "quiet" : "primary"}`} type="button" aria-label="Start voice input" onClick={() => void startVoice()}><Icon name="mic" /></button>}
