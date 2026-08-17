@@ -1,6 +1,6 @@
 """Safe text-only answer orchestration over the hybrid retriever."""
 
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
 from typing import Protocol
 
 from ..ingestion.assets.images import images_for_chunks
@@ -29,6 +29,10 @@ class AnswerGenerator(Protocol):
         self, query: str, evidence: Sequence[EvidenceContext], state: DiagnosticSessionState
     ) -> DiagnosticStep: ...
 
+    def stream_generate_step(
+        self, query: str, evidence: Sequence[EvidenceContext], state: DiagnosticSessionState
+    ) -> AsyncIterator[str | DiagnosticStep]: ...
+
 
 class ParentChunkStore(Protocol):
     async def fetch(self, ids: Sequence[str]) -> list[DocumentChunk]: ...
@@ -46,7 +50,7 @@ class EvidenceOnlyAnswerGenerator:
     async def generate_step(
         self, query: str, evidence: Sequence[EvidenceContext], state: DiagnosticSessionState
     ) -> DiagnosticStep:
-        del query, state
+        del query
         if not evidence:
             raise InvalidAnswerError("cannot generate a step without evidence")
         first = evidence[0]
@@ -57,6 +61,14 @@ class EvidenceOnlyAnswerGenerator:
             question="Did you complete this step, and what did you observe?",
             source_ids=[first.chunk_id],
         )
+
+    async def stream_generate_step(
+        self, query: str, evidence: Sequence[EvidenceContext], state: DiagnosticSessionState
+    ) -> AsyncIterator[str | DiagnosticStep]:
+        del query
+        step = await self.generate_step("", evidence, state)
+        yield step.instruction
+        yield step
 
 
 class TroubleshootingService:
@@ -162,6 +174,94 @@ class TroubleshootingService:
             citations=[item.citation for item in evidence],
             retrieval=retrieval,
         )
+
+    async def stream_answer(self, request: TroubleshootingRequest) -> AsyncIterator[dict[str, object]]:
+        """Stream provider tokens while keeping the final response contract strict."""
+
+        state = self.session_store.record_turn(request)
+        result = await self.session_cache.retrieve(
+            _retrieval_query(request),
+            self.embedding_provider,
+            self.vector_index,
+            lexical_retriever=self.lexical_retriever,
+            parent_store=self.parent_store,
+            metadata_filter=MetadataFilter(manufacturer=request.manufacturer, model=request.model),
+            limit=5,
+            candidate_limit=32,
+            dense_weight=1.0,
+            lexical_weight=1.5,
+            rrf_k=30,
+            include_diagnostics=True,
+            abstention_dense_threshold=0.84,
+        )
+        retrieval = RetrievalSummary(abstained=result.abstained, reason=result.reason, timings_ms=result.timings_ms)
+        yield {"type": "retrieval", "retrieval": retrieval.model_dump()}
+        if result.abstained or not result.hits:
+            yield {
+                "type": "complete",
+                "response": TroubleshootingResponse(
+                    status="abstained",
+                    session_id=request.session_id,
+                    missing_observations=_missing_observations(request),
+                    retrieval=retrieval,
+                ).model_dump(),
+            }
+            return
+        evidence = _assemble_evidence(result.hits, result.parents)
+        if not evidence:
+            yield {
+                "type": "complete",
+                "response": TroubleshootingResponse(
+                    status="abstained",
+                    session_id=request.session_id,
+                    missing_observations=_missing_observations(request),
+                    retrieval=RetrievalSummary(
+                        abstained=True,
+                        reason="retrieved_chunks_have_no_citation_evidence",
+                        timings_ms=result.timings_ms,
+                    ),
+                ).model_dump(),
+            }
+            return
+        try:
+            step: DiagnosticStep | None = None
+            async for item in self.answer_generator.stream_generate_step(request.query, evidence, state):
+                if isinstance(item, str):
+                    yield {"type": "token", "text": item}
+                else:
+                    step = item
+            if step is None:
+                raise InvalidAnswerError("LLM stream ended without a diagnostic step")
+        except (UnsupportedAnswerError, InvalidAnswerError) as error:
+            yield {
+                "type": "complete",
+                "response": TroubleshootingResponse(
+                    status="abstained",
+                    session_id=request.session_id,
+                    missing_observations=_missing_observations(request),
+                    retrieval=RetrievalSummary(
+                        abstained=True,
+                        reason="answer_not_supported_by_retrieved_evidence"
+                        if isinstance(error, UnsupportedAnswerError)
+                        else "answer_failed_evidence_validation",
+                        timings_ms=result.timings_ms,
+                    ),
+                ).model_dump(),
+            }
+            return
+        state.current_step_id = step.step_id
+        response = TroubleshootingResponse(
+            session_id=request.session_id,
+            status="ready",
+            answer=step.instruction,
+            step=step,
+            awaiting_observation=True,
+            images=_images_for_evidence(self.image_manifest, evidence),
+            evidence=evidence,
+            citations=[item.citation for item in evidence],
+            retrieval=retrieval,
+        )
+        yield {"type": "complete", "response": response.model_dump()}
 
 
 def _assemble_evidence(hits: Sequence[VectorHit], parents: Sequence[DocumentChunk]) -> list[EvidenceContext]:

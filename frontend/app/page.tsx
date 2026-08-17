@@ -22,7 +22,13 @@ import {
   UserCircleIcon,
   WifiIcon,
 } from "@heroicons/react/24/outline";
-import { API_BASE_URL, troubleshoot, TroubleshootingApiError, type DiagnosticOption, type TroubleshootingResponse } from "../lib/api";
+import {
+  API_BASE_URL,
+  troubleshootStream,
+  TroubleshootingApiError,
+  type DiagnosticOption,
+  type TroubleshootingResponse,
+} from "../lib/api";
 
 type Message = { id: number; role: "user" | "assistant"; text: string; meta?: string; response?: TroubleshootingResponse };
 type SessionState = "ready" | "listening" | "thinking" | "speaking" | "interrupted";
@@ -36,6 +42,16 @@ type Session = {
   time: string;
   status: SessionStatus;
 };
+
+function streamedInstruction(json: string): string {
+  const match = json.match(/"instruction"\s*:\s*"((?:\\.|[^"\\])*)/);
+  if (!match) return "";
+  try {
+    return JSON.parse(`"${match[1]}"`) as string;
+  } catch {
+    return "";
+  }
+}
 
 const sessions: Session[] = [
   { id: "router-01", title: "Wi-Fi, no internet", device: "TP-Link Archer C6", time: "Now", status: "active" },
@@ -150,7 +166,11 @@ export default function Home() {
 
     const manufacturer = selectedCategory === "router" ? "TP-Link" : selectedCategory === "printer" ? "HP" : "Lenovo";
     try {
-      const result = await troubleshoot(
+      const assistantId = Date.now() + 1;
+      setMessages((current) => [...current, { id: assistantId, role: "assistant", text: "", meta: "just now" }]);
+      let streamedJson = "";
+      let completed: TroubleshootingResponse | null = null;
+      await troubleshootStream(
         {
           query,
           manufacturer,
@@ -159,14 +179,36 @@ export default function Home() {
           observation: interaction.observation,
           selected_option: interaction.selectedOption,
         },
+        (event) => {
+          if (event.type === "token") {
+            streamedJson += event.text;
+            const preview = streamedInstruction(streamedJson);
+            if (preview) {
+              setMessages((current) => current.map((message) => (message.id === assistantId ? { ...message, text: preview } : message)));
+            }
+          }
+          if (event.type === "complete") {
+            completed = event.response;
+            const result = event.response;
+            const answerText =
+              result.status === "ready"
+                ? result.step?.instruction ?? result.answer ?? "The manual does not provide an answer for this observation."
+                : result.missing_observations.length > 0
+                  ? `I need one more observation: ${result.missing_observations.join(", ")}.`
+                  : "I could not verify a safe next step from the available manuals.";
+            setMessages((current) =>
+              current.map((message) => (message.id === assistantId ? { ...message, text: answerText, response: result } : message)),
+            );
+          }
+        },
         controller.signal,
       );
-      const answerText = result.status === "ready" ? result.step?.instruction ?? result.answer ?? "The manual does not provide an answer for this observation." : result.missing_observations.length > 0 ? `I need one more observation: ${result.missing_observations.join(", ")}.` : "I could not verify a safe next step from the available manuals.";
-      setMessages((current) => [...current, { id: Date.now() + 1, role: "assistant", text: answerText, meta: "just now", response: result }]);
+      if (!completed) throw new TroubleshootingApiError("The troubleshooting stream ended without a response.", 502);
       setState("ready");
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") return;
       setApiError(error instanceof TroubleshootingApiError ? error.message : "The troubleshooting service could not be reached.");
+      setMessages((current) => current.filter((message) => message.text || message.role === "user"));
       setState("interrupted");
     }
   }

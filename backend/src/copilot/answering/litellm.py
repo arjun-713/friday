@@ -6,7 +6,7 @@ import hashlib
 import json
 import os
 import re
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -107,11 +107,47 @@ class LiteLLMAnswerGenerator:
         _validate_step(step, evidence)
         return _expand_step_citations(step, evidence)
 
+    async def stream_generate_step(
+        self,
+        query: str,
+        evidence: Sequence[EvidenceContext],
+        state: DiagnosticSessionState,
+    ) -> AsyncIterator[str | DiagnosticStep]:
+        """Stream provider text, then yield the validated structured step."""
+
+        response = await self._complete(query, evidence, state, stream=True)
+        pieces: list[str] = []
+        async for chunk in response:
+            text = _stream_text(chunk)
+            if text:
+                pieces.append(text)
+                yield text
+        answer = "".join(pieces).strip()
+        if answer.upper() == _UNSUPPORTED:
+            raise UnsupportedAnswerError("the model could not answer from the supplied evidence")
+        try:
+            payload = json.loads(_strip_json_fence(answer))
+            if not isinstance(payload, dict):
+                raise TypeError("step response must be a JSON object")
+            step = DiagnosticStep(
+                step_id=_step_id(payload),
+                title=payload["title"],
+                instruction=payload["instruction"],
+                question=payload["question"],
+                options=payload.get("options", []),
+                source_ids=payload["source_ids"],
+            )
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
+            raise InvalidAnswerError("LLM response was not a valid diagnostic step") from error
+        _validate_step(step, evidence)
+        yield _expand_step_citations(step, evidence)
+
     async def _complete(
         self,
         query: str,
         evidence: Sequence[EvidenceContext],
         state: DiagnosticSessionState | None = None,
+        stream: bool = False,
     ) -> Any:
         completion = self._completion
         if completion is None:
@@ -127,6 +163,7 @@ class LiteLLMAnswerGenerator:
             "temperature": self.settings.temperature,
             "max_tokens": self.settings.max_tokens,
             "timeout": self.settings.timeout_seconds,
+            "stream": stream,
         }
         if self.settings.api_base:
             request["api_base"] = self.settings.api_base
@@ -147,6 +184,14 @@ def _response_text(response: Any) -> str:
         parts = [item.get("text", "") for item in content if isinstance(item, dict)]
         return "".join(str(part) for part in parts)
     raise InvalidAnswerError("LLM response content was not text")
+
+
+def _stream_text(chunk: Any) -> str:
+    try:
+        content = chunk.choices[0].delta.content
+    except (AttributeError, IndexError, KeyError, TypeError) as error:
+        raise InvalidAnswerError("LLM stream chunk did not contain assistant content") from error
+    return content if isinstance(content, str) else ""
 
 
 def _strip_json_fence(answer: str) -> str:

@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 from copilot.answering.litellm import InvalidAnswerError, LiteLLMAnswerGenerator, LiteLLMSettings
 from copilot.answering.models import DiagnosticSessionState, DiagnosticStep, TroubleshootingRequest
-from copilot.answering.service import TroubleshootingService
+from copilot.answering.service import TroubleshootingService, _assemble_evidence
 from copilot.ingestion.models import ChunkKind, DocumentChunk, Evidence, RetrievalProfile, SourceDocument
 from copilot.main import app, get_troubleshooting_service
 from copilot.retrieval.contracts import MetadataFilter, VectorHit
@@ -293,6 +293,77 @@ def test_text_endpoint_runs_litellm_answer_layer() -> None:
     assert body["answer"] == "Check the cable. [Example Manual · p. 4 · Troubleshooting > Connection]"
     assert body["images"][0]["asset_id"] == "asset-1"
     assert body["images"][0]["url"] == "/v1/assets/images/asset-1"
+
+
+def test_litellm_stream_validates_structured_step_after_tokens() -> None:
+    async def completion(**request):
+        assert request["stream"] is True
+        payload = (
+            '{"title":"Check the cable","instruction":"Check the cable.",'
+            '"question":"Did you find a problem?","options":[],"source_ids":["child-1"]}'
+        )
+
+        class Stream:
+            async def __aiter__(self):
+                for piece in (payload[:32], payload[32:]):
+                    yield SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content=piece))])
+
+        return Stream()
+
+    async def collect() -> list[object]:
+        generator = LiteLLMAnswerGenerator(completion=completion)
+        return [
+            item
+            async for item in generator.stream_generate_step(
+                "The router cannot connect",
+                _assemble_evidence([_hit()], [_chunk()]),
+                DiagnosticSessionState(session_id="stream-test"),
+            )
+        ]
+
+    events = asyncio.run(collect())
+    assert len(events[:-1]) == 2
+    assert "".join(str(event) for event in events[:-1]).startswith('{"title":"Check the cable"')
+    assert isinstance(events[-1], DiagnosticStep)
+    assert events[-1].instruction.startswith("Check the cable.")
+
+
+def test_stream_endpoint_emits_tokens_and_final_response() -> None:
+    async def completion(**request):
+        del request
+        payload = (
+            '{"title":"Check the cable","instruction":"Check the cable.",'
+            '"question":"Did you find a problem?","options":[],"source_ids":["child-1"]}'
+        )
+
+        class Stream:
+            async def __aiter__(self):
+                yield SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content=payload))])
+
+        return Stream()
+
+    base_service = _service([_hit()])
+    service = TroubleshootingService(
+        embedding_provider=base_service.embedding_provider,
+        vector_index=base_service.vector_index,
+        lexical_retriever=base_service.lexical_retriever,
+        parent_store=base_service.parent_store,
+        answer_generator=LiteLLMAnswerGenerator(completion=completion),
+    )
+    app.dependency_overrides[get_troubleshooting_service] = lambda: service
+    try:
+        with TestClient(app).stream(
+            "POST",
+            "/v1/troubleshoot/stream",
+            json={"query": "The router cannot connect", "manufacturer": "Example", "model": "Example 1"},
+        ) as response:
+            body = "".join(response.iter_text())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert '"type": "token"' in body
+    assert '"type": "complete"' in body
 
 
 def test_session_advances_to_the_next_step_after_observation() -> None:

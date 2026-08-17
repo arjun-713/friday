@@ -1,10 +1,11 @@
 import asyncio
 import json
 import os
+from collections.abc import AsyncIterator
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 
 from .answering import (
     EvidenceOnlyAnswerGenerator,
@@ -73,6 +74,26 @@ async def troubleshoot(
         return await service.answer(request)
     except (ConnectionError, TimeoutError) as error:
         raise HTTPException(status_code=503, detail="retrieval service is unavailable") from error
+
+
+@app.post("/v1/troubleshoot/stream")
+async def troubleshoot_stream(
+    request: TroubleshootingRequest,
+    service: TroubleshootingService = _service_dependency,
+) -> StreamingResponse:
+    async def events() -> AsyncIterator[str]:
+        try:
+            async for event in service.stream_answer(request):
+                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+        except (ConnectionError, TimeoutError) as error:
+            yield f"data: {json.dumps({'type': 'error', 'message': 'retrieval service is unavailable'})}\n\n"
+            del error
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
+    )
 
 
 def _build_service() -> TroubleshootingService:

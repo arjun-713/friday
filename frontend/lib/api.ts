@@ -68,6 +68,12 @@ export type TroubleshootingResponse = {
   retrieval: RetrievalSummary;
 };
 
+export type TroubleshootingStreamEvent =
+  | { type: "retrieval"; retrieval: RetrievalSummary }
+  | { type: "token"; text: string }
+  | { type: "complete"; response: TroubleshootingResponse }
+  | { type: "error"; message: string };
+
 export class TroubleshootingApiError extends Error {
   status: number;
 
@@ -106,4 +112,48 @@ export async function troubleshoot(request: TroubleshootingRequest, signal?: Abo
   }
 
   return (await response.json()) as TroubleshootingResponse;
+}
+
+export async function troubleshootStream(
+  request: TroubleshootingRequest,
+  onEvent: (event: TroubleshootingStreamEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}/v1/troubleshoot/stream`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
+      body: JSON.stringify(request),
+      signal,
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") throw error;
+    throw new TroubleshootingApiError("The troubleshooting service could not be reached.", 0);
+  }
+
+  if (!response.ok || !response.body) {
+    throw new TroubleshootingApiError("The troubleshooting stream could not be opened.", response.status);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const { value, done } = await reader.read();
+    buffer += decoder.decode(value ?? new Uint8Array(), { stream: !done });
+    const events = buffer.split("\n\n");
+    buffer = events.pop() ?? "";
+    for (const event of events) {
+      const data = event
+        .split("\n")
+        .find((line) => line.startsWith("data: "))
+        ?.slice("data: ".length);
+      if (!data) continue;
+      const parsed = JSON.parse(data) as TroubleshootingStreamEvent;
+      if (parsed.type === "error") throw new TroubleshootingApiError(parsed.message, 503);
+      onEvent(parsed);
+    }
+    if (done) break;
+  }
 }
