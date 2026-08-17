@@ -176,6 +176,7 @@ class TroubleshootingService:
             retrieval=retrieval,
         )
         _remember_current_step(state, response)
+        self.session_store.save(state)
         return response
 
     async def stream_answer(self, request: TroubleshootingRequest) -> AsyncIterator[dict[str, object]]:
@@ -267,6 +268,7 @@ class TroubleshootingService:
             retrieval=retrieval,
         )
         _remember_current_step(state, response)
+        self.session_store.save(state)
         yield {"type": "complete", "response": response.model_dump()}
 
 

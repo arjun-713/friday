@@ -12,6 +12,7 @@ from .answering import (
     EvidenceOnlyAnswerGenerator,
     LiteLLMAnswerGenerator,
     LiteLLMSettings,
+    SqliteDiagnosticSessionStore,
     TroubleshootingRequest,
     TroubleshootingResponse,
     TroubleshootingService,
@@ -140,6 +141,7 @@ def _build_service() -> TroubleshootingService:
         lexical_retriever=lexical,
         parent_store=JsonlParentChunkStore.from_directory(chunks_root),
         answer_generator=_answer_generator(),
+        session_store=SqliteDiagnosticSessionStore(Path(os.getenv("SESSION_STORE_PATH", "data/index/diagnostic_sessions.sqlite3"))),
         image_manifest=_image_manifest,
     )
 

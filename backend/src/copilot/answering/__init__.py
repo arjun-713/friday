@@ -9,7 +9,7 @@ from .models import (
     TroubleshootingResponse,
 )
 from .service import EvidenceOnlyAnswerGenerator, TroubleshootingService
-from .session import DiagnosticSessionStore
+from .session import DiagnosticSessionStore, SqliteDiagnosticSessionStore
 
 __all__ = [
     "DiagnosticOption",
@@ -19,6 +19,7 @@ __all__ = [
     "EvidenceOnlyAnswerGenerator",
     "LiteLLMAnswerGenerator",
     "LiteLLMSettings",
+    "SqliteDiagnosticSessionStore",
     "TroubleshootingRequest",
     "TroubleshootingResponse",
     "TroubleshootingService",

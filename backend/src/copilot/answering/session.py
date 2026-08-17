@@ -1,6 +1,9 @@
 """Small in-memory diagnostic session store for the text interaction loop."""
 
 import re
+import sqlite3
+from pathlib import Path
+from threading import RLock
 
 from .models import DiagnosticSessionState, TroubleshootingRequest
 
@@ -39,4 +42,60 @@ class DiagnosticSessionStore:
             state.observations[state.current_step_id] = observation
             if state.current_step_id not in state.completed_steps:
                 state.completed_steps.append(state.current_step_id)
+        return state
+
+    def save(self, state: DiagnosticSessionState) -> None:
+        """Persist an updated state. In-memory storage already holds the object."""
+
+        self._sessions[state.session_id] = state
+
+
+class SqliteDiagnosticSessionStore(DiagnosticSessionStore):
+    """Durable local session storage without collecting microphone audio."""
+
+    def __init__(self, path: Path) -> None:
+        self._path = path
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        self._lock = RLock()
+        with self._connect() as connection:
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS diagnostic_sessions (
+                    session_id TEXT PRIMARY KEY,
+                    state_json TEXT NOT NULL,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+
+    def _connect(self) -> sqlite3.Connection:
+        return sqlite3.connect(self._path)
+
+    def get(self, session_id: str) -> DiagnosticSessionState:
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                "SELECT state_json FROM diagnostic_sessions WHERE session_id = ?", (session_id,)
+            ).fetchone()
+        if row is None:
+            state = DiagnosticSessionState(session_id=session_id)
+            self.save(state)
+            return state
+        return DiagnosticSessionState.model_validate_json(str(row[0]))
+
+    def save(self, state: DiagnosticSessionState) -> None:
+        with self._lock, self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO diagnostic_sessions (session_id, state_json, updated_at)
+                VALUES (?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(session_id) DO UPDATE SET
+                    state_json = excluded.state_json,
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                (state.session_id, state.model_dump_json()),
+            )
+
+    def record_turn(self, request: TroubleshootingRequest) -> DiagnosticSessionState:
+        state = super().record_turn(request)
+        self.save(state)
         return state
