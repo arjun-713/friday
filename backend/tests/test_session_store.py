@@ -27,3 +27,16 @@ def test_sqlite_session_store_survives_reopen(tmp_path: Path) -> None:
     assert restored.current_step is not None
     assert restored.observations == {"check-status": "offline"}
     assert restored.completed_steps == ["check-status"]
+
+
+def test_sqlite_session_store_deletes_saved_state(tmp_path: Path) -> None:
+    path = tmp_path / "sessions.sqlite3"
+    store = SqliteDiagnosticSessionStore(path)
+    state = store.record_turn(TroubleshootingRequest(query="Printer is offline", session_id="printer-delete"))
+    state.current_step_id = "check-status"
+    store.save(state)
+
+    store.delete("printer-delete")
+
+    restored = SqliteDiagnosticSessionStore(path).get("printer-delete")
+    assert restored.current_step_id is None

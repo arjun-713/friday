@@ -58,6 +58,9 @@ class DiagnosticSessionStore:
 
         self._sessions[state.session_id] = state
 
+    def delete(self, session_id: str) -> None:
+        self._sessions.pop(session_id, None)
+
 
 class SqliteDiagnosticSessionStore(DiagnosticSessionStore):
     """Durable local session storage without collecting microphone audio."""
@@ -108,3 +111,7 @@ class SqliteDiagnosticSessionStore(DiagnosticSessionStore):
         state = super().record_turn(request)
         self.save(state)
         return state
+
+    def delete(self, session_id: str) -> None:
+        with self._lock, self._connect() as connection:
+            connection.execute("DELETE FROM diagnostic_sessions WHERE session_id = ?", (session_id,))

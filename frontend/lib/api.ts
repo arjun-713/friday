@@ -86,6 +86,11 @@ export class TroubleshootingApiError extends Error {
 
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
+export async function deleteDiagnosticSession(sessionId: string): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/v1/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" });
+  if (!response.ok) throw new TroubleshootingApiError("The diagnostic session could not be deleted.", response.status);
+}
+
 export async function troubleshoot(request: TroubleshootingRequest, signal?: AbortSignal): Promise<TroubleshootingResponse> {
   let response: Response;
   try {

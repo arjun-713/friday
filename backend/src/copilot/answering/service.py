@@ -92,6 +92,9 @@ class TroubleshootingService:
         self.session_store = session_store or DiagnosticSessionStore()
         self.image_manifest = image_manifest or {"assets": {}}
 
+    def delete_session(self, session_id: str) -> None:
+        self.session_store.delete(session_id)
+
     async def answer(self, request: TroubleshootingRequest) -> TroubleshootingResponse:
         state = self.session_store.record_turn(request)
         if state.last_turn_was_acknowledgement and state.current_step is not None:

@@ -24,6 +24,7 @@ import {
 } from "@heroicons/react/24/outline";
 import {
   API_BASE_URL,
+  deleteDiagnosticSession,
   troubleshootStream,
   TroubleshootingApiError,
   type DiagnosticOption,
@@ -192,9 +193,16 @@ export default function Home() {
     setEvidenceOpen(false);
   }
 
-  function deleteCurrentSession() {
+  async function deleteCurrentSession() {
+    const deletingSession = activeSession;
     if (activeSession !== "new") setSessions((current) => current.filter((session) => session.id !== activeSession));
     startNewSession();
+    if (deletingSession === "new") return;
+    try {
+      await deleteDiagnosticSession(deletingSession);
+    } catch {
+      // The chat is already removed from this browser. A later server cleanup can remove stale state.
+    }
   }
 
   async function runTroubleshoot(
@@ -510,7 +518,7 @@ export default function Home() {
               <div><span className="case-context">{selectedDevice.detail.toUpperCase()} / {selectedDevice.name.toUpperCase()}</span><h1 id="conversation-title">{caseQuery || "New troubleshooting session"}</h1></div>
               <div className="session-menu-wrap">
                 <button className="session-menu-button" type="button" aria-label="Session actions" aria-expanded={sessionMenuOpen} onClick={() => setSessionMenuOpen((open) => !open)}><Icon name="more" /></button>
-                {sessionMenuOpen && <div className="session-menu" role="menu"><button type="button" onClick={() => startNewSession()}>Start a new session</button>{activeSession !== "new" && <button type="button" onClick={deleteCurrentSession}>Delete this session</button>}</div>}
+                {sessionMenuOpen && <div className="session-menu" role="menu"><button type="button" onClick={() => startNewSession()}>Start a new session</button>{activeSession !== "new" && <button type="button" onClick={() => void deleteCurrentSession()}>Delete this session</button>}</div>}
               </div>
               <button className="evidence-toggle" type="button" aria-expanded={evidenceOpen} onClick={() => setEvidenceOpen((open) => !open)}>What we know <Icon name="chevron" /></button>
             </div>

@@ -29,7 +29,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
     allow_credentials=True,
-    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "Accept", "Authorization"],
 )
 _service: TroubleshootingService | None = None
@@ -110,6 +110,14 @@ async def troubleshoot_stream(
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
     )
+
+
+@app.delete("/v1/sessions/{session_id}", status_code=204)
+async def delete_session(
+    session_id: str,
+    service: TroubleshootingService = _service_dependency,
+) -> None:
+    service.delete_session(session_id)
 
 
 @app.websocket("/v1/voice")
