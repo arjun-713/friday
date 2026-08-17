@@ -14,7 +14,8 @@ export type VoiceEvent =
   | { type: "assistant.audio_complete" }
   | { type: "assistant.cancelled" }
   | { type: "retrieval"; retrieval: Record<string, unknown> }
-  | { type: "voice.error"; message: string };
+  | { type: "voice.error"; message: string }
+  | { type: "voice.closed"; message: string };
 
 export type VoiceSession = {
   sessionId: string;
@@ -52,6 +53,7 @@ export class FridayVoiceClient {
   private silence: GainNode | null = null;
   private playbackSources = new Set<AudioBufferSourceNode>();
   private nextPlaybackTime = 0;
+  private stopping = false;
 
   constructor(private readonly onEvent: (event: VoiceEvent) => void) {}
 
@@ -62,35 +64,49 @@ export class FridayVoiceClient {
     }
     const socket = new WebSocket(voiceUrl());
     this.socket = socket;
-    await new Promise<void>((resolve, reject) => {
-      socket.addEventListener("open", () => resolve(), { once: true });
-      socket.addEventListener("error", () => reject(new Error("Could not connect to Friday voice.")), { once: true });
-    });
+    this.stopping = false;
+    try {
+      await new Promise<void>((resolve, reject) => {
+        socket.addEventListener("open", () => resolve(), { once: true });
+        socket.addEventListener("error", () => reject(new Error("Could not connect to Friday voice.")), { once: true });
+      });
+    } catch (error) {
+      this.stopping = true;
+      socket.close();
+      if (this.socket === socket) this.socket = null;
+      throw error;
+    }
     socket.addEventListener("message", (message) => this.handleMessage(message));
     socket.addEventListener("close", () => {
       if (this.socket === socket) this.socket = null;
+      if (!this.stopping) this.onEvent({ type: "voice.closed", message: "Voice connection closed unexpectedly." });
     });
     socket.send(JSON.stringify({ type: "session.start", session_id: session.sessionId, manufacturer: session.manufacturer, model: session.model }));
 
-    const context = new AudioContext();
-    this.context = context;
-    await context.audioWorklet.addModule("/audio-capture-processor.js");
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-    });
-    this.stream = stream;
-    this.source = context.createMediaStreamSource(stream);
-    this.processor = new AudioWorkletNode(context, "friday-audio-capture");
-    this.silence = context.createGain();
-    this.silence.gain.value = 0;
-    this.processor.port.onmessage = (event: MessageEvent<ArrayBuffer>) => {
-      if (this.socket?.readyState === WebSocket.OPEN) {
-        this.socket.send(JSON.stringify({ type: "audio", audio: encodePcm(event.data) }));
-      }
-    };
-    this.source.connect(this.processor);
-    this.processor.connect(this.silence).connect(context.destination);
-    await context.resume();
+    try {
+      const context = new AudioContext();
+      this.context = context;
+      await context.audioWorklet.addModule("/audio-capture-processor.js");
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
+      this.stream = stream;
+      this.source = context.createMediaStreamSource(stream);
+      this.processor = new AudioWorkletNode(context, "friday-audio-capture");
+      this.silence = context.createGain();
+      this.silence.gain.value = 0;
+      this.processor.port.onmessage = (event: MessageEvent<ArrayBuffer>) => {
+        if (this.socket?.readyState === WebSocket.OPEN) {
+          this.socket.send(JSON.stringify({ type: "audio", audio: encodePcm(event.data) }));
+        }
+      };
+      this.source.connect(this.processor);
+      this.processor.connect(this.silence).connect(context.destination);
+      await context.resume();
+    } catch (error) {
+      await this.stop();
+      throw error;
+    }
   }
 
   cancelAssistant(): void {
@@ -99,6 +115,7 @@ export class FridayVoiceClient {
   }
 
   async stop(): Promise<void> {
+    this.stopping = true;
     this.cancelAssistant();
     if (this.socket?.readyState === WebSocket.OPEN) this.socket.send(JSON.stringify({ type: "session.stop" }));
     this.socket?.close();

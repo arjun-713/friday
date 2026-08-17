@@ -346,6 +346,12 @@ export default function Home() {
     if (event.type === "voice.error") {
       setApiError(event.message);
       setState("interrupted");
+      return;
+    }
+    if (event.type === "voice.closed") {
+      voiceClient.current = null;
+      setApiError(event.message);
+      setState("interrupted");
     }
   }
 
