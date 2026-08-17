@@ -66,8 +66,7 @@ h1, h2, p { margin-top: 0; }
 .session-item-copy strong { overflow: hidden; font-size: 12px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
 .session-item-copy span, .session-time { overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .session-time { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-.view-sessions { display: inline-flex; align-items: center; gap: 5px; width: fit-content; margin: 8px 9px 0; padding: 6px 0; border: 0; background: transparent; color: var(--accent-strong); font-size: 11px; font-weight: 700; }
-.view-sessions .icon { width: 13px; }
+.session-empty { margin: 7px 9px 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
 .profile-row { display: flex; align-items: center; gap: 9px; width: 100%; margin-top: auto; padding: 13px 9px 0; border: 0; border-top: 1px solid var(--border); background: transparent; color: var(--text); text-align: left; }
 .profile-avatar { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 50%; background: var(--text); color: white; }
 .profile-avatar .icon, .profile-row > .icon { width: 15px; }

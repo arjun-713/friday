@@ -41,13 +41,46 @@ type Session = {
   title: string;
   device: string;
   category: DeviceCategory;
-  time: string;
   status: SessionStatus;
+  createdAt: string;
+  updatedAt: string;
   messages: Message[];
   selectedAnswer: string | null;
 };
 
 const SESSION_STORAGE_KEY = "friday.troubleshooting-sessions.v1";
+
+function relativeSessionTime(value: string): string {
+  const elapsed = Math.max(0, Date.now() - new Date(value).getTime());
+  const minutes = Math.floor(elapsed / 60_000);
+  if (minutes < 1) return "Now";
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  return `${Math.floor(hours / 24)}d`;
+}
+
+function restoreSessions(raw: unknown): Session[] {
+  if (!Array.isArray(raw)) return [];
+  const fallbackTimestamp = new Date().toISOString();
+  return raw.flatMap((item): Session[] => {
+    if (!item || typeof item !== "object") return [];
+    const session = item as Partial<Session>;
+    if (typeof session.id !== "string" || typeof session.title !== "string" || typeof session.device !== "string") return [];
+    if (session.category !== "laptop" && session.category !== "router" && session.category !== "printer") return [];
+    return [{
+      id: session.id,
+      title: session.title,
+      device: session.device,
+      category: session.category,
+      status: session.status === "resolved" ? "resolved" : session.status === "open" ? "open" : "active",
+      createdAt: typeof session.createdAt === "string" ? session.createdAt : fallbackTimestamp,
+      updatedAt: typeof session.updatedAt === "string" ? session.updatedAt : fallbackTimestamp,
+      messages: Array.isArray(session.messages) ? session.messages : [],
+      selectedAnswer: typeof session.selectedAnswer === "string" ? session.selectedAnswer : null,
+    }];
+  });
+}
 
 function streamedInstruction(json: string): string {
   const match = json.match(/"instruction"\s*:\s*"((?:\\.|[^"\\])*)/);
@@ -141,6 +174,7 @@ export default function Home() {
     setApiError(null);
     setWhyOpen(false);
     setEvidenceOpen(false);
+    setSessionMenuOpen(false);
   }
 
   function chooseSession(session: Session) {
@@ -156,6 +190,11 @@ export default function Home() {
     setApiError(null);
     setWhyOpen(false);
     setEvidenceOpen(false);
+  }
+
+  function deleteCurrentSession() {
+    if (activeSession !== "new") setSessions((current) => current.filter((session) => session.id !== activeSession));
+    startNewSession();
   }
 
   async function runTroubleshoot(
@@ -174,7 +213,8 @@ export default function Home() {
       if (!caseQuery) {
         setCaseQuery(displayText);
         setActiveSession(sessionId);
-        setSessions((current) => [{ id: sessionId, title: displayText, device: selectedDevice.name, category: selectedCategory, time: "Now", status: "active", messages: [], selectedAnswer: null }, ...current]);
+        const timestamp = new Date().toISOString();
+        setSessions((current) => [{ id: sessionId, title: displayText, device: selectedDevice.name, category: selectedCategory, status: "active", createdAt: timestamp, updatedAt: timestamp, messages: [], selectedAnswer: null }, ...current]);
       }
     }
 
@@ -316,7 +356,8 @@ export default function Home() {
       if (!caseQuery) {
         setCaseQuery(event.text);
         setActiveSession(sessionId);
-        setSessions((current) => [{ id: sessionId, title: event.text, device: selectedDevice.name, category: selectedCategory, time: "Now", status: "active", messages: [], selectedAnswer: null }, ...current]);
+        const timestamp = new Date().toISOString();
+        setSessions((current) => [{ id: sessionId, title: event.text, device: selectedDevice.name, category: selectedCategory, status: "active", createdAt: timestamp, updatedAt: timestamp, messages: [], selectedAnswer: null }, ...current]);
       }
       setState("thinking");
       return;
@@ -382,7 +423,7 @@ export default function Home() {
   useEffect(() => {
     try {
       const stored = window.localStorage.getItem(SESSION_STORAGE_KEY);
-      if (stored) setSessions(JSON.parse(stored) as Session[]);
+      if (stored) setSessions(restoreSessions(JSON.parse(stored)));
     } catch {
       window.localStorage.removeItem(SESSION_STORAGE_KEY);
     } finally {
@@ -402,7 +443,7 @@ export default function Home() {
       title: caseQuery || session.title,
       device: selectedDevice.name,
       category: selectedCategory,
-      time: "Now",
+      updatedAt: new Date().toISOString(),
       messages,
       selectedAnswer,
     } : session));
@@ -423,6 +464,7 @@ export default function Home() {
   const latestCitation = latestResponse?.citations[0];
   const activeQuestion = latestResponse?.status === "ready" ? latestResponse.step?.question : undefined;
   const observations = selectedAnswer ? [selectedAnswer] : [];
+  const orderedSessions = [...sessions].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
 
   return (
     <main className="app-shell">
@@ -450,15 +492,15 @@ export default function Home() {
           <button className="new-session-quiet" type="button" onClick={() => startNewSession()}><span>＋</span> New session</button>
           <div className="sidebar-heading"><h2>Sessions</h2></div>
           <div className="session-list">
-            {sessions.map((session) => (
+            {orderedSessions.map((session) => (
               <button className={`session-item ${activeSession === session.id ? "selected" : ""}`} key={session.id} type="button" onClick={() => chooseSession(session)}>
-                <span className={`session-status-dot ${session.status}`} aria-hidden="true" />
+                <span className={`session-status-dot ${activeSession === session.id ? "active" : session.status}`} aria-hidden="true" />
                 <span className="session-item-copy"><strong>{session.title}</strong><span>{session.device}</span></span>
-                <span className="session-time">{session.status === "resolved" ? "Resolved" : session.time}</span>
+                <span className="session-time">{session.status === "resolved" ? "Resolved" : relativeSessionTime(session.updatedAt)}</span>
               </button>
             ))}
+            {sessionsHydrated && orderedSessions.length === 0 && <p className="session-empty">Your troubleshooting history will appear here.</p>}
           </div>
-          <button className="view-sessions" type="button">View all sessions <Icon name="arrow" /></button>
           <button className="profile-row" type="button" aria-label="Open profile"><span className="profile-avatar"><Icon name="user" /></span><span className="profile-copy"><strong>Profile</strong><span>Account settings</span></span><Icon name="chevron" /></button>
         </aside>
 
@@ -468,7 +510,7 @@ export default function Home() {
               <div><span className="case-context">{selectedDevice.detail.toUpperCase()} / {selectedDevice.name.toUpperCase()}</span><h1 id="conversation-title">{caseQuery || "New troubleshooting session"}</h1></div>
               <div className="session-menu-wrap">
                 <button className="session-menu-button" type="button" aria-label="Session actions" aria-expanded={sessionMenuOpen} onClick={() => setSessionMenuOpen((open) => !open)}><Icon name="more" /></button>
-                {sessionMenuOpen && <div className="session-menu" role="menu"><button type="button">Rename session</button><button type="button" onClick={() => setMessages([])}>Start over</button><button type="button" onClick={() => setMessages([])}>Clear conversation</button></div>}
+                {sessionMenuOpen && <div className="session-menu" role="menu"><button type="button" onClick={() => startNewSession()}>Start a new session</button>{activeSession !== "new" && <button type="button" onClick={deleteCurrentSession}>Delete this session</button>}</div>}
               </div>
               <button className="evidence-toggle" type="button" aria-expanded={evidenceOpen} onClick={() => setEvidenceOpen((open) => !open)}>What we know <Icon name="chevron" /></button>
             </div>
