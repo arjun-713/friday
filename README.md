@@ -51,6 +51,8 @@ The backend sends only retrieved evidence to the model. Responses must cite a re
 
 The planned realtime voice configuration uses Sarvam Saaras v3 realtime STT. It is disabled by default and keeps the API key backend-only. The initial settings are 16 kHz linear16 audio, `fast` streaming, VAD endpointing, 500 ms silence detection, and a 250 ms minimum speech duration. The WebSocket transport is implemented separately from this configuration so STT provider setup does not become coupled to the text answer path.
 
+The planned speech output uses Sarvam Bulbul v3 WebSocket TTS: `en-IN`, speaker `manan`, pace `1.0`, 24 kHz `linear16`, and completion events enabled. TTS is also disabled by default until the persistent WebSocket and browser audio queue are implemented.
+
 Create auditable cleaned output without changing the raw JSON:
 
 ```bash

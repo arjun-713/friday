@@ -51,3 +51,37 @@ def _env_bool(name: str, *, default: bool) -> bool:
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+@dataclass(frozen=True)
+class SarvamTTSSettings:
+    """Environment-driven Bulbul v3 WebSocket settings."""
+
+    enabled: bool = False
+    api_key: str | None = field(default=None, repr=False)
+    model: str = "bulbul:v3"
+    language: str = "en-IN"
+    speaker: str = "manan"
+    pace: float = 1.0
+    sample_rate: int = 24_000
+    codec: str = "linear16"
+    send_completion_event: bool = True
+    endpoint: str = "wss://api.sarvam.ai/text-to-speech/ws"
+
+    @classmethod
+    def from_env(cls) -> SarvamTTSSettings:
+        return cls(
+            enabled=_env_bool("SARVAM_TTS_ENABLED", default=False),
+            api_key=os.getenv("SARVAM_API_KEY") or None,
+            model=os.getenv("SARVAM_TTS_MODEL", "bulbul:v3"),
+            language=os.getenv("SARVAM_TTS_LANGUAGE", "en-IN"),
+            speaker=os.getenv("SARVAM_TTS_SPEAKER", "manan"),
+            pace=float(os.getenv("SARVAM_TTS_PACE", "1.0")),
+            sample_rate=int(os.getenv("SARVAM_TTS_SAMPLE_RATE", "24000")),
+            codec=os.getenv("SARVAM_TTS_CODEC", "linear16"),
+            send_completion_event=_env_bool("SARVAM_TTS_SEND_COMPLETION_EVENT", default=True),
+        )
+
+    def require_credentials(self) -> None:
+        if self.enabled and not self.api_key:
+            raise ValueError("SARVAM_API_KEY is required when SARVAM_TTS_ENABLED=true")
