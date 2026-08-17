@@ -43,7 +43,11 @@ type Session = {
   category: DeviceCategory;
   time: string;
   status: SessionStatus;
+  messages: Message[];
+  selectedAnswer: string | null;
 };
+
+const SESSION_STORAGE_KEY = "friday.troubleshooting-sessions.v1";
 
 function streamedInstruction(json: string): string {
   const match = json.match(/"instruction"\s*:\s*"((?:\\.|[^"\\])*)/);
@@ -96,6 +100,7 @@ export default function Home() {
   const [sessionId, setSessionId] = useState("session-initial");
   const [caseQuery, setCaseQuery] = useState("");
   const [sessions, setSessions] = useState<Session[]>([]);
+  const [sessionsHydrated, setSessionsHydrated] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<DeviceCategory>("router");
   const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
   const [whyOpen, setWhyOpen] = useState(false);
@@ -145,8 +150,8 @@ export default function Home() {
     setSessionId(session.id);
     setCaseQuery(session.title);
     setSelectedCategory(session.category);
-    setMessages([]);
-    setSelectedAnswer(null);
+    setMessages(session.messages);
+    setSelectedAnswer(session.selectedAnswer);
     setState("ready");
     setApiError(null);
     setWhyOpen(false);
@@ -169,7 +174,7 @@ export default function Home() {
       if (!caseQuery) {
         setCaseQuery(displayText);
         setActiveSession(sessionId);
-        setSessions((current) => [{ id: sessionId, title: displayText, device: selectedDevice.name, category: selectedCategory, time: "Now", status: "active" }, ...current]);
+        setSessions((current) => [{ id: sessionId, title: displayText, device: selectedDevice.name, category: selectedCategory, time: "Now", status: "active", messages: [], selectedAnswer: null }, ...current]);
       }
     }
 
@@ -311,7 +316,7 @@ export default function Home() {
       if (!caseQuery) {
         setCaseQuery(event.text);
         setActiveSession(sessionId);
-        setSessions((current) => [{ id: sessionId, title: event.text, device: selectedDevice.name, category: selectedCategory, time: "Now", status: "active" }, ...current]);
+        setSessions((current) => [{ id: sessionId, title: event.text, device: selectedDevice.name, category: selectedCategory, time: "Now", status: "active", messages: [], selectedAnswer: null }, ...current]);
       }
       setState("thinking");
       return;
@@ -367,6 +372,35 @@ export default function Home() {
     setDraft("");
     setState("ready");
   }
+
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem(SESSION_STORAGE_KEY);
+      if (stored) setSessions(JSON.parse(stored) as Session[]);
+    } catch {
+      window.localStorage.removeItem(SESSION_STORAGE_KEY);
+    } finally {
+      setSessionsHydrated(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!sessionsHydrated) return;
+    window.localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(sessions));
+  }, [sessions, sessionsHydrated]);
+
+  useEffect(() => {
+    if (!sessionsHydrated || activeSession === "new") return;
+    setSessions((current) => current.map((session) => session.id === activeSession ? {
+      ...session,
+      title: caseQuery || session.title,
+      device: selectedDevice.name,
+      category: selectedCategory,
+      time: "Now",
+      messages,
+      selectedAnswer,
+    } : session));
+  }, [activeSession, caseQuery, messages, selectedAnswer, selectedCategory, selectedDevice.name, sessionsHydrated]);
 
   useEffect(() => {
     return () => {
