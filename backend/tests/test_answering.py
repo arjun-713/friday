@@ -610,3 +610,38 @@ def test_session_treats_unpunctuated_what_next_as_acknowledgement() -> None:
     assert first.step is not None
     assert second.step == first.step
     assert second.retrieval.reason == "awaiting_current_observation"
+
+
+def test_session_uses_query_as_acknowledgement_when_observation_is_omitted() -> None:
+    base_service = _service([_hit()])
+    service = TroubleshootingService(
+        embedding_provider=base_service.embedding_provider,
+        vector_index=base_service.vector_index,
+        lexical_retriever=base_service.lexical_retriever,
+        parent_store=base_service.parent_store,
+        answer_generator=SequentialStepGenerator(),
+    )
+    first = asyncio.run(
+        service.answer(
+            TroubleshootingRequest(
+                query="The router cannot connect",
+                manufacturer="Example",
+                model="Example 1",
+                session_id="query-only-ack",
+            )
+        )
+    )
+    second = asyncio.run(
+        service.answer(
+            TroubleshootingRequest(
+                query="Yes, I got it. What next?",
+                manufacturer="Example",
+                model="Example 1",
+                session_id="query-only-ack",
+            )
+        )
+    )
+
+    assert first.step is not None
+    assert second.step == first.step
+    assert second.retrieval.reason == "awaiting_current_observation"

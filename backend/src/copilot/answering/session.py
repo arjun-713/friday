@@ -42,7 +42,10 @@ class DiagnosticSessionStore:
 
     def record_turn(self, request: TroubleshootingRequest) -> DiagnosticSessionState:
         state = self.get(request.session_id)
-        observation = request.observation or request.selected_option
+        # `query` is the public API's required user-turn field. Frontends may
+        # additionally populate `observation`, but callers that omit that
+        # optional duplicate must still retain acknowledgement semantics.
+        observation = request.selected_option or request.observation or request.query
         has_explicit_option = request.selected_option is not None
         state.last_turn_was_acknowledgement = bool(
             observation and state.current_step_id and not has_explicit_option and is_acknowledgement_without_result(observation)
