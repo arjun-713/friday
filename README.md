@@ -1,12 +1,15 @@
 # Full-Duplex Troubleshooting Copilot
 
-Scaffold for an evidence-grounded troubleshooting assistant. The repository is currently organized around the first delivery slice: document ingestion and the contracts required by later retrieval and voice phases.
+Evidence-grounded troubleshooting for the manuals in `data/manuals`. Friday keeps
+each troubleshooting session scoped to a supported device, retrieves manufacturer
+evidence, gives one verified diagnostic check at a time, and retains confirmed
+results for the next turn.
 
 ## Layout
 
 ```text
 backend/       FastAPI service and ingestion domain
-frontend/      Next.js operator/query shell
+frontend/      Next.js conversational troubleshooting interface
 data/          local runtime directories; source files are ignored
 docs/          phase boundaries and ingestion contract
 tests/         backend unit tests
@@ -15,15 +18,27 @@ tests/         backend unit tests
 ## Run locally
 
 ```bash
-cd backend
-python -m venv .venv
-source .venv/bin/activate
-pip install -e '.[dev]'
-pytest
-uvicorn copilot.main:app --reload
+make qdrant-up
+make backend-venv
+
+cp backend/.env.example backend/.env
+# Add SARVAM_API_KEY to backend/.env when using Sarvam conversation or voice.
+
+PYTHONPATH=backend/src backend/.venv/bin/uvicorn copilot.main:app --reload --port 8000
+# In a second terminal:
+cd frontend && npm install && npm run dev
 ```
 
-The ingestion adapter uses Firecrawl's local `pdf-inspector` bindings for PDF classification, per-page Markdown, and positioned text. It records OCR-required pages but does not run OCR yet. Native parsing and deterministic text cleanup are implemented; chunking, BM25, vector search, and raw-page rendering remain later stages.
+The frontend is served on `http://localhost:3000`; the FastAPI service is served
+on `http://localhost:8000`. `/health` and `/v1/devices` do not require an LLM
+call. The latter is the authoritative supported-device catalog generated from
+the source registry, so the interface cannot select a made-up model.
+
+The ingestion adapter uses Firecrawl's local `pdf-inspector` bindings for PDF
+classification, per-page Markdown, and positioned text. It records OCR-required
+pages but does not run OCR yet. Native parsing, deterministic text cleanup,
+structure-aware chunking, BM25, vector search, and raw-page rendering are in
+place.
 
 Parsed outputs mirror the source taxonomy under `data/raw/{computers,routers,printers}`. Re-run the text-only parser with:
 
@@ -48,9 +63,19 @@ cp backend/.env.example backend/.env
 
 The backend sends only retrieved evidence to the model. Responses must cite a retrieved chunk; the server expands that marker into the document title, page, and section, and abstains when the model returns `UNSUPPORTED` or an unknown citation. Provider failures are returned as service-unavailable errors without logging credentials or prompt contents.
 
-The planned realtime voice configuration uses Sarvam Saaras v3 realtime STT. It is disabled by default and keeps the API key backend-only. The initial settings are 16 kHz linear16 audio, `fast` streaming, VAD endpointing, 500 ms silence detection, and a 250 ms minimum speech duration. The WebSocket transport is implemented separately from this configuration so STT provider setup does not become coupled to the text answer path.
+## Voice interaction
 
-The planned speech output uses Sarvam Bulbul v3 WebSocket TTS: `en-IN`, speaker `manan`, pace `1.0`, 24 kHz `linear16`, and completion events enabled. TTS is also disabled by default until the persistent WebSocket and browser audio queue are implemented.
+Voice is a persistent browser-to-backend WebSocket at `/v1/voice`. One click
+opens microphone capture and keeps the session listening: Saaras v3 Realtime
+returns partial and final transcripts, each final transcript starts the same
+retrieval-and-answer turn used by typed chat, and Bulbul v3 streams the approved
+diagnostic instruction as PCM audio. The transcript remains in the conversation
+after playback. On `vad.speech_start`, Friday cancels the active answer/TTS and
+clears queued browser audio before listening to the new turn.
+
+The configured formats are 16 kHz PCM16 for microphone input and 24 kHz PCM16
+for playback. API credentials remain backend-only in `backend/.env`; raw user
+audio is forwarded for the live turn and is not stored by Friday.
 
 Create auditable cleaned output without changing the raw JSON:
 
