@@ -536,3 +536,40 @@ def test_session_does_not_complete_step_for_acknowledgement_only() -> None:
     assert first.step is not None
     assert second.step == first.step
     assert second.retrieval.reason == "awaiting_current_observation"
+
+
+def test_session_treats_unpunctuated_what_next_as_acknowledgement() -> None:
+    base_service = _service([_hit()])
+    service = TroubleshootingService(
+        embedding_provider=base_service.embedding_provider,
+        vector_index=base_service.vector_index,
+        lexical_retriever=base_service.lexical_retriever,
+        parent_store=base_service.parent_store,
+        answer_generator=SequentialStepGenerator(),
+    )
+
+    first = asyncio.run(
+        service.answer(
+            TroubleshootingRequest(
+                query="Wi-Fi is visible but there is no internet",
+                manufacturer="Example",
+                model="Example 1",
+                session_id="session-what-next",
+            )
+        )
+    )
+    second = asyncio.run(
+        service.answer(
+            TroubleshootingRequest(
+                query="Yes, I got it. What next?",
+                observation="Yes, I got it. What next?",
+                manufacturer="Example",
+                model="Example 1",
+                session_id="session-what-next",
+            )
+        )
+    )
+
+    assert first.step is not None
+    assert second.step == first.step
+    assert second.retrieval.reason == "awaiting_current_observation"

@@ -7,17 +7,26 @@ from threading import RLock
 
 from .models import DiagnosticSessionState, TroubleshootingRequest
 
-_ACKNOWLEDGEMENT_ONLY = re.compile(
-    r"^\s*(?:yes|yeah|yep|okay|ok|got it|understood|done|thanks|thank you)"
-    r"(?:[\s,!.?]*(?:i(?:'ve| have)? (?:done|checked|got) it|what(?:'s| is) next|next|please|now))*[\s!.?]*$",
-    re.IGNORECASE,
+_ACKNOWLEDGEMENT_ONLY = re.compile(r"[^a-z0-9]+")
+_ACKNOWLEDGEMENT_PHRASES = (
+    "got it",
+    "what next",
+    "what is next",
+    "whats next",
+    "i understand",
+    "i have done it",
+    "i checked it",
 )
+_SHORT_ACKNOWLEDGEMENTS = {"yes", "yeah", "yep", "okay", "ok", "done", "thanks", "thank you", "understood"}
 
 
 def is_acknowledgement_without_result(value: str) -> bool:
     """Keep an acknowledgement from silently completing a diagnostic check."""
 
-    return bool(_ACKNOWLEDGEMENT_ONLY.fullmatch(value))
+    normalized = " ".join(part for part in _ACKNOWLEDGEMENT_ONLY.split(value.lower()) if part)
+    if normalized in _SHORT_ACKNOWLEDGEMENTS:
+        return True
+    return len(normalized.split()) <= 12 and any(phrase in normalized for phrase in _ACKNOWLEDGEMENT_PHRASES)
 
 
 class DiagnosticSessionStore:
