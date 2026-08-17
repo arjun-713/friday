@@ -1,5 +1,6 @@
 import pytest
 
+from copilot.answering.litellm import LiteLLMSettings
 from copilot.voice.sarvam import SarvamRealtimeSettings, SarvamTTSSettings
 
 
@@ -17,10 +18,9 @@ def test_sarvam_realtime_defaults() -> None:
 
 
 def test_sarvam_realtime_requires_key_when_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("SARVAM_STT_ENABLED", "true")
     monkeypatch.delenv("SARVAM_API_KEY", raising=False)
 
-    settings = SarvamRealtimeSettings.from_env()
+    settings = SarvamRealtimeSettings(enabled=True)
 
     with pytest.raises(ValueError, match="SARVAM_API_KEY"):
         settings.require_credentials()
@@ -39,10 +39,21 @@ def test_sarvam_tts_defaults() -> None:
 
 
 def test_sarvam_tts_requires_key_when_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("SARVAM_TTS_ENABLED", "true")
     monkeypatch.delenv("SARVAM_API_KEY", raising=False)
 
-    settings = SarvamTTSSettings.from_env()
+    settings = SarvamTTSSettings(enabled=True)
 
     with pytest.raises(ValueError, match="SARVAM_API_KEY"):
         settings.require_credentials()
+
+
+def test_runtime_yaml_contains_non_secret_provider_settings() -> None:
+    llm = LiteLLMSettings.from_env()
+    stt = SarvamRealtimeSettings.from_env()
+    tts = SarvamTTSSettings.from_env()
+
+    assert llm.model == "openai/sarvam-105b-conversations"
+    assert llm.api_base == "https://api.sarvam.ai/v1"
+    assert llm.api_key_env == "SARVAM_API_KEY"
+    assert stt.model == "saaras:v3-realtime"
+    assert tts.model == "bulbul:v3"

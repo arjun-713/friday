@@ -10,6 +10,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from ..config import config_section, load_runtime_config
 from ..prompts import build_messages
 from .models import DiagnosticSessionState, DiagnosticStep, EvidenceContext
 
@@ -46,16 +47,17 @@ class LiteLLMSettings:
 
     @classmethod
     def from_env(cls) -> LiteLLMSettings:
+        values = config_section(load_runtime_config(), "llm")
         return cls(
-            enabled=_env_bool("LLM_ENABLED", default=False),
-            model=os.getenv("LLM_MODEL", "deepseek/deepseek-chat"),
-            api_base=os.getenv("LLM_API_BASE") or None,
-            temperature=float(os.getenv("LLM_TEMPERATURE", "0")),
-            max_tokens=int(os.getenv("LLM_MAX_TOKENS", "400")),
-            timeout_seconds=float(os.getenv("LLM_TIMEOUT_SECONDS", "20")),
-            api_key_env=os.getenv("LLM_API_KEY_ENV") or None,
-            response_format=os.getenv("LLM_RESPONSE_FORMAT", "json_object") or None,
-            reasoning_effort=os.getenv("LLM_REASONING_EFFORT") or None,
+            enabled=bool(values.get("enabled", False)),
+            model=str(values.get("model", "openai/sarvam-105b-conversations")),
+            api_base=str(values["api_base"]) if values.get("api_base") else None,
+            temperature=float(values.get("temperature", 0.0)),
+            max_tokens=int(values.get("max_tokens", 400)),
+            timeout_seconds=float(values.get("timeout_seconds", 20.0)),
+            api_key_env=str(values["api_key_env"]) if values.get("api_key_env") else None,
+            response_format=str(values["response_format"]) if values.get("response_format") else None,
+            reasoning_effort=str(values["reasoning_effort"]) if values.get("reasoning_effort") else None,
         )
 
 

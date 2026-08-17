@@ -1,0 +1,38 @@
+# Non-secret Friday runtime configuration.
+# API keys belong only in .env and are referenced by api_key_env below.
+
+llm:
+  enabled: true
+  model: openai/sarvam-105b-conversations
+  api_base: https://api.sarvam.ai/v1
+  api_key_env: SARVAM_API_KEY
+  temperature: 0.4
+  max_tokens: 2048
+  timeout_seconds: 20
+  response_format: json_object
+  reasoning_effort: null
+
+voice:
+  stt:
+    enabled: false
+    model: saaras:v3-realtime
+    language: en-IN
+    mode: transcribe
+    stream_type: fast
+    endpointing: vad
+    encoding: linear16
+    sample_rate: 16000
+    vad_threshold: 0.3
+    silence_ms: 500
+    min_speech_ms: 250
+    endpoint: wss://api.sarvam.ai/speech-to-text-realtime/ws
+  tts:
+    enabled: false
+    model: bulbul:v3
+    language: en-IN
+    speaker: manan
+    pace: 1.0
+    sample_rate: 24000
+    codec: linear16
+    send_completion_event: true
+    endpoint: wss://api.sarvam.ai/text-to-speech/ws

@@ -39,16 +39,11 @@ PYTHONPATH=backend/src python -m copilot.ingestion.parsing.native
 
 ## LiteLLM answer layer
 
-The text endpoint can use LiteLLM to route answer generation to any supported provider. It is disabled by default so retrieval and the evidence-only path work without credentials. Copy `backend/.env.example` into a local, ignored environment file, set `LLM_ENABLED=true`, choose a provider-prefixed `LLM_MODEL`, and provide that provider's API key through its documented environment variable. For example:
+The text endpoint uses the non-secret settings in `backend/config.yml` and reads API keys only from the ignored `backend/.env` file. Keep secrets out of YAML and Git. The default configuration targets Sarvam's OpenAI-compatible Conversations endpoint:
 
 ```bash
-LLM_ENABLED=true
-LLM_MODEL=openai/sarvam-105b-conversations
-LLM_API_BASE=https://api.sarvam.ai/v1
-LLM_API_KEY_ENV=SARVAM_API_KEY
-SARVAM_API_KEY=...
-LLM_RESPONSE_FORMAT=json_object
-LLM_REASONING_EFFORT=
+cp backend/.env.example backend/.env
+# Edit backend/.env and add SARVAM_API_KEY.
 ```
 
 The backend sends only retrieved evidence to the model. Responses must cite a retrieved chunk; the server expands that marker into the document title, page, and section, and abstains when the model returns `UNSUPPORTED` or an unknown citation. Provider failures are returned as service-unavailable errors without logging credentials or prompt contents.

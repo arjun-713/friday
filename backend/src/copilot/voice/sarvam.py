@@ -5,10 +5,12 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 
+from ..config import config_section, load_runtime_config
+
 
 @dataclass(frozen=True)
 class SarvamRealtimeSettings:
-    """Environment-driven Saaras settings with no credential logging or persistence."""
+    """YAML-driven Saaras settings with no credential logging or persistence."""
 
     enabled: bool = False
     api_key: str | None = field(default=None, repr=False)
@@ -26,36 +28,31 @@ class SarvamRealtimeSettings:
 
     @classmethod
     def from_env(cls) -> SarvamRealtimeSettings:
+        values = config_section(load_runtime_config(), "voice.stt")
         return cls(
-            enabled=_env_bool("SARVAM_STT_ENABLED", default=False),
+            enabled=bool(values.get("enabled", False)),
             api_key=os.getenv("SARVAM_API_KEY") or None,
-            model=os.getenv("SARVAM_STT_MODEL", "saaras:v3-realtime"),
-            language=os.getenv("SARVAM_STT_LANGUAGE", "en-IN"),
-            mode=os.getenv("SARVAM_STT_MODE", "transcribe"),
-            stream_type=os.getenv("SARVAM_STT_STREAM_TYPE", "fast"),
-            endpointing=os.getenv("SARVAM_STT_ENDPOINTING", "vad"),
-            encoding=os.getenv("SARVAM_STT_ENCODING", "linear16"),
-            sample_rate=int(os.getenv("SARVAM_STT_SAMPLE_RATE", "16000")),
-            vad_threshold=float(os.getenv("SARVAM_STT_VAD_THRESHOLD", "0.3")),
-            silence_ms=int(os.getenv("SARVAM_STT_SILENCE_MS", "500")),
-            min_speech_ms=int(os.getenv("SARVAM_STT_MIN_SPEECH_MS", "250")),
+            model=str(values.get("model", "saaras:v3-realtime")),
+            language=str(values.get("language", "en-IN")),
+            mode=str(values.get("mode", "transcribe")),
+            stream_type=str(values.get("stream_type", "fast")),
+            endpointing=str(values.get("endpointing", "vad")),
+            encoding=str(values.get("encoding", "linear16")),
+            sample_rate=int(values.get("sample_rate", 16000)),
+            vad_threshold=float(values.get("vad_threshold", 0.3)),
+            silence_ms=int(values.get("silence_ms", 500)),
+            min_speech_ms=int(values.get("min_speech_ms", 250)),
+            endpoint=str(values.get("endpoint", "wss://api.sarvam.ai/speech-to-text-realtime/ws")),
         )
 
     def require_credentials(self) -> None:
         if self.enabled and not self.api_key:
-            raise ValueError("SARVAM_API_KEY is required when SARVAM_STT_ENABLED=true")
-
-
-def _env_bool(name: str, *, default: bool) -> bool:
-    value = os.getenv(name)
-    if value is None:
-        return default
-    return value.strip().lower() in {"1", "true", "yes", "on"}
+            raise ValueError("SARVAM_API_KEY is required when voice.stt.enabled is true")
 
 
 @dataclass(frozen=True)
 class SarvamTTSSettings:
-    """Environment-driven Bulbul v3 WebSocket settings."""
+    """YAML-driven Bulbul v3 WebSocket settings."""
 
     enabled: bool = False
     api_key: str | None = field(default=None, repr=False)
@@ -70,18 +67,20 @@ class SarvamTTSSettings:
 
     @classmethod
     def from_env(cls) -> SarvamTTSSettings:
+        values = config_section(load_runtime_config(), "voice.tts")
         return cls(
-            enabled=_env_bool("SARVAM_TTS_ENABLED", default=False),
+            enabled=bool(values.get("enabled", False)),
             api_key=os.getenv("SARVAM_API_KEY") or None,
-            model=os.getenv("SARVAM_TTS_MODEL", "bulbul:v3"),
-            language=os.getenv("SARVAM_TTS_LANGUAGE", "en-IN"),
-            speaker=os.getenv("SARVAM_TTS_SPEAKER", "manan"),
-            pace=float(os.getenv("SARVAM_TTS_PACE", "1.0")),
-            sample_rate=int(os.getenv("SARVAM_TTS_SAMPLE_RATE", "24000")),
-            codec=os.getenv("SARVAM_TTS_CODEC", "linear16"),
-            send_completion_event=_env_bool("SARVAM_TTS_SEND_COMPLETION_EVENT", default=True),
+            model=str(values.get("model", "bulbul:v3")),
+            language=str(values.get("language", "en-IN")),
+            speaker=str(values.get("speaker", "manan")),
+            pace=float(values.get("pace", 1.0)),
+            sample_rate=int(values.get("sample_rate", 24000)),
+            codec=str(values.get("codec", "linear16")),
+            send_completion_event=bool(values.get("send_completion_event", True)),
+            endpoint=str(values.get("endpoint", "wss://api.sarvam.ai/text-to-speech/ws")),
         )
 
     def require_credentials(self) -> None:
         if self.enabled and not self.api_key:
-            raise ValueError("SARVAM_API_KEY is required when SARVAM_TTS_ENABLED=true")
+            raise ValueError("SARVAM_API_KEY is required when voice.tts.enabled is true")
