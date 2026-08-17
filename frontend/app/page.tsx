@@ -40,6 +40,7 @@ type Session = {
   id: string;
   title: string;
   device: string;
+  category: DeviceCategory;
   time: string;
   status: SessionStatus;
 };
@@ -54,21 +55,11 @@ function streamedInstruction(json: string): string {
   }
 }
 
-const sessions: Session[] = [
-  { id: "router-01", title: "Wi-Fi, no internet", device: "TP-Link Archer C6", time: "Now", status: "active" },
-  { id: "printer-02", title: "Printer not responding", device: "Brother HL-L2350DW", time: "Yesterday", status: "open" },
-  { id: "laptop-03", title: "Laptop won’t charge", device: "ThinkPad T480", time: "Aug 12", status: "resolved" },
-];
-
 const deviceProfiles = {
   laptop: { name: "ThinkPad T480", detail: "Laptop / Desktop", icon: "laptop" as const },
   router: { name: "TP-Link Archer C6", detail: "Wi-Fi Router", icon: "router" as const },
   printer: { name: "LaserJet Pro M404/M405", detail: "Printer", icon: "printer" as const },
 };
-
-const initialMessages: Message[] = [
-  { id: "initial-user", role: "user", text: "My router is on, but nothing can get online. The Wi-Fi name still shows up.", meta: "just now" },
-];
 
 type IconName = "arrow" | "mic" | "send" | "check" | "pause" | "chevron" | "laptop" | "router" | "printer" | "external" | "manual" | "more" | "paperclip" | "user" | "regenerate" | "like" | "dislike" | "copy";
 const iconMap: Record<IconName, ComponentType<SVGProps<SVGSVGElement>>> = {
@@ -97,23 +88,14 @@ function Icon({ name }: { name: IconName }) {
   return <Component aria-hidden="true" className="icon" />;
 }
 
-function ManualFigure({ compact = false }: { compact?: boolean }) {
-  return (
-    <div className={`manual-figure ${compact ? "compact" : ""}`} aria-label="Manual figure showing router status lights">
-      <svg width="240" height="150" viewBox="0 0 240 150" fill="none" role="img" aria-hidden="true">
-        <path d="M25 112h190" className="figure-line" /><path d="M45 103V61l72-24 78 24v42" className="figure-outline" /><path d="M45 61h150M74 53v50M104 43v60M134 48v55M164 55v48" className="figure-line" /><rect x="64" y="77" width="104" height="17" rx="3" className="figure-panel" /><circle cx="82" cy="85" r="4" className="figure-light" /><circle cx="103" cy="85" r="4" className="figure-light active" /><circle cx="124" cy="85" r="4" className="figure-light" /><path d="m112 132 20-17m-20 17 3-25m-3 25-18-9" className="figure-arrow" />
-      </svg>
-    </div>
-  );
-}
-
 export default function Home() {
-  const [messages, setMessages] = useState<Message[]>(initialMessages);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState("");
   const [state, setState] = useState<SessionState>("ready");
-  const [activeSession, setActiveSession] = useState("router-01");
-  const [sessionId, setSessionId] = useState("router-01");
-  const [caseQuery, setCaseQuery] = useState(initialMessages[0].text);
+  const [activeSession, setActiveSession] = useState("new");
+  const [sessionId, setSessionId] = useState("session-initial");
+  const [caseQuery, setCaseQuery] = useState("");
+  const [sessions, setSessions] = useState<Session[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<DeviceCategory>("router");
   const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
   const [whyOpen, setWhyOpen] = useState(false);
@@ -145,7 +127,7 @@ export default function Home() {
     void stopVoice();
     setSelectedCategory(category);
     setActiveSession("new");
-    const nextSessionId = `session-${Date.now()}`;
+    const nextSessionId = `session-${globalThis.crypto?.randomUUID?.() ?? Date.now()}`;
     setSessionId(nextSessionId);
     setCaseQuery("");
     setMessages([]);
@@ -162,8 +144,8 @@ export default function Home() {
     setActiveSession(session.id);
     setSessionId(session.id);
     setCaseQuery(session.title);
-    setSelectedCategory(session.id === "printer-02" ? "printer" : session.id === "laptop-03" ? "laptop" : "router");
-    setMessages(session.id === "router-01" ? initialMessages : []);
+    setSelectedCategory(session.category);
+    setMessages([]);
     setSelectedAnswer(null);
     setState("ready");
     setApiError(null);
@@ -182,7 +164,14 @@ export default function Home() {
     requestController.current = controller;
     setApiError(null);
     setState("thinking");
-    if (addUser) setMessages((current) => [...current, { id: createMessageId("user"), role: "user", text: displayText, meta: "just now" }]);
+    if (addUser) {
+      setMessages((current) => [...current, { id: createMessageId("user"), role: "user", text: displayText, meta: "just now" }]);
+      if (!caseQuery) {
+        setCaseQuery(displayText);
+        setActiveSession(sessionId);
+        setSessions((current) => [{ id: sessionId, title: displayText, device: selectedDevice.name, category: selectedCategory, time: "Now", status: "active" }, ...current]);
+      }
+    }
 
     const manufacturer = selectedCategory === "router" ? "TP-Link" : selectedCategory === "printer" ? "HP" : "Lenovo";
     try {
@@ -251,7 +240,6 @@ export default function Home() {
     event.preventDefault();
     const text = draft.trim();
     if (!text) return;
-    if (!caseQuery) setCaseQuery(text);
     void runTroubleshoot(
       attachment ? `${text} Attached file: ${attachment}.` : text,
       attachment ? `${text} · ${attachment}` : text,
@@ -320,7 +308,11 @@ export default function Home() {
         { id: createMessageId("user"), role: "user", text: event.text, meta: "just now" },
         { id: assistantId, role: "assistant", text: "", meta: "just now" },
       ]);
-      if (!caseQuery) setCaseQuery(event.text);
+      if (!caseQuery) {
+        setCaseQuery(event.text);
+        setActiveSession(sessionId);
+        setSessions((current) => [{ id: sessionId, title: event.text, device: selectedDevice.name, category: selectedCategory, time: "Now", status: "active" }, ...current]);
+      }
       setState("thinking");
       return;
     }
@@ -377,7 +369,6 @@ export default function Home() {
   }
 
   useEffect(() => {
-    void runTroubleshoot(initialMessages[0].text, "", false);
     return () => {
       requestController.current?.abort();
       void voiceClient.current?.stop();
@@ -387,12 +378,17 @@ export default function Home() {
   const isListening = state === "listening";
   const isThinking = state === "thinking";
   const voiceConnected = voiceClient.current !== null;
+  const latestAssistantMessage = [...messages].reverse().find((message) => message.role === "assistant" && message.response);
+  const latestResponse = latestAssistantMessage?.response;
+  const latestCitation = latestResponse?.citations[0];
+  const activeQuestion = latestResponse?.status === "ready" ? latestResponse.step?.question : undefined;
+  const observations = selectedAnswer ? [selectedAnswer] : [];
 
   return (
     <main className="app-shell">
       <header className="topbar">
         <a className="wordmark" href="#conversation" aria-label="Friday home"><span className="wordmark-mark"><Icon name="router" /></span><span>friday</span></a>
-        <div className="topbar-center"><span className="topbar-context">TP-Link Archer C6 <span>/</span> Wi-Fi visible, no internet</span></div>
+        <div className="topbar-center"><span className="topbar-context">{selectedDevice.name}<span>/</span>{caseQuery || "New session"}</span></div>
       </header>
 
       <div className="workspace">
@@ -444,11 +440,16 @@ export default function Home() {
                   {message.role === "user" && <div className="message-meta"><span>You</span><span>{message.meta}</span></div>}
                   {message.role === "user" && <p>{message.text}</p>}
                   {message.role === "assistant" && (
-                    <div className={`step-panel ${message.response?.status === "abstained" ? "abstained-panel" : ""}`}>
+                    message.id !== latestAssistantMessage?.id ? (
+                      <div className="assistant-history">
+                        <p>{message.text || "Checking the manual…"}</p>
+                        {message.response?.citations[0] && <a href={message.response.citations[0].source_url || "#source"}>{message.response.citations[0].document_title} · p. {message.response.citations[0].page}</a>}
+                      </div>
+                    ) : <div className={`step-panel ${message.response?.status === "abstained" ? "abstained-panel" : ""}`}>
                       <div className="step-heading"><h2>{message.response?.status === "abstained" ? (message.response.missing_observations.length > 0 ? "I need another observation" : "No verified step found") : message.response?.step?.title ?? "Next check"}</h2></div>
                       <p className="instruction response-copy">{message.text}</p>
                       {message.response?.status === "abstained" ? <ul className="missing-observations">{message.response.missing_observations.map((observation) => <li key={observation}>{observation}</li>)}</ul> : <>
-                        {message.response?.step && <div className="procedure-content"><div className="procedure-copy"><p className="instruction">{message.response.step.question}</p></div>{selectedCategory === "router" && <ManualFigure />}</div>}
+                        {message.response?.step && <div className="procedure-content"><div className="procedure-copy"><p className="instruction">{message.response.step.question}</p></div></div>}
                         {message.response?.step && message.response.step.options.length > 0 && <div className="answer-options" aria-label="Diagnostic answer options">{message.response.step.options.map((option) => <button className={selectedAnswer === option.label ? "selected" : ""} key={option.id} type="button" aria-pressed={selectedAnswer === option.label} onClick={() => submitAnswer(option)}>{option.label}</button>)}</div>}
                         {message.response?.images && message.response.images.length > 0 && <div className="manual-images" aria-label="Figures from the manufacturer manual">{message.response.images.map((image) => <figure key={image.asset_id}><img src={`${API_BASE_URL}${image.url}`} alt={`${image.document_title}, page ${image.page}`} /><figcaption>{image.document_title} · p. {image.page}</figcaption></figure>)}</div>}
                         <button className="why-button" type="button" aria-expanded={whyOpen} onClick={() => setWhyOpen((open) => !open)}>Why this step?</button>
@@ -481,9 +482,10 @@ export default function Home() {
 
         <aside className={`diagnostic-rail ${evidenceOpen ? "mobile-open" : ""}`} aria-label="Evidence ledger">
           <div className="rail-header"><h2>What we know</h2><button className="rail-toggle" type="button" aria-label="Collapse evidence ledger"><Icon name="chevron" /></button></div>
-          <div className="rail-section"><div className="rail-label">OBSERVED</div><ul className="observation-list"><li><span className="observation-dot done" /> <span>{selectedCategory === "router" ? "Router has power" : `${selectedDevice.detail} selected`}</span></li>{selectedCategory === "router" && <li><span className="observation-dot done" /> <span>Wi-Fi network is visible</span></li>}</ul></div>
-          <div className="rail-section"><div className="rail-label">{selectedAnswer ? "OBSERVED" : "NEED TO VERIFY"}</div><ul className="observation-list"><li className={selectedAnswer ? "observation-known" : ""}><span className={`observation-dot ${selectedAnswer ? "done" : "pending"}`} /> <span>{selectedAnswer ? selectedAnswer : "Friday's next observation"}</span></li></ul></div>
-          <div className="rail-section evidence-section"><div className="rail-label">MANUAL EVIDENCE</div><div className="evidence-card"><strong>{selectedCategory === "router" ? "Archer C6 User Guide" : `${selectedDevice.name} manual`}</strong><span>{selectedCategory === "router" ? "Retrieved source evidence" : "Evidence appears after the first check"}</span>{selectedCategory === "router" && <ManualFigure compact />}<a href="#source">Open cited source <Icon name="arrow" /></a></div></div>
+          <div className="rail-section"><div className="rail-label">DEVICE</div><p className="rail-device">{selectedDevice.name}<span>{selectedDevice.detail}</span></p></div>
+          <div className="rail-section"><div className="rail-label">OBSERVED</div>{observations.length > 0 ? <ul className="observation-list">{observations.map((observation) => <li key={observation}><span className="observation-dot done" /><span>{observation}</span></li>)}</ul> : <p className="rail-empty">No confirmed observations yet.</p>}</div>
+          {activeQuestion && <div className="rail-section"><div className="rail-label">NEED TO VERIFY</div><ul className="observation-list"><li><span className="observation-dot pending" /><span>{activeQuestion}</span></li></ul></div>}
+          {latestCitation && <div className="rail-section evidence-section"><div className="rail-label">MANUAL EVIDENCE</div><div className="evidence-card"><strong>{latestCitation.document_title}</strong><span>Page {latestCitation.page} · {latestCitation.section}</span><a href={latestCitation.source_url || "#source"}>Open cited page <Icon name="arrow" /></a></div></div>}
         </aside>
       </div>
     </main>
