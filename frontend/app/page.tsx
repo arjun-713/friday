@@ -131,7 +131,11 @@ export default function Home() {
 
   function createMessageId(role: "user" | "assistant"): string {
     messageSequence.current += 1;
-    return `${role}-${Date.now()}-${messageSequence.current}`;
+    // A timestamp alone can collide when a final voice transcript creates the
+    // user and assistant messages in the same render. Use a UUID so IDs remain
+    // stable even across Next.js Fast Refresh boundaries.
+    const uniquePart = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${messageSequence.current}`;
+    return `${role}-${uniquePart}`;
   }
 
   const selectedDevice = deviceProfiles[selectedCategory];
