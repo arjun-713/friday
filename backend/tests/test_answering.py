@@ -144,6 +144,15 @@ def _hit() -> VectorHit:
     )
 
 
+def _child_chunk() -> DocumentChunk:
+    chunk = _chunk().model_copy(deep=True)
+    chunk.chunk_id = "child-1"
+    chunk.kind = ChunkKind.CHILD
+    chunk.content = "Check the Internet status before changing router settings."
+    chunk.evidence[0].content = chunk.content
+    return chunk
+
+
 def _service(hits: list[VectorHit]) -> TroubleshootingService:
     return TroubleshootingService(
         embedding_provider=FakeEmbeddingProvider(),
@@ -788,3 +797,14 @@ def test_broad_print_failure_excludes_unreported_conditional_manual_branches() -
     )
 
     assert filtered == []
+
+
+def test_evidence_uses_exact_retrieved_child_not_broad_parent_context() -> None:
+    parent = _chunk()
+    parent.content = "Unrelated procedure. Do not use this parent as the active instruction."
+    child = _child_chunk()
+
+    evidence = _assemble_evidence([_hit()], [parent, child])
+
+    assert evidence[0].content == child.content
+    assert evidence[0].pages == [4]

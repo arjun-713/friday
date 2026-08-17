@@ -1,4 +1,4 @@
-"""Local parent-context store backed by generated JSONL chunks."""
+"""Local evidence-context store backed by generated JSONL chunks."""
 
 import json
 from collections.abc import Sequence
@@ -17,8 +17,11 @@ class JsonlParentChunkStore:
         for path in sorted(root.glob("*/*.jsonl")):
             for line in path.read_text(encoding="utf-8").splitlines():
                 chunk = DocumentChunk.model_validate_json(line)
-                if chunk.metadata.get("role") in {"parent", None}:
-                    chunks[chunk.chunk_id] = chunk
+                # Keep the exact retrieval chunk as well as its parent.  The
+                # answer layer must cite and ground its instruction in the
+                # narrow hit that retrieval selected; a parent is only a
+                # fallback for controlled context expansion.
+                chunks[chunk.chunk_id] = chunk
         return cls(chunks)
 
     async def fetch(self, ids: Sequence[str]) -> list[DocumentChunk]:

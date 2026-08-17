@@ -342,16 +342,25 @@ def _confirmed_observations(state: DiagnosticSessionState) -> list[str]:
 
 
 def _assemble_evidence(hits: Sequence[VectorHit], parents: Sequence[DocumentChunk]) -> list[EvidenceContext]:
-    parents_by_id = {chunk.chunk_id: chunk for chunk in parents}
+    chunks_by_id = {chunk.chunk_id: chunk for chunk in parents}
     evidence: list[EvidenceContext] = []
     seen: set[str] = set()
     for hit in hits:
+        exact_chunk = chunks_by_id.get(hit.id)
         parent_id = hit.payload.get("parent_chunk_id")
-        parent = parents_by_id.get(str(parent_id)) if parent_id else None
-        content = parent.content if parent is not None else str(hit.payload.get("text", "")).strip()
+        parent = chunks_by_id.get(str(parent_id)) if parent_id else None
+        # Retrieval chose the exact child for a reason. Never replace it with
+        # a broad parent section, which may contain neighbouring procedures
+        # and a different heading. Payload text is used for BM25-only tests;
+        # the local exact chunk is the dense-search path.
+        content = (
+            str(hit.payload.get("text", "")).strip()
+            or (exact_chunk.content if exact_chunk is not None else "")
+            or (parent.content if parent is not None else "")
+        )
         if not content or hit.id in seen:
             continue
-        citation = _citation(hit, parent)
+        citation = _citation(hit, exact_chunk or parent)
         if citation is None:
             continue
         seen.add(hit.id)
@@ -360,7 +369,13 @@ def _assemble_evidence(hits: Sequence[VectorHit], parents: Sequence[DocumentChun
                 chunk_id=hit.id,
                 content=content,
                 section=citation.section,
-                pages=parent.pages if parent is not None else [citation.page],
+                pages=(
+                    exact_chunk.pages
+                    if exact_chunk is not None
+                    else parent.pages
+                    if parent is not None
+                    else [citation.page]
+                ),
                 citation=citation,
             )
         )

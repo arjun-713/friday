@@ -30,6 +30,8 @@ class ExactLexicalRetriever(Protocol):
 
 
 class ParentChunkStore(Protocol):
+    """Fetch exact evidence chunks and optional parent context in one batch."""
+
     async def fetch(self, ids: Sequence[str]) -> list[DocumentChunk]: ...
 
 
@@ -83,8 +85,7 @@ async def retrieve(
         if exact_hits:
             hits = exact_hits[:limit]
             parent_started = perf_counter()
-            parent_ids = [str(hit.payload["parent_chunk_id"]) for hit in hits if hit.payload.get("parent_chunk_id")]
-            parents = await parent_store.fetch(parent_ids) if parent_store is not None else []
+            parents = await _fetch_evidence_context(parent_store, hits)
             return RetrievalResult(
                 hits=hits,
                 parents=parents,
@@ -157,9 +158,8 @@ async def retrieve(
             },
             diagnostics=_diagnostics(vector_hits, lexical_hits, candidate_limit) if include_diagnostics else {},
         )
-    parent_ids = [str(hit.payload["parent_chunk_id"]) for hit in hits if hit.payload.get("parent_chunk_id")]
     parent_started = perf_counter()
-    parents = await parent_store.fetch(parent_ids) if parent_store is not None else []
+    parents = await _fetch_evidence_context(parent_store, hits)
     return RetrievalResult(
         hits=hits,
         parents=parents,
@@ -174,6 +174,25 @@ async def retrieve(
         },
         diagnostics=_diagnostics(vector_hits, lexical_hits, candidate_limit) if include_diagnostics else {},
     )
+
+
+async def _fetch_evidence_context(
+    parent_store: ParentChunkStore | None,
+    hits: Sequence[VectorHit],
+) -> list[DocumentChunk]:
+    """Fetch each selected hit and its parent once, preserving hit order."""
+
+    if parent_store is None:
+        return []
+    ids: list[str] = []
+    seen: set[str] = set()
+    for hit in hits:
+        for chunk_id in (hit.id, hit.payload.get("parent_chunk_id")):
+            value = str(chunk_id) if chunk_id else ""
+            if value and value not in seen:
+                ids.append(value)
+                seen.add(value)
+    return await parent_store.fetch(ids)
 
 
 def _elapsed_ms(started: float) -> float:
