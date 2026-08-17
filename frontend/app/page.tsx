@@ -348,9 +348,23 @@ export default function Home() {
   }
 
   function handleVoiceEvent(event: VoiceEvent) {
+    if (event.type === "voice.connecting" || event.type === "voice.ready") {
+      setState("connecting");
+      return;
+    }
+    if (event.type === "session.ready") {
+      setApiError(null);
+      setVoiceConnected(true);
+      setState("listening");
+      return;
+    }
     if (event.type === "speech.start") {
       requestController.current?.abort();
       setState("listening");
+      return;
+    }
+    if (event.type === "speech.end") {
+      setState("thinking");
       return;
     }
     if (event.type === "transcript.partial") {
@@ -422,8 +436,8 @@ export default function Home() {
       setState("connecting");
       await client.start({ sessionId, manufacturer: selectedDevice.manufacturer, model: selectedDevice.name });
       setApiError(null);
-      setVoiceConnected(true);
-      setState("listening");
+      // session.ready is the authoritative point at which the server has
+      // accepted the device scope and can receive microphone audio.
     } catch (error) {
       voiceClient.current = null;
       setVoiceConnected(false);

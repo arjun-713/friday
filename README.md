@@ -77,6 +77,15 @@ The configured formats are 16 kHz PCM16 for microphone input and 24 kHz PCM16
 for playback. API credentials remain backend-only in `backend/.env`; raw user
 audio is forwarded for the live turn and is not stored by Friday.
 
+### Manual voice check
+
+With Qdrant, the API, and the frontend running on their fixed local ports, select
+a supported device, start voice once, and describe a symptom. Friday should show
+partial text while listening, add the final transcript as your message, return one
+cited diagnostic choice, and begin speaking it. Start talking while playback is
+active: audio should stop and the new final transcript should begin the next turn.
+Stopping voice preserves any partial transcript in the composer for typed review.
+
 Create auditable cleaned output without changing the raw JSON:
 
 ```bash
