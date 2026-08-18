@@ -1,7 +1,9 @@
 """Async Qdrant implementation of the provider-neutral vector index."""
 
+import os
 from collections.abc import Sequence
 from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from typing import Any, cast
 from uuid import NAMESPACE_URL, UUID, uuid5
 
@@ -42,7 +44,7 @@ DENSE_SEARCH_PAYLOAD_FIELDS = (
 
 @dataclass(frozen=True)
 class QdrantSettings:
-    url: str = "http://localhost:6333"
+    url: str = dataclass_field(default_factory=lambda: os.getenv("QDRANT_URL", "http://localhost:6333"))
     collection_name: str = COLLECTION_NAME
     batch_size: int = 128
     exact_candidate_threshold: int = 128

@@ -34,6 +34,33 @@ on `http://localhost:8000`. `/health` and `/v1/devices` do not require an LLM
 call. The latter is the authoritative supported-device catalog generated from
 the source registry, so the interface cannot select a made-up model.
 
+## Run the full stack with Docker Compose
+
+Docker Compose starts the Next.js frontend, FastAPI backend, and persistent
+Qdrant instance together. Secrets remain only in `backend/.env`.
+
+```bash
+cp backend/.env.example backend/.env
+# Add SARVAM_API_KEY only when you want Sarvam conversation or voice.
+
+docker compose up --build
+```
+
+Open `http://localhost:3000`. The API is available at `http://localhost:8000`
+and Qdrant is available at `http://localhost:6333`. Use `docker compose down`
+to stop the stack; Qdrant data remains in the named `qdrant_storage` volume.
+
+The stack deliberately does not re-embed or overwrite an existing index at
+startup. After a fresh Qdrant volume or regenerated chunks, run this once in a
+second terminal:
+
+```bash
+docker compose run --rm backend python -m copilot.retrieval.indexer
+```
+
+The backend receives `QDRANT_URL=http://qdrant:6333` only inside Compose. Local
+commands retain the default `http://localhost:6333` endpoint.
+
 The ingestion adapter uses Firecrawl's local `pdf-inspector` bindings for PDF
 classification, per-page Markdown, and positioned text. It records OCR-required
 pages but does not run OCR yet. Native parsing, deterministic text cleanup,
