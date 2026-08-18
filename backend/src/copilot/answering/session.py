@@ -5,7 +5,7 @@ import sqlite3
 from pathlib import Path
 from threading import RLock
 
-from .models import DiagnosticSessionState, DiagnosticTurn, TroubleshootingRequest
+from .models import DiagnosticSessionState, DiagnosticTurn, FactObservation, TroubleshootingRequest
 
 _ACKNOWLEDGEMENT_ONLY = re.compile(r"[^a-z0-9]+")
 _ACKNOWLEDGEMENT_PHRASES = (
@@ -72,7 +72,23 @@ class DiagnosticSessionStore:
     def apply_turn(self, state: DiagnosticSessionState, turn: DiagnosticTurn) -> None:
         """Persist planner-approved facts and the next requested observation."""
 
+        prior_action_id = _action_id(state.current_turn)
         for fact in turn.facts_learned:
+            previous = state.facts.get(fact.key)
+            observed_after_action_id = (
+                prior_action_id
+                if state.current_request
+                and state.current_request.recheck_after_action
+                and state.current_request.fact_key == fact.key
+                else None
+            )
+            event = FactObservation(
+                **fact.model_dump(),
+                turn_id=turn.turn_id,
+                previous_value=previous.value if previous and previous.value != fact.value else None,
+                observed_after_action_id=observed_after_action_id,
+            )
+            state.fact_history.setdefault(fact.key, []).append(event)
             state.facts[fact.key] = fact
             state.observations[fact.key] = f"{fact.label}: {fact.value}"
         if state.current_request and any(
@@ -91,7 +107,6 @@ class DiagnosticSessionStore:
         state.pending_observation = None
         state.pending_option_id = None
         state.last_turn_was_acknowledgement = False
-
     def save(self, state: DiagnosticSessionState) -> None:
         """Persist an updated state. In-memory storage already holds the object."""
 
@@ -99,6 +114,14 @@ class DiagnosticSessionStore:
 
     def delete(self, session_id: str) -> None:
         self._sessions.pop(session_id, None)
+
+
+def _action_id(turn: DiagnosticTurn | None) -> str | None:
+    """Give a persisted action a stable ID without trusting model-generated IDs."""
+
+    if turn is None or turn.next_action is None:
+        return None
+    return f"{turn.turn_id}:action"
 
 
 def _submitted_observation(state: DiagnosticSessionState, request: TroubleshootingRequest) -> str:

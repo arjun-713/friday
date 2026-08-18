@@ -41,6 +41,14 @@ class DiagnosticFact(BaseModel):
     raw: str = Field(min_length=1, max_length=1000)
 
 
+class FactObservation(DiagnosticFact):
+    """An immutable, turn-scoped observation retained in fact history."""
+
+    turn_id: str = Field(min_length=1, max_length=128)
+    previous_value: str | None = Field(default=None, max_length=320)
+    observed_after_action_id: str | None = Field(default=None, max_length=160)
+
+
 class ObservationRequest(BaseModel):
     """The one fact Friday is asking the user to report, if any."""
 
@@ -58,6 +66,14 @@ class DiagnosticAction(BaseModel):
     why: str | None = Field(default=None, max_length=700)
 
 
+class DecisionBasis(BaseModel):
+    """Why the planner cannot finish yet and what the next move distinguishes."""
+
+    why_not_solved: str = Field(min_length=12, max_length=700)
+    discriminates_between: list[str] = Field(min_length=1, max_length=4)
+    expected_discrimination: str = Field(min_length=12, max_length=700)
+
+
 class DiagnosticTurn(BaseModel):
     """A planner-owned turn: solve, advance, clarify, or abstain."""
 
@@ -67,6 +83,7 @@ class DiagnosticTurn(BaseModel):
     interpretation: str | None = Field(default=None, max_length=1200)
     next_action: DiagnosticAction | None = None
     observation_request: ObservationRequest | None = None
+    decision_basis: DecisionBasis | None = None
     facts_learned: list[DiagnosticFact] = Field(default_factory=list, max_length=12)
     candidate_causes: list[str] = Field(default_factory=list, max_length=6)
     ruled_out_causes: list[str] = Field(default_factory=list, max_length=6)
@@ -130,6 +147,7 @@ class TroubleshootingResponse(BaseModel):
 class DiagnosticSessionState(BaseModel):
     session_id: str
     facts: dict[str, DiagnosticFact] = Field(default_factory=dict)
+    fact_history: dict[str, list[FactObservation]] = Field(default_factory=dict)
     pending_observation: str | None = None
     pending_option_id: str | None = None
     current_request: ObservationRequest | None = None

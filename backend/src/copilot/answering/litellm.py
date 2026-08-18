@@ -13,6 +13,7 @@ from typing import Any, Literal, cast
 from ..config import config_section, load_runtime_config
 from ..prompts import build_messages
 from .models import (
+    DecisionBasis,
     DiagnosticAction,
     DiagnosticFact,
     DiagnosticOption,
@@ -118,6 +119,21 @@ _DIAGNOSTIC_TURN_SCHEMA: dict[str, object] = {
             },
             "required": ["request_id", "fact_key", "question", "options", "recheck_after_action"],
         },
+        "decision_basis": {
+            "type": ["object", "null"],
+            "additionalProperties": False,
+            "properties": {
+                "why_not_solved": {"type": "string"},
+                "discriminates_between": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 4,
+                    "items": {"type": "string"},
+                },
+                "expected_discrimination": {"type": "string"},
+            },
+            "required": ["why_not_solved", "discriminates_between", "expected_discrimination"],
+        },
         "facts_learned": {
             "type": "array",
             "maxItems": 12,
@@ -140,7 +156,7 @@ _DIAGNOSTIC_TURN_SCHEMA: dict[str, object] = {
         },
     },
     "required": [
-        "mode", "response", "interpretation", "next_action", "observation_request", "facts_learned",
+        "mode", "response", "interpretation", "next_action", "observation_request", "decision_basis", "facts_learned",
         "candidate_causes", "ruled_out_causes", "source_ids",
     ],
 }
@@ -501,6 +517,20 @@ def _diagnostic_turn(payload: dict[str, Any]) -> DiagnosticTurn:
             why=str(why).strip() if why is not None and str(why).strip() else None,
         )
 
+    raw_basis = payload.get("decision_basis")
+    basis = None
+    if raw_basis is not None:
+        if not isinstance(raw_basis, dict):
+            raise TypeError("decision_basis must be an object or null")
+        raw_causes = raw_basis.get("discriminates_between", [])
+        if not isinstance(raw_causes, list):
+            raise TypeError("decision_basis discriminates_between must be an array")
+        basis = DecisionBasis(
+            why_not_solved=str(raw_basis["why_not_solved"]).strip(),
+            discriminates_between=[str(value).strip() for value in raw_causes if str(value).strip()],
+            expected_discrimination=str(raw_basis["expected_discrimination"]).strip(),
+        )
+
     raw_facts = payload.get("facts_learned", [])
     if not isinstance(raw_facts, list):
         raise TypeError("facts_learned must be an array")
@@ -520,6 +550,7 @@ def _diagnostic_turn(payload: dict[str, Any]) -> DiagnosticTurn:
         interpretation=(str(payload["interpretation"]).strip() if payload.get("interpretation") else None),
         next_action=action,
         observation_request=request,
+        decision_basis=basis,
         facts_learned=facts,
         candidate_causes=[str(value).strip() for value in payload.get("candidate_causes", []) if str(value).strip()],
         ruled_out_causes=[str(value).strip() for value in payload.get("ruled_out_causes", []) if str(value).strip()],
@@ -530,14 +561,22 @@ def _diagnostic_turn(payload: dict[str, Any]) -> DiagnosticTurn:
 def _legacy_step_turn(step: DiagnosticStep) -> DiagnosticTurn:
     return DiagnosticTurn(
         turn_id=f"legacy-{step.step_id}",
-        mode="clarify",
+        mode="advance",
         response=step.instruction,
-        next_action=DiagnosticAction(instruction=step.instruction),
+        next_action=DiagnosticAction(
+            instruction=step.instruction,
+            why="This legacy check needs the requested observation before the documented path can continue.",
+        ),
         observation_request=ObservationRequest(
             request_id=step.step_id,
             fact_key=f"observation_{step.step_id.removeprefix('step-').replace('-', '_')[:48]}",
             question=step.question,
             options=step.options,
+        ),
+        decision_basis=DecisionBasis(
+            why_not_solved="The legacy response did not provide a supported resolution.",
+            discriminates_between=["reported symptom", "manual-supported next check"],
+            expected_discrimination="The requested observation determines whether the next documented check applies.",
         ),
         source_ids=step.source_ids,
     )
@@ -599,12 +638,31 @@ def _validate_turn(
             raise InvalidAnswerError("diagnostic turn contains duplicate options")
         if request.fact_key in state.facts and not request.recheck_after_action:
             raise InvalidAnswerError("diagnostic turn asked for a fact already known in this session")
-    if turn.mode == "clarify" and request is None:
-        raise InvalidAnswerError("clarification turn omitted its requested observation")
-    if turn.mode == "solve" and request is not None:
-        raise InvalidAnswerError("solution turn must not continue a questionnaire")
+        if request.fact_key in state.facts and request.recheck_after_action and turn.next_action is None:
+            raise InvalidAnswerError("a fact recheck must follow an action that could change it")
+    if turn.mode == "advance":
+        if turn.next_action is None:
+            raise InvalidAnswerError("advance turn omitted its concrete diagnostic action")
+        if not turn.next_action.why:
+            raise InvalidAnswerError("advance turn omitted its diagnosis-specific reason")
+        if turn.decision_basis is None or len(turn.decision_basis.discriminates_between) < 2:
+            raise InvalidAnswerError("advance turn omitted what the action distinguishes")
+    if turn.mode == "clarify":
+        if request is None:
+            raise InvalidAnswerError("clarification turn omitted its requested observation")
+        if turn.next_action is not None:
+            raise InvalidAnswerError("clarification turn must not contain a diagnostic action")
+        if turn.decision_basis is None:
+            raise InvalidAnswerError("clarification turn omitted why the observation is essential")
+    if turn.mode == "solve":
+        if request is not None or turn.next_action is not None:
+            raise InvalidAnswerError("solution turn must not continue a questionnaire")
+        if turn.decision_basis is not None:
+            raise InvalidAnswerError("solution turn must not justify more diagnosis")
     if turn.mode == "abstain" and (turn.next_action is not None or request is not None):
         raise InvalidAnswerError("abstention turn must not contain a diagnostic action")
+    if turn.mode == "abstain" and turn.decision_basis is not None:
+        raise InvalidAnswerError("abstention turn must not justify more diagnosis")
 
 
 def _expand_step_citations(step: DiagnosticStep, evidence: Sequence[EvidenceContext]) -> DiagnosticStep:

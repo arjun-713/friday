@@ -313,7 +313,7 @@ def test_litellm_generator_sends_evidence_and_accepts_known_citation() -> None:
     assert "[source:child-1]" in messages[1]["content"]
     assert "You are the diagnostic planner" in messages[0]["content"]
     assert "Do not use general world knowledge" in messages[0]["content"]
-    assert "troubleshooting-v4" in messages[0]["content"]
+    assert "troubleshooting-v5" in messages[0]["content"]
 
 
 def test_litellm_generator_uses_strict_schema_for_diagnostic_steps() -> None:
@@ -396,7 +396,10 @@ def test_litellm_turn_rejects_a_question_for_a_known_fact() -> None:
                             '{"mode":"clarify","response":"I need the light state.","interpretation":null,'
                             '"next_action":null,"observation_request":{"request_id":"check-led-again",'
                             '"fact_key":"battery_led_state","question":"What color is the battery light?",'
-                            '"options":[],"recheck_after_action":false},"facts_learned":[],'
+                            '"options":[],"recheck_after_action":false},"decision_basis":'
+                            '{"why_not_solved":"The light state is needed before a documented path can be selected.",'
+                            '"discriminates_between":["adapter detection","battery state"],'
+                            '"expected_discrimination":"The reported light state selects the applicable documented check."},"facts_learned":[], '
                             '"candidate_causes":[],"ruled_out_causes":[],"source_ids":["child-1"]}'
                         )
                     )
@@ -419,6 +422,75 @@ def test_litellm_turn_rejects_a_question_for_a_known_fact() -> None:
         asyncio.run(
             LiteLLMAnswerGenerator(completion=completion).generate_turn(
                 "The light is white.", _assemble_evidence([_hit()], [_chunk()]), state
+            )
+        )
+
+
+def test_litellm_turn_rejects_an_advance_without_diagnostic_discrimination() -> None:
+    async def completion(**request):
+        del request
+        return SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(
+                        content=(
+                            '{"mode":"advance","response":"Check the adapter connection.","interpretation":null,'
+                            '"next_action":{"instruction":"Reconnect the adapter.","why":"This checks the connection."},'
+                            '"observation_request":null,"decision_basis":null,"facts_learned":[],'
+                            '"candidate_causes":[],"ruled_out_causes":[],"source_ids":["child-1"]}'
+                        )
+                    )
+                )
+            ]
+        )
+
+    with pytest.raises(InvalidAnswerError, match="what the action distinguishes"):
+        asyncio.run(
+            LiteLLMAnswerGenerator(completion=completion).generate_turn(
+                "The battery is not charging.",
+                _assemble_evidence([_hit()], [_chunk()]),
+                DiagnosticSessionState(session_id="advance-without-discrimination"),
+            )
+        )
+
+
+def test_litellm_turn_rejects_a_recheck_without_an_action() -> None:
+    async def completion(**request):
+        del request
+        return SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(
+                        content=(
+                            '{"mode":"clarify","response":"Please check the light again.","interpretation":null,'
+                            '"next_action":null,"observation_request":{"request_id":"recheck-led",'
+                            '"fact_key":"battery_led_state","question":"What color is it now?",'
+                            '"options":[],"recheck_after_action":true},"decision_basis":'
+                            '{"why_not_solved":"The light state needs confirmation after the connection change.",'
+                            '"discriminates_between":["adapter detection","battery state"],'
+                            '"expected_discrimination":"A changed light would show whether the connection changed."},'
+                            '"facts_learned":[],"candidate_causes":[],"ruled_out_causes":[],"source_ids":["child-1"]}'
+                        )
+                    )
+                )
+            ]
+        )
+
+    state = DiagnosticSessionState(
+        session_id="recheck-without-action",
+        facts={
+            "battery_led_state": {
+                "key": "battery_led_state",
+                "value": "amber",
+                "label": "Battery light",
+                "raw": "The light is amber.",
+            }
+        },
+    )
+    with pytest.raises(InvalidAnswerError, match="recheck must follow an action"):
+        asyncio.run(
+            LiteLLMAnswerGenerator(completion=completion).generate_turn(
+                "It is still amber.", _assemble_evidence([_hit()], [_chunk()]), state
             )
         )
 
@@ -458,6 +530,9 @@ def test_agent_chooses_a_local_manual_tool_before_answering() -> None:
                             '"interpretation":null,"next_action":null,"observation_request":'
                             '{"request_id":"battery-led","fact_key":"battery_led_state",'
                             '"question":"What color is the battery light?","options":[],"recheck_after_action":false},'
+                            '"decision_basis":{"why_not_solved":"The light state is needed before a documented path can be selected.",'
+                            '"discriminates_between":["adapter detection","battery state"],'
+                            '"expected_discrimination":"The reported light state selects the applicable documented check."},'
                             '"facts_learned":[],"candidate_causes":[],"ruled_out_causes":[],"source_ids":["child-1"]}'
                         ),
                         tool_calls=[],
