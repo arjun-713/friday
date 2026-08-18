@@ -638,7 +638,7 @@ def _validate_turn(
             raise InvalidAnswerError("diagnostic turn contains duplicate options")
         if request.fact_key in state.facts and not request.recheck_after_action:
             raise InvalidAnswerError("diagnostic turn asked for a fact already known in this session")
-        if request.fact_key in state.facts and request.recheck_after_action and turn.next_action is None:
+        if request.recheck_after_action and turn.next_action is None:
             raise InvalidAnswerError("a fact recheck must follow an action that could change it")
     if turn.mode == "advance":
         if turn.next_action is None:
