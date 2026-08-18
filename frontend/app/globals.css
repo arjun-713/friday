@@ -99,6 +99,10 @@ h1, h2, p { margin-top: 0; }
 .instruction { max-width: 58ch; margin: 0; font-size: 15px; line-height: 1.6; }
 .response-copy { max-width: 66ch; margin: 12px 0 0; }
 .procedure-content { margin-top: 18px; }
+.action-instruction { max-width: 62ch; margin: 0; font-size: 15px; font-weight: 700; line-height: 1.55; }
+.action-why { max-width: 62ch; margin: 6px 0 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.observation-question { max-width: 62ch; margin-top: 17px; padding-top: 15px; border-top: 1px solid var(--border); }
+.observation-question p { margin: 0; font-size: 14px; font-weight: 700; line-height: 1.5; }
 .answer-options { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
 .answer-options button { min-height: 42px; padding: 9px 13px; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--surface-raised); color: var(--text); font-size: 13px; font-weight: 700; }
 .answer-options button:hover, .answer-options button.selected { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-strong); }

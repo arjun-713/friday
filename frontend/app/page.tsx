@@ -121,6 +121,7 @@ function Icon({ name }: { name: IconName }) {
 }
 
 function responseText(response: TroubleshootingResponse): string {
+  if (response.turn?.response) return response.turn.response;
   if (response.status === "ready") {
     return response.step?.instruction ?? response.answer ?? "The manual does not provide an answer for this observation.";
   }
@@ -487,7 +488,9 @@ export default function Home() {
   const latestAssistantMessage = [...messages].reverse().find((message) => message.role === "assistant" && message.response);
   const latestResponse = latestAssistantMessage?.response;
   const latestCitation = latestResponse?.citations[0];
-  const activeQuestion = latestResponse?.status === "ready" ? latestResponse.step?.question : undefined;
+  const activeQuestion = latestResponse?.status === "ready"
+    ? latestResponse.turn?.observation_request?.question ?? latestResponse.step?.question
+    : undefined;
   const observations = latestResponse?.observations ?? [];
   const orderedSessions = [...sessions].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
 
@@ -552,11 +555,13 @@ export default function Home() {
                     {message.role === "user" && <p>{message.text}</p>}
                     {message.role === "assistant" && response && (
                       <div className={`step-panel ${isLatestResponse ? "active-step" : "history-step"} ${response.status === "abstained" ? "abstained-panel" : ""}`}>
-                        <div className="step-heading"><h2>{response.status === "abstained" ? (response.missing_observations.length > 0 ? "One detail to verify" : "No verified step found") : response.step?.title ?? "Next check"}</h2></div>
+                        <div className="step-heading"><h2>{response.status === "abstained" ? (response.missing_observations.length > 0 ? "One detail to verify" : "No verified step found") : response.turn?.mode === "solve" ? "What this points to" : response.turn?.mode === "clarify" ? "One thing to check" : "Next check"}</h2></div>
                         <p className="instruction response-copy">{message.text}</p>
                         {response.status === "abstained" ? <ul className="missing-observations">{response.missing_observations.map((observation) => <li key={observation}>{observation}</li>)}</ul> : <>
-                          {response.step && <div className="procedure-content"><p className="instruction">{response.step.question}</p></div>}
-                          {response.step && response.step.options.length > 0 && <div className="answer-options" aria-label="Diagnostic answer options">{response.step.options.map((option) => {
+                          {response.turn?.next_action && <div className="procedure-content"><p className="action-instruction">{response.turn.next_action.instruction}</p>{response.turn.next_action.why && <p className="action-why">{response.turn.next_action.why}</p>}</div>}
+                          {!response.turn && response.step && <div className="procedure-content"><p className="action-instruction">{response.step.instruction}</p></div>}
+                          {(response.turn?.observation_request?.question ?? response.step?.question) && <div className="observation-question"><p>{response.turn?.observation_request?.question ?? response.step?.question}</p></div>}
+                          {(response.turn?.observation_request?.options ?? response.step?.options ?? []).length > 0 && <div className="answer-options" aria-label="Diagnostic answer options">{(response.turn?.observation_request?.options ?? response.step?.options ?? []).map((option) => {
                             const isSelected = isLatestResponse ? selectedAnswer === option.label : selectedHistoricalAnswer === option.label;
                             return <button className={isSelected ? "selected" : ""} key={option.id} type="button" aria-pressed={isSelected} disabled={!isLatestResponse} onClick={() => submitAnswer(option)}>{option.label}</button>;
                           })}</div>}

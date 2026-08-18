@@ -11,6 +11,40 @@ export type TroubleshootingRequest = {
 export type DiagnosticOption = {
   id: string;
   label: string;
+  value?: string | null;
+};
+
+export type DiagnosticFact = {
+  key: string;
+  value: string;
+  label: string;
+  raw: string;
+};
+
+export type ObservationRequest = {
+  request_id: string;
+  fact_key: string;
+  question: string;
+  options: DiagnosticOption[];
+  recheck_after_action: boolean;
+};
+
+export type DiagnosticAction = {
+  instruction: string;
+  why?: string | null;
+};
+
+export type DiagnosticTurn = {
+  turn_id: string;
+  mode: "solve" | "advance" | "clarify" | "abstain";
+  response: string;
+  interpretation?: string | null;
+  next_action?: DiagnosticAction | null;
+  observation_request?: ObservationRequest | null;
+  facts_learned: DiagnosticFact[];
+  candidate_causes: string[];
+  ruled_out_causes: string[];
+  source_ids: string[];
 };
 
 export type DiagnosticStep = {
@@ -60,6 +94,7 @@ export type TroubleshootingResponse = {
   session_id: string;
   status: "ready" | "abstained";
   answer?: string | null;
+  turn?: DiagnosticTurn | null;
   step?: DiagnosticStep | null;
   awaiting_observation: boolean;
   images: ManualImage[];
