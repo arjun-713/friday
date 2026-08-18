@@ -8,18 +8,22 @@ from ..ingestion.models import DocumentChunk
 from ..retrieval.cache import RetrievalSessionCache
 from ..retrieval.contracts import EmbeddingProvider, MetadataFilter, VectorHit, VectorIndex
 from ..retrieval.hybrid import LexicalRetriever
-from .litellm import InvalidAnswerError, UnsupportedAnswerError
+from .litellm import AgentRun, InvalidAnswerError, UnsupportedAnswerError
 from .models import (
     Citation,
+    DiagnosticAction,
     DiagnosticSessionState,
     DiagnosticStep,
+    DiagnosticTurn,
     EvidenceContext,
     ManualImage,
+    ObservationRequest,
     RetrievalSummary,
     TroubleshootingRequest,
     TroubleshootingResponse,
 )
 from .session import DiagnosticSessionStore
+from .tools import AgentToolExecutor, AgentToolResult
 
 
 class AnswerGenerator(Protocol):
@@ -29,9 +33,17 @@ class AnswerGenerator(Protocol):
         self, query: str, evidence: Sequence[EvidenceContext], state: DiagnosticSessionState
     ) -> DiagnosticStep: ...
 
+    async def generate_turn(
+        self, query: str, evidence: Sequence[EvidenceContext], state: DiagnosticSessionState
+    ) -> DiagnosticTurn: ...
+
     def stream_generate_step(
         self, query: str, evidence: Sequence[EvidenceContext], state: DiagnosticSessionState
     ) -> AsyncIterator[str | DiagnosticStep]: ...
+
+    def stream_generate_turn(
+        self, query: str, evidence: Sequence[EvidenceContext], state: DiagnosticSessionState
+    ) -> AsyncIterator[str | DiagnosticTurn]: ...
 
 
 class ParentChunkStore(Protocol):
@@ -62,6 +74,12 @@ class EvidenceOnlyAnswerGenerator:
             source_ids=[first.chunk_id],
         )
 
+    async def generate_turn(
+        self, query: str, evidence: Sequence[EvidenceContext], state: DiagnosticSessionState
+    ) -> DiagnosticTurn:
+        step = await self.generate_step(query, evidence, state)
+        return _turn_from_step(step)
+
     async def stream_generate_step(
         self, query: str, evidence: Sequence[EvidenceContext], state: DiagnosticSessionState
     ) -> AsyncIterator[str | DiagnosticStep]:
@@ -69,6 +87,13 @@ class EvidenceOnlyAnswerGenerator:
         step = await self.generate_step("", evidence, state)
         yield step.instruction
         yield step
+
+    async def stream_generate_turn(
+        self, query: str, evidence: Sequence[EvidenceContext], state: DiagnosticSessionState
+    ) -> AsyncIterator[str | DiagnosticTurn]:
+        turn = await self.generate_turn(query, evidence, state)
+        yield turn.response
+        yield turn
 
 
 class TroubleshootingService:
@@ -92,6 +117,55 @@ class TroubleshootingService:
         self.session_store = session_store or DiagnosticSessionStore()
         self.image_manifest = image_manifest or {"assets": {}}
 
+    def _tool_executor(
+        self,
+        request: TroubleshootingRequest,
+        state: DiagnosticSessionState,
+        initial_evidence: Sequence[EvidenceContext],
+    ) -> AgentToolExecutor:
+        async def execute(name: str, arguments: dict[str, object]) -> AgentToolResult:
+            if name in {"search_manual", "find_error_code"}:
+                value = arguments.get("query") if name == "search_manual" else arguments.get("code")
+                query = str(value or "").strip()
+                if not query:
+                    return AgentToolResult("The requested manual search needs a non-empty query.")
+                prefix = "error code " if name == "find_error_code" else ""
+                result = await self.session_cache.retrieve(
+                    prefix + query,
+                    self.embedding_provider,
+                    self.vector_index,
+                    lexical_retriever=self.lexical_retriever,
+                    parent_store=self.parent_store,
+                    metadata_filter=MetadataFilter(manufacturer=request.manufacturer, model=request.model),
+                    limit=5,
+                    candidate_limit=32,
+                    dense_weight=1.0,
+                    lexical_weight=1.5,
+                    rrf_k=30,
+                    diversify=True,
+                    include_diagnostics=False,
+                    abstention_dense_threshold=None,
+                )
+                evidence = _assemble_evidence(result.hits, result.parents) if result.hits else []
+                return AgentToolResult(_tool_evidence_text(evidence), evidence)
+            if name == "open_manual_page":
+                document_id = str(arguments.get("document_id", ""))
+                try:
+                    page = int(str(arguments.get("page", 0)))
+                except (TypeError, ValueError):
+                    page = 0
+                matches = [
+                    item
+                    for item in initial_evidence
+                    if item.citation.document_id == document_id and item.citation.page == page
+                ]
+                return AgentToolResult(_tool_evidence_text(matches), matches)
+            if name == "get_diagnostic_state":
+                return AgentToolResult(state.model_dump_json())
+            return AgentToolResult("This tool is unavailable.")
+
+        return execute
+
     def delete_session(self, session_id: str) -> None:
         self.session_store.delete(session_id)
 
@@ -101,8 +175,6 @@ class TroubleshootingService:
             if request.regenerate
             else self.session_store.record_turn(request)
         )
-        if state.last_turn_was_acknowledgement and state.current_step is not None:
-            return _awaiting_current_observation(state, request.session_id)
         metadata_filter = MetadataFilter(
             manufacturer=request.manufacturer,
             model=request.model,
@@ -156,7 +228,13 @@ class TroubleshootingService:
                 ),
             )
         try:
-            step = await self.answer_generator.generate_step(request.query, evidence, state)
+            run = await _generate_turn(
+                self.answer_generator,
+                request.query,
+                evidence,
+                state,
+                self._tool_executor(request, state, evidence),
+            )
         except UnsupportedAnswerError:
             missing = _missing_observations(request)
             return TroubleshootingResponse(
@@ -185,20 +263,17 @@ class TroubleshootingService:
                     timings_ms=result.timings_ms,
                 ),
             )
-        images = _images_for_evidence(self.image_manifest, evidence)
-        response = TroubleshootingResponse(
-            session_id=request.session_id,
-            status="ready",
-            answer=step.instruction,
-            step=step,
-            awaiting_observation=True,
-            images=images,
-            evidence=evidence,
-            citations=_step_citations(step, evidence),
-            observations=_confirmed_observations(state),
-            retrieval=retrieval,
+        evidence = run.evidence
+        response = _turn_response(
+            request.session_id,
+            run.turn,
+            state,
+            evidence,
+            _images_for_evidence(self.image_manifest, evidence),
+            retrieval,
         )
-        _remember_current_step(state, response)
+        self.session_store.apply_turn(state, run.turn)
+        response.observations = _confirmed_observations(state)
         self.session_store.save(state)
         return response
 
@@ -210,12 +285,6 @@ class TroubleshootingService:
             if request.regenerate
             else self.session_store.record_turn(request)
         )
-        if state.last_turn_was_acknowledgement and state.current_step is not None:
-            yield {
-                "type": "complete",
-                "response": _awaiting_current_observation(state, request.session_id).model_dump(),
-            }
-            return
         result = await self.session_cache.retrieve(
             _retrieval_query(request),
             self.embedding_provider,
@@ -269,14 +338,13 @@ class TroubleshootingService:
             }
             return
         try:
-            step: DiagnosticStep | None = None
-            async for item in self.answer_generator.stream_generate_step(request.query, evidence, state):
-                if isinstance(item, str):
-                    yield {"type": "token", "text": item}
-                else:
-                    step = item
-            if step is None:
-                raise InvalidAnswerError("LLM stream ended without a diagnostic step")
+            run = await _generate_turn(
+                self.answer_generator,
+                request.query,
+                evidence,
+                state,
+                self._tool_executor(request, state, evidence),
+            )
         except (UnsupportedAnswerError, InvalidAnswerError) as error:
             missing = _missing_observations(request)
             yield {
@@ -297,43 +365,115 @@ class TroubleshootingService:
                 ).model_dump(),
             }
             return
-        response = TroubleshootingResponse(
-            session_id=request.session_id,
-            status="ready",
-            answer=step.instruction,
-            step=step,
-            awaiting_observation=True,
-            images=_images_for_evidence(self.image_manifest, evidence),
-            evidence=evidence,
-            citations=_step_citations(step, evidence),
-            observations=_confirmed_observations(state),
-            retrieval=retrieval,
+        evidence = run.evidence
+        response = _turn_response(
+            request.session_id,
+            run.turn,
+            state,
+            evidence,
+            _images_for_evidence(self.image_manifest, evidence),
+            retrieval,
         )
-        _remember_current_step(state, response)
+        self.session_store.apply_turn(state, run.turn)
+        response.observations = _confirmed_observations(state)
         self.session_store.save(state)
+        # The final natural-language turn is emitted only after source and
+        # schema validation. This preserves the streaming event contract while
+        # avoiding partial JSON leaking into the chat or voice layer.
+        yield {"type": "token", "text": run.turn.response}
         yield {"type": "complete", "response": response.model_dump()}
 
 
-def _remember_current_step(state: DiagnosticSessionState, response: TroubleshootingResponse) -> None:
-    """Retain the active evidence-backed check for acknowledgement-only turns."""
+async def _generate_turn(
+    generator: AnswerGenerator,
+    query: str,
+    evidence: Sequence[EvidenceContext],
+    state: DiagnosticSessionState,
+    execute_tool: AgentToolExecutor,
+) -> AgentRun:
+    """Use the new planner contract while preserving local test generators."""
 
-    if response.step is None:
-        return
-    state.current_step_id = response.step.step_id
-    state.current_step = response.step
-    state.current_evidence = response.evidence
-    state.current_images = response.images
-    state.current_citations = response.citations
-    state.last_turn_was_acknowledgement = False
+    generate_agent_turn = getattr(generator, "generate_agent_turn", None)
+    if callable(generate_agent_turn):
+        return await generate_agent_turn(query, evidence, state, execute_tool)
+    generate_turn = getattr(generator, "generate_turn", None)
+    if callable(generate_turn):
+        return AgentRun(turn=await generate_turn(query, evidence, state), evidence=list(evidence))
+    return AgentRun(turn=_turn_from_step(await generator.generate_step(query, evidence, state)), evidence=list(evidence))
+
+
+def _turn_from_step(step: DiagnosticStep) -> DiagnosticTurn:
+    """Adapt a legacy generator without changing its diagnostic policy."""
+
+    return DiagnosticTurn(
+        turn_id=f"legacy-{step.step_id}",
+        mode="clarify",
+        response=step.instruction,
+        next_action=DiagnosticAction(instruction=step.instruction),
+        observation_request=ObservationRequest(
+            request_id=step.step_id,
+            fact_key=f"observation_{step.step_id.removeprefix('step-').replace('-', '_')[:48]}",
+            question=step.question,
+            options=step.options,
+        ),
+        source_ids=step.source_ids,
+    )
+
+
+def _turn_step(turn: DiagnosticTurn) -> DiagnosticStep | None:
+    """Expose an action/request compatibility view for older consumers."""
+
+    if turn.next_action is None or turn.observation_request is None:
+        return None
+    request = turn.observation_request
+    return DiagnosticStep(
+        step_id=request.request_id,
+        title="Next check",
+        instruction=turn.next_action.instruction,
+        question=request.question,
+        options=request.options,
+        source_ids=turn.source_ids,
+    )
+
+
+def _turn_response(
+    session_id: str,
+    turn: DiagnosticTurn,
+    state: DiagnosticSessionState,
+    evidence: Sequence[EvidenceContext],
+    images: list[ManualImage],
+    retrieval: RetrievalSummary,
+) -> TroubleshootingResponse:
+    step = _turn_step(turn)
+    citations = _source_citations(turn.source_ids, evidence)
+    return TroubleshootingResponse(
+        session_id=session_id,
+        status="abstained" if turn.mode == "abstain" else "ready",
+        answer=turn.response,
+        turn=turn,
+        step=step,
+        awaiting_observation=turn.observation_request is not None,
+        images=images,
+        evidence=list(evidence),
+        citations=citations,
+        observations=_confirmed_observations(state),
+        retrieval=retrieval,
+    )
 
 
 def _step_citations(step: DiagnosticStep, evidence: Sequence[EvidenceContext]) -> list[Citation]:
     """Return only the manual locations the verified step explicitly uses."""
 
+    return _source_citations(step.source_ids, evidence)
+
+
+def _source_citations(source_ids: Sequence[str], evidence: Sequence[EvidenceContext]) -> list[Citation]:
+    """Return compact, deduplicated evidence for a validated planner turn."""
+
     by_id = {item.chunk_id: item.citation for item in evidence}
     citations: list[Citation] = []
     seen: set[tuple[str, int, str]] = set()
-    for source_id in step.source_ids:
+    for source_id in source_ids:
         citation = by_id[source_id]
         key = (citation.document_id, citation.page, citation.section)
         if key in seen:
@@ -369,6 +509,25 @@ def _confirmed_observations(state: DiagnosticSessionState) -> list[str]:
     """Expose completed-step results in their original diagnostic order."""
 
     return list(state.observations.values())
+
+
+def _tool_evidence_text(evidence: Sequence[EvidenceContext]) -> str:
+    """Return compact, citation-addressable manual evidence to an agent tool call."""
+
+    if not evidence:
+        return "No matching manufacturer evidence was found."
+    return "\n\n".join(
+        "\n".join(
+            (
+                f"[source:{item.chunk_id}]",
+                f"Document: {item.citation.document_title}",
+                f"Page: {item.citation.page}",
+                f"Section: {item.citation.section}",
+                f"Content: {item.content}",
+            )
+        )
+        for item in evidence
+    )
 
 
 def _assemble_evidence(hits: Sequence[VectorHit], parents: Sequence[DocumentChunk]) -> list[EvidenceContext]:

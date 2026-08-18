@@ -5,7 +5,7 @@ import sqlite3
 from pathlib import Path
 from threading import RLock
 
-from .models import DiagnosticSessionState, TroubleshootingRequest
+from .models import DiagnosticSessionState, DiagnosticTurn, TroubleshootingRequest
 
 _ACKNOWLEDGEMENT_ONLY = re.compile(r"[^a-z0-9]+")
 _ACKNOWLEDGEMENT_PHRASES = (
@@ -42,22 +42,55 @@ class DiagnosticSessionStore:
 
     def record_turn(self, request: TroubleshootingRequest) -> DiagnosticSessionState:
         state = self.get(request.session_id)
-        # `query` is the public API's required user-turn field. Frontends may
-        # additionally populate `observation`, but callers that omit that
-        # optional duplicate must still retain acknowledgement semantics.
-        observation = request.selected_option or request.observation or request.query
+        # The planner, rather than a pre-written decision tree, decides how to
+        # interpret a result.  The store only retains the raw report and the
+        # current question it belongs to so it cannot be forgotten.
+        observation = _submitted_observation(state, request)
         has_explicit_option = request.selected_option is not None
         state.last_turn_was_acknowledgement = bool(
             observation
-            and state.current_step_id
+            and state.current_request is not None
             and not has_explicit_option
             and is_acknowledgement_without_result(observation)
         )
-        if observation and state.current_step_id and not state.last_turn_was_acknowledgement:
+        state.pending_observation = None if state.last_turn_was_acknowledgement else observation or None
+        state.pending_option_id = request.selected_option
+        if observation and state.current_request is not None and not state.last_turn_was_acknowledgement:
+            if state.current_request.request_id not in state.completed_steps:
+                state.completed_steps.append(state.current_request.request_id)
+            # Preserve a human-readable audit trail while the LLM turns the
+            # report into its semantic fact updates.
+            state.observations[state.current_request.request_id] = observation
+        # Sessions saved before the planner contract used ``current_step``.
+        # Keep them readable and allow their next result to complete normally.
+        if observation and state.current_request is None and state.current_step_id and not state.last_turn_was_acknowledgement:
             state.observations[state.current_step_id] = observation
             if state.current_step_id not in state.completed_steps:
                 state.completed_steps.append(state.current_step_id)
         return state
+
+    def apply_turn(self, state: DiagnosticSessionState, turn: DiagnosticTurn) -> None:
+        """Persist planner-approved facts and the next requested observation."""
+
+        for fact in turn.facts_learned:
+            state.facts[fact.key] = fact
+            state.observations[fact.key] = f"{fact.label}: {fact.value}"
+        if state.current_request and any(
+            fact.key == state.current_request.fact_key for fact in turn.facts_learned
+        ):
+            request_id = state.current_request.request_id
+            if request_id not in state.completed_steps:
+                state.completed_steps.append(request_id)
+        for cause in turn.ruled_out_causes:
+            if cause not in state.ruled_out_causes:
+                state.ruled_out_causes.append(cause)
+        state.current_turn = turn
+        state.current_request = turn.observation_request
+        state.current_step_id = turn.observation_request.request_id if turn.observation_request else None
+        state.current_step = None
+        state.pending_observation = None
+        state.pending_option_id = None
+        state.last_turn_was_acknowledgement = False
 
     def save(self, state: DiagnosticSessionState) -> None:
         """Persist an updated state. In-memory storage already holds the object."""
@@ -66,6 +99,16 @@ class DiagnosticSessionStore:
 
     def delete(self, session_id: str) -> None:
         self._sessions.pop(session_id, None)
+
+
+def _submitted_observation(state: DiagnosticSessionState, request: TroubleshootingRequest) -> str:
+    """Resolve a clicked option to its visible/canonical value without rules by device."""
+
+    if request.selected_option and state.current_request:
+        for option in state.current_request.options:
+            if option.id == request.selected_option:
+                return option.value or option.label
+    return request.observation or request.selected_option or request.query
 
 
 class SqliteDiagnosticSessionStore(DiagnosticSessionStore):
@@ -117,6 +160,10 @@ class SqliteDiagnosticSessionStore(DiagnosticSessionStore):
         state = super().record_turn(request)
         self.save(state)
         return state
+
+    def apply_turn(self, state: DiagnosticSessionState, turn: DiagnosticTurn) -> None:
+        super().apply_turn(state, turn)
+        self.save(state)
 
     def delete(self, session_id: str) -> None:
         with self._lock, self._connect() as connection:

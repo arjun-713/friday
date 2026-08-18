@@ -8,11 +8,21 @@ import os
 import re
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal, cast
 
 from ..config import config_section, load_runtime_config
 from ..prompts import build_messages
-from .models import DiagnosticOption, DiagnosticSessionState, DiagnosticStep, EvidenceContext
+from .models import (
+    DiagnosticAction,
+    DiagnosticFact,
+    DiagnosticOption,
+    DiagnosticSessionState,
+    DiagnosticStep,
+    DiagnosticTurn,
+    EvidenceContext,
+    ObservationRequest,
+)
+from .tools import AGENT_TOOLS, AgentToolExecutor
 
 
 class AnswerGenerationError(RuntimeError):
@@ -64,27 +74,64 @@ class LiteLLMSettings:
 CompletionFunction = Callable[..., Awaitable[Any]]
 _SOURCE_MARKER = re.compile(r"\[source:([^\]]+)\]")
 _UNSUPPORTED = "UNSUPPORTED"
+_MAX_AGENT_TOOL_ROUNDS = 2
 
-_DIAGNOSTIC_STEP_SCHEMA: dict[str, object] = {
+
+@dataclass(frozen=True)
+class AgentRun:
+    """The final planner decision and all evidence it used."""
+
+    turn: DiagnosticTurn
+    evidence: list[EvidenceContext]
+
+_DIAGNOSTIC_TURN_SCHEMA: dict[str, object] = {
     "type": "object",
     "additionalProperties": False,
     "properties": {
-        "title": {"type": "string"},
-        "instruction": {"type": "string"},
-        "question": {"type": "string"},
-        "options": {
+        "mode": {"type": "string", "enum": ["solve", "advance", "clarify", "abstain"]},
+        "response": {"type": "string"},
+        "interpretation": {"type": ["string", "null"]},
+        "next_action": {
+            "type": ["object", "null"],
+            "additionalProperties": False,
+            "properties": {"instruction": {"type": "string"}, "why": {"type": ["string", "null"]}},
+            "required": ["instruction", "why"],
+        },
+        "observation_request": {
+            "type": ["object", "null"],
+            "additionalProperties": False,
+            "properties": {
+                "request_id": {"type": "string"},
+                "fact_key": {"type": "string"},
+                "question": {"type": "string"},
+                "options": {
+                    "type": "array",
+                    "maxItems": 6,
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "properties": {"id": {"type": "string"}, "label": {"type": "string"}, "value": {"type": "string"}},
+                        "required": ["id", "label", "value"],
+                    },
+                },
+                "recheck_after_action": {"type": "boolean"},
+            },
+            "required": ["request_id", "fact_key", "question", "options", "recheck_after_action"],
+        },
+        "facts_learned": {
             "type": "array",
-            "maxItems": 6,
+            "maxItems": 12,
             "items": {
                 "type": "object",
                 "additionalProperties": False,
                 "properties": {
-                    "id": {"type": "string"},
-                    "label": {"type": "string"},
+                    "key": {"type": "string"}, "value": {"type": "string"}, "label": {"type": "string"}, "raw": {"type": "string"},
                 },
-                "required": ["id", "label"],
+                "required": ["key", "value", "label", "raw"],
             },
         },
+        "candidate_causes": {"type": "array", "maxItems": 6, "items": {"type": "string"}},
+        "ruled_out_causes": {"type": "array", "maxItems": 6, "items": {"type": "string"}},
         "source_ids": {
             "type": "array",
             "minItems": 1,
@@ -92,7 +139,10 @@ _DIAGNOSTIC_STEP_SCHEMA: dict[str, object] = {
             "items": {"type": "string"},
         },
     },
-    "required": ["title", "instruction", "question", "options", "source_ids"],
+    "required": [
+        "mode", "response", "interpretation", "next_action", "observation_request", "facts_learned",
+        "candidate_causes", "ruled_out_causes", "source_ids",
+    ],
 }
 
 
@@ -118,12 +168,12 @@ class LiteLLMAnswerGenerator:
         _validate_answer(answer, evidence)
         return _expand_citations(answer, evidence)
 
-    async def generate_step(
+    async def generate_turn(
         self,
         query: str,
         evidence: Sequence[EvidenceContext],
         state: DiagnosticSessionState,
-    ) -> DiagnosticStep:
+    ) -> DiagnosticTurn:
         response = await self._complete(query, evidence, state, structured=True)
         answer = _response_text(response).strip()
         if answer.upper() == _UNSUPPORTED:
@@ -131,20 +181,61 @@ class LiteLLMAnswerGenerator:
         try:
             payload = json.loads(_strip_json_fence(answer))
             if not isinstance(payload, dict):
-                raise TypeError("step response must be a JSON object")
-            step = _diagnostic_step(payload)
+                raise TypeError("turn response must be a JSON object")
+            turn = _diagnostic_turn(payload)
         except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
-            raise InvalidAnswerError("LLM response was not a valid diagnostic step") from error
-        _validate_step(step, evidence)
-        return _expand_step_citations(step, evidence)
+            raise InvalidAnswerError("LLM response was not a valid diagnostic turn") from error
+        _validate_turn(turn, evidence, state)
+        return turn
 
-    async def stream_generate_step(
+    async def generate_agent_turn(
         self,
         query: str,
         evidence: Sequence[EvidenceContext],
         state: DiagnosticSessionState,
-    ) -> AsyncIterator[str | DiagnosticStep]:
-        """Stream provider text, then yield the validated structured step."""
+        execute_tool: AgentToolExecutor,
+    ) -> AgentRun:
+        """Let one LLM choose local RAG tools before producing its final turn."""
+
+        messages: list[dict[str, Any]] = build_messages(query, evidence, state)
+        active_evidence = list(evidence)
+        for _ in range(_MAX_AGENT_TOOL_ROUNDS + 1):
+            response = await self._complete_messages(messages, structured=True, tools=AGENT_TOOLS)
+            calls = _tool_calls(response)
+            if calls:
+                messages.append(_assistant_tool_message(response, calls))
+                for call in calls:
+                    result = await execute_tool(call["name"], call["arguments"])
+                    active_evidence = _merge_evidence(active_evidence, result.evidence)
+                    messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": call["id"],
+                            "content": result.content,
+                        }
+                    )
+                continue
+            answer = _response_text(response).strip()
+            if answer.upper() == _UNSUPPORTED:
+                raise UnsupportedAnswerError("the model could not answer from the supplied evidence")
+            try:
+                payload = json.loads(_strip_json_fence(answer))
+                if not isinstance(payload, dict):
+                    raise TypeError("turn response must be a JSON object")
+                turn = _diagnostic_turn(payload)
+            except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
+                raise InvalidAnswerError("LLM response was not a valid diagnostic turn") from error
+            _validate_turn(turn, active_evidence, state)
+            return AgentRun(turn=turn, evidence=active_evidence)
+        raise InvalidAnswerError("diagnostic agent exceeded its local tool-call budget")
+
+    async def stream_generate_turn(
+        self,
+        query: str,
+        evidence: Sequence[EvidenceContext],
+        state: DiagnosticSessionState,
+    ) -> AsyncIterator[str | DiagnosticTurn]:
+        """Stream provider text, then yield the validated diagnostic turn."""
 
         response = await self._complete(query, evidence, state, stream=True, structured=True)
         pieces: list[str] = []
@@ -159,12 +250,26 @@ class LiteLLMAnswerGenerator:
         try:
             payload = json.loads(_strip_json_fence(answer))
             if not isinstance(payload, dict):
-                raise TypeError("step response must be a JSON object")
-            step = _diagnostic_step(payload)
+                raise TypeError("turn response must be a JSON object")
+            turn = _diagnostic_turn(payload)
         except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
-            raise InvalidAnswerError("LLM response was not a valid diagnostic step") from error
-        _validate_step(step, evidence)
-        yield _expand_step_citations(step, evidence)
+            raise InvalidAnswerError("LLM response was not a valid diagnostic turn") from error
+        _validate_turn(turn, evidence, state)
+        yield turn
+
+    # Compatibility for focused callers that still need the pre-v4 action
+    # shape. The service itself consumes ``DiagnosticTurn``.
+    async def generate_step(
+        self, query: str, evidence: Sequence[EvidenceContext], state: DiagnosticSessionState
+    ) -> DiagnosticStep:
+        turn = await self.generate_turn(query, evidence, state)
+        return _turn_step(turn)
+
+    async def stream_generate_step(
+        self, query: str, evidence: Sequence[EvidenceContext], state: DiagnosticSessionState
+    ) -> AsyncIterator[str | DiagnosticStep]:
+        async for item in self.stream_generate_turn(query, evidence, state):
+            yield item if isinstance(item, str) else _turn_step(item)
 
     async def _complete(
         self,
@@ -173,6 +278,18 @@ class LiteLLMAnswerGenerator:
         state: DiagnosticSessionState | None = None,
         stream: bool = False,
         structured: bool = False,
+    ) -> Any:
+        return await self._complete_messages(
+            build_messages(query, evidence, state), stream=stream, structured=structured
+        )
+
+    async def _complete_messages(
+        self,
+        messages: Sequence[dict[str, Any]],
+        *,
+        stream: bool = False,
+        structured: bool = False,
+        tools: Sequence[dict[str, object]] | None = None,
     ) -> Any:
         completion = self._completion
         if completion is None:
@@ -184,7 +301,7 @@ class LiteLLMAnswerGenerator:
 
         request: dict[str, Any] = {
             "model": self.settings.model,
-            "messages": build_messages(query, evidence, state),
+            "messages": list(messages),
             "temperature": self.settings.temperature,
             "max_tokens": self.settings.max_tokens,
             "timeout": self.settings.timeout_seconds,
@@ -203,6 +320,9 @@ class LiteLLMAnswerGenerator:
             request["extra_headers"] = {"api-subscription-key": api_key}
         if structured and self.settings.response_format:
             request["response_format"] = _response_format(self.settings.response_format)
+        if tools:
+            request["tools"] = list(tools)
+            request["tool_choice"] = "auto"
         if self.settings.reasoning_effort:
             request["reasoning_effort"] = self.settings.reasoning_effort
         try:
@@ -222,6 +342,64 @@ def _response_text(response: Any) -> str:
         parts = [item.get("text", "") for item in content if isinstance(item, dict)]
         return "".join(str(part) for part in parts)
     raise InvalidAnswerError("LLM response content was not text")
+
+
+def _tool_calls(response: Any) -> list[dict[str, Any]]:
+    """Normalize OpenAI-compatible tool calls and reject malformed requests."""
+
+    try:
+        raw_calls = response.choices[0].message.tool_calls
+    except (AttributeError, IndexError, KeyError, TypeError):
+        return []
+    if not raw_calls:
+        return []
+    calls: list[dict[str, Any]] = []
+    for raw in raw_calls:
+        try:
+            call_id = str(raw.id)
+            name = str(raw.function.name)
+            arguments = json.loads(str(raw.function.arguments or "{}"))
+        except (AttributeError, TypeError, ValueError, json.JSONDecodeError) as error:
+            raise InvalidAnswerError("agent requested an invalid tool call") from error
+        if name not in {"search_manual", "find_error_code", "open_manual_page", "get_diagnostic_state"}:
+            raise InvalidAnswerError("agent requested an unapproved tool")
+        if not isinstance(arguments, dict):
+            raise InvalidAnswerError("tool arguments must be a JSON object")
+        calls.append({"id": call_id, "name": name, "arguments": arguments})
+    return calls
+
+
+def _assistant_tool_message(response: Any, calls: Sequence[dict[str, Any]]) -> dict[str, Any]:
+    """Retain the provider's call IDs while making the next turn portable."""
+
+    try:
+        content = response.choices[0].message.content
+    except (AttributeError, IndexError, KeyError, TypeError):
+        content = None
+    return {
+        "role": "assistant",
+        "content": content,
+        "tool_calls": [
+            {
+                "id": call["id"],
+                "type": "function",
+                "function": {"name": call["name"], "arguments": json.dumps(call["arguments"])},
+            }
+            for call in calls
+        ],
+    }
+
+
+def _merge_evidence(
+    current: Sequence[EvidenceContext], additions: Sequence[EvidenceContext]
+) -> list[EvidenceContext]:
+    seen: set[str] = set()
+    merged: list[EvidenceContext] = []
+    for item in [*current, *additions]:
+        if item.chunk_id not in seen:
+            seen.add(item.chunk_id)
+            merged.append(item)
+    return merged
 
 
 def _stream_text(chunk: Any) -> str:
@@ -278,6 +456,109 @@ def _diagnostic_step(payload: dict[str, Any]) -> DiagnosticStep:
     )
 
 
+def _diagnostic_turn(payload: dict[str, Any]) -> DiagnosticTurn:
+    """Parse the LLM-owned diagnostic decision without prescribing a branch."""
+
+    # Permit stored fixtures and third-party generators to migrate from the
+    # v3 step object. Production prompts and schema validation request v4.
+    if "mode" not in payload and {"title", "instruction", "question", "options", "source_ids"} <= payload.keys():
+        return _legacy_step_turn(_diagnostic_step(payload))
+
+    raw_request = payload.get("observation_request")
+    request: ObservationRequest | None = None
+    if raw_request is not None:
+        if not isinstance(raw_request, dict):
+            raise TypeError("observation_request must be an object or null")
+        raw_options = raw_request.get("options", [])
+        if not isinstance(raw_options, list):
+            raise TypeError("observation_request options must be an array")
+        options: list[DiagnosticOption] = []
+        for index, option in enumerate(raw_options, start=1):
+            if not isinstance(option, dict):
+                raise TypeError("each observation option must be an object")
+            label = str(option.get("label", "")).strip()
+            option_id = str(option.get("id") or _option_id(label, index)).strip()
+            value = str(option.get("value") or label).strip()
+            if not label or not option_id or not value:
+                raise ValueError("each observation option needs id, label, and value")
+            options.append(DiagnosticOption(id=option_id, label=label, value=value))
+        request = ObservationRequest(
+            request_id=str(raw_request["request_id"]).strip(),
+            fact_key=str(raw_request["fact_key"]).strip(),
+            question=str(raw_request["question"]).strip(),
+            options=options,
+            recheck_after_action=bool(raw_request.get("recheck_after_action", False)),
+        )
+
+    raw_action = payload.get("next_action")
+    action = None
+    if raw_action is not None:
+        if not isinstance(raw_action, dict):
+            raise TypeError("next_action must be an object or null")
+        why = raw_action.get("why")
+        action = DiagnosticAction(
+            instruction=str(raw_action["instruction"]).strip(),
+            why=str(why).strip() if why is not None and str(why).strip() else None,
+        )
+
+    raw_facts = payload.get("facts_learned", [])
+    if not isinstance(raw_facts, list):
+        raise TypeError("facts_learned must be an array")
+    facts = [DiagnosticFact.model_validate(fact) for fact in raw_facts]
+    source_ids = payload.get("source_ids")
+    if not isinstance(source_ids, list):
+        raise TypeError("source_ids must be an array")
+    mode = str(payload["mode"]).strip()
+    if mode not in {"solve", "advance", "clarify", "abstain"}:
+        raise ValueError("mode must be solve, advance, clarify, or abstain")
+    stable = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    turn_id = f"turn-{hashlib.sha256(stable.encode()).hexdigest()[:16]}"
+    return DiagnosticTurn(
+        turn_id=turn_id,
+        mode=cast(Literal["solve", "advance", "clarify", "abstain"], mode),
+        response=str(payload["response"]).strip(),
+        interpretation=(str(payload["interpretation"]).strip() if payload.get("interpretation") else None),
+        next_action=action,
+        observation_request=request,
+        facts_learned=facts,
+        candidate_causes=[str(value).strip() for value in payload.get("candidate_causes", []) if str(value).strip()],
+        ruled_out_causes=[str(value).strip() for value in payload.get("ruled_out_causes", []) if str(value).strip()],
+        source_ids=[_canonical_source_id(value) for value in source_ids],
+    )
+
+
+def _legacy_step_turn(step: DiagnosticStep) -> DiagnosticTurn:
+    return DiagnosticTurn(
+        turn_id=f"legacy-{step.step_id}",
+        mode="clarify",
+        response=step.instruction,
+        next_action=DiagnosticAction(instruction=step.instruction),
+        observation_request=ObservationRequest(
+            request_id=step.step_id,
+            fact_key=f"observation_{step.step_id.removeprefix('step-').replace('-', '_')[:48]}",
+            question=step.question,
+            options=step.options,
+        ),
+        source_ids=step.source_ids,
+    )
+
+
+def _turn_step(turn: DiagnosticTurn) -> DiagnosticStep:
+    """Provide the old action surface only when the turn requests a result."""
+
+    if turn.next_action is None or turn.observation_request is None:
+        raise InvalidAnswerError("diagnostic turn has no action/request step")
+    request = turn.observation_request
+    return DiagnosticStep(
+        step_id=request.request_id,
+        title="Next check",
+        instruction=turn.next_action.instruction,
+        question=request.question,
+        options=request.options,
+        source_ids=turn.source_ids,
+    )
+
+
 def _option_id(label: str, index: int) -> str:
     normalized = re.sub(r"[^a-z0-9]+", "-", label.casefold()).strip("-")
     return (normalized[:56] or "option") + f"-{index}"
@@ -296,6 +577,34 @@ def _validate_step(step: DiagnosticStep, evidence: Sequence[EvidenceContext]) ->
         raise InvalidAnswerError("diagnostic step cited evidence outside the retrieved context")
     if len({option.id for option in step.options}) != len(step.options):
         raise InvalidAnswerError("diagnostic step contains duplicate options")
+
+
+def _validate_turn(
+    turn: DiagnosticTurn,
+    evidence: Sequence[EvidenceContext],
+    state: DiagnosticSessionState,
+) -> None:
+    """Validate grounding and stop semantic repetition without a fixed flow."""
+
+    known_ids = {item.chunk_id for item in evidence}
+    if not turn.source_ids:
+        raise InvalidAnswerError("diagnostic turn omitted source evidence")
+    if any(source_id not in known_ids for source_id in turn.source_ids):
+        raise InvalidAnswerError("diagnostic turn cited evidence outside the retrieved context")
+    if len({fact.key for fact in turn.facts_learned}) != len(turn.facts_learned):
+        raise InvalidAnswerError("diagnostic turn contains duplicate fact updates")
+    request = turn.observation_request
+    if request is not None:
+        if len({option.id for option in request.options}) != len(request.options):
+            raise InvalidAnswerError("diagnostic turn contains duplicate options")
+        if request.fact_key in state.facts and not request.recheck_after_action:
+            raise InvalidAnswerError("diagnostic turn asked for a fact already known in this session")
+    if turn.mode == "clarify" and request is None:
+        raise InvalidAnswerError("clarification turn omitted its requested observation")
+    if turn.mode == "solve" and request is not None:
+        raise InvalidAnswerError("solution turn must not continue a questionnaire")
+    if turn.mode == "abstain" and (turn.next_action is not None or request is not None):
+        raise InvalidAnswerError("abstention turn must not contain a diagnostic action")
 
 
 def _expand_step_citations(step: DiagnosticStep, evidence: Sequence[EvidenceContext]) -> DiagnosticStep:
@@ -321,10 +630,10 @@ def _response_format(mode: str) -> dict[str, object]:
         return {
             "type": "json_schema",
             "json_schema": {
-                "name": "diagnostic_step",
-                "description": "One evidence-backed troubleshooting check.",
+                "name": "diagnostic_turn",
+                "description": "One evidence-backed troubleshooting decision.",
                 "strict": True,
-                "schema": _DIAGNOSTIC_STEP_SCHEMA,
+                "schema": _DIAGNOSTIC_TURN_SCHEMA,
             },
         }
     return {"type": mode}

@@ -157,12 +157,21 @@ class SarvamVoiceBridge:
             await self._send(client, {"type": "voice.error", "message": "Friday could not complete that check."})
 
     async def _speak_step(self, client: WebSocket, response: dict[str, object]) -> None:
-        step = response.get("step")
-        if not isinstance(step, dict):
-            return
-        instruction = str(step.get("instruction", "")).split(" [", 1)[0].strip()
-        question = str(step.get("question", "")).strip()
-        text = " ".join(part for part in (instruction, question) if part)
+        turn = response.get("turn")
+        if isinstance(turn, dict):
+            answer = str(turn.get("response", "")).strip()
+            action = turn.get("next_action")
+            action_text = str(action.get("instruction", "")).strip() if isinstance(action, dict) else ""
+            request = turn.get("observation_request")
+            question = str(request.get("question", "")).strip() if isinstance(request, dict) else ""
+            text = " ".join(part for part in (answer, action_text, question) if part)
+        else:
+            step = response.get("step")
+            if not isinstance(step, dict):
+                return
+            instruction = str(step.get("instruction", "")).split(" [", 1)[0].strip()
+            question = str(step.get("question", "")).strip()
+            text = " ".join(part for part in (instruction, question) if part)
         if not text:
             return
         tts = await self._ensure_tts()

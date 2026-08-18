@@ -18,6 +18,9 @@ class TroubleshootingRequest(BaseModel):
 class DiagnosticOption(BaseModel):
     id: str = Field(min_length=1, max_length=64)
     label: str = Field(min_length=1, max_length=120)
+    # The visible label stays short (for example, ``Amber``).  ``value`` is
+    # the canonical fact value the planner stores after the user selects it.
+    value: str | None = Field(default=None, max_length=160)
 
 
 class DiagnosticStep(BaseModel):
@@ -26,6 +29,47 @@ class DiagnosticStep(BaseModel):
     instruction: str = Field(min_length=1)
     question: str = Field(min_length=1)
     options: list[DiagnosticOption] = Field(default_factory=list, max_length=6)
+    source_ids: list[str] = Field(min_length=1, max_length=8)
+
+
+class DiagnosticFact(BaseModel):
+    """A user-reported fact retained independently of the chat transcript."""
+
+    key: str = Field(pattern=r"^[a-z][a-z0-9_]{0,63}$")
+    value: str = Field(min_length=1, max_length=320)
+    label: str = Field(min_length=1, max_length=120)
+    raw: str = Field(min_length=1, max_length=1000)
+
+
+class ObservationRequest(BaseModel):
+    """The one fact Friday is asking the user to report, if any."""
+
+    request_id: str = Field(min_length=1, max_length=128)
+    fact_key: str = Field(pattern=r"^[a-z][a-z0-9_]{0,63}$")
+    question: str = Field(min_length=1, max_length=500)
+    options: list[DiagnosticOption] = Field(default_factory=list, max_length=6)
+    recheck_after_action: bool = False
+
+
+class DiagnosticAction(BaseModel):
+    """One evidence-supported action; procedures remain one action at a time."""
+
+    instruction: str = Field(min_length=1, max_length=1200)
+    why: str | None = Field(default=None, max_length=700)
+
+
+class DiagnosticTurn(BaseModel):
+    """A planner-owned turn: solve, advance, clarify, or abstain."""
+
+    turn_id: str = Field(min_length=1, max_length=128)
+    mode: Literal["solve", "advance", "clarify", "abstain"]
+    response: str = Field(min_length=1, max_length=2000)
+    interpretation: str | None = Field(default=None, max_length=1200)
+    next_action: DiagnosticAction | None = None
+    observation_request: ObservationRequest | None = None
+    facts_learned: list[DiagnosticFact] = Field(default_factory=list, max_length=12)
+    candidate_causes: list[str] = Field(default_factory=list, max_length=6)
+    ruled_out_causes: list[str] = Field(default_factory=list, max_length=6)
     source_ids: list[str] = Field(min_length=1, max_length=8)
 
 
@@ -67,6 +111,9 @@ class TroubleshootingResponse(BaseModel):
     session_id: str = "default"
     status: Literal["ready", "abstained"]
     answer: str | None = None
+    turn: DiagnosticTurn | None = None
+    # Kept temporarily for older clients and tests. New clients render
+    # ``turn`` directly so a final answer is not forced to include a question.
     step: DiagnosticStep | None = None
     awaiting_observation: bool = False
     images: list[ManualImage] = Field(default_factory=list)
@@ -82,6 +129,11 @@ class TroubleshootingResponse(BaseModel):
 
 class DiagnosticSessionState(BaseModel):
     session_id: str
+    facts: dict[str, DiagnosticFact] = Field(default_factory=dict)
+    pending_observation: str | None = None
+    pending_option_id: str | None = None
+    current_request: ObservationRequest | None = None
+    current_turn: DiagnosticTurn | None = None
     observations: dict[str, str] = Field(default_factory=dict)
     completed_steps: list[str] = Field(default_factory=list)
     ruled_out_causes: list[str] = Field(default_factory=list)
