@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from urllib.parse import urlencode
@@ -16,6 +17,7 @@ from ..answering.service import TroubleshootingService
 from .sarvam import SarvamRealtimeSettings, SarvamTTSSettings
 
 JsonSender = Callable[[dict[str, object]], Awaitable[None]]
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -81,7 +83,8 @@ class SarvamVoiceBridge:
                     await asyncio.gather(stt_reader, return_exceptions=True)
         except WebSocketDisconnect:
             pass
-        except Exception:
+        except Exception as error:
+            logger.warning("Voice session unavailable (%s)", type(error).__name__)
             await self._send(client, {"type": "voice.error", "message": "Voice service is temporarily unavailable."})
         finally:
             await self._cancel_active_turn(client, notify=False)
@@ -103,6 +106,8 @@ class SarvamVoiceBridge:
                 continue
             event_name = _event_name(payload)
             transcript = _transcript(payload)
+            if event_name == "session.begin":
+                logger.info("Sarvam realtime STT session began request_id=%s", _request_id(payload) or "unknown")
             if event_name == "vad.speech_start":
                 await self._cancel_active_turn(client)
                 await self._send(client, {"type": "speech.start"})
@@ -111,12 +116,18 @@ class SarvamVoiceBridge:
             elif event_name == "transcript.partial" and transcript:
                 await self._send(client, {"type": "transcript.partial", "text": transcript})
             elif event_name == "transcript.final" and transcript:
+                logger.info("Sarvam realtime STT final transcript received chars=%d", len(transcript))
                 await self._send(client, {"type": "transcript.final", "text": transcript})
                 active_context = context()
                 if active_context is not None:
                     await self._cancel_active_turn(client, notify=False)
                     self._turn_task = asyncio.create_task(self._answer_turn(client, active_context, transcript))
             elif event_name == "error":
+                logger.warning(
+                    "Sarvam realtime STT error code=%s fatal=%s",
+                    payload.get("code", "unknown"),
+                    payload.get("is_fatal", False),
+                )
                 await self._send(client, {"type": "voice.error", "message": _error_message(payload)})
 
     async def _answer_turn(self, client: WebSocket, context: VoiceTurnContext, transcript: str) -> None:
@@ -141,7 +152,8 @@ class SarvamVoiceBridge:
                         await self._speak_step(client, response)
         except asyncio.CancelledError:
             raise
-        except Exception:
+        except Exception as error:
+            logger.warning("Voice answer turn failed (%s)", type(error).__name__)
             await self._send(client, {"type": "voice.error", "message": "Friday could not complete that check."})
 
     async def _speak_step(self, client: WebSocket, response: dict[str, object]) -> None:
@@ -254,10 +266,21 @@ def _event_name(payload: dict[str, object]) -> str:
 
 
 def _transcript(payload: dict[str, object]) -> str:
-    value = payload.get("transcript")
+    # Realtime Saaras v3 events use ``text``.  The legacy endpoint used
+    # ``transcript``; accepting both keeps the bridge compatible without
+    # treating an unknown provider event as a user turn.
+    value = payload.get("text") or payload.get("transcript")
     data = payload.get("data")
     if value is None and isinstance(data, dict):
-        value = data.get("transcript")
+        value = data.get("text") or data.get("transcript")
+    return str(value or "").strip()
+
+
+def _request_id(payload: dict[str, object]) -> str:
+    value = payload.get("request_id")
+    data = payload.get("data")
+    if value is None and isinstance(data, dict):
+        value = data.get("request_id")
     return str(value or "").strip()
 
 

@@ -41,6 +41,9 @@ def test_bulbul_stream_url_enables_completion_events() -> None:
 def test_voice_event_helpers_accept_sarvam_payload_shapes() -> None:
     assert _event_name({"event": "transcript.final"}) == "transcript.final"
     assert _transcript({"data": {"transcript": "The WAN light is blinking"}}) == "The WAN light is blinking"
+    assert (
+        _transcript({"event": "transcript.final", "text": "The WAN light is blinking"}) == "The WAN light is blinking"
+    )
     assert _audio({"data": {"audio": "pcm-base64"}}) == "pcm-base64"
 
 
@@ -101,8 +104,8 @@ def test_voice_bridge_forwards_final_transcript_then_answers_and_speaks() -> Non
             _SttEvents(
                 [
                     {"event": "vad.speech_start"},
-                    {"event": "transcript.partial", "transcript": "The WAN light"},
-                    {"event": "transcript.final", "data": {"transcript": "The WAN light is blinking"}},
+                    {"event": "transcript.partial", "text": "The WAN light"},
+                    {"event": "transcript.final", "text": "The WAN light is blinking"},
                 ]
             ),
             client,  # type: ignore[arg-type]

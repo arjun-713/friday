@@ -129,22 +129,26 @@ class TroubleshootingService:
             timings_ms=result.timings_ms,
         )
         if result.abstained or not result.hits:
+            missing = _missing_observations(request)
             return TroubleshootingResponse(
                 status="abstained",
                 session_id=request.session_id,
+                answer=_observation_request(missing),
                 observations=_confirmed_observations(state),
-                missing_observations=_missing_observations(request),
+                missing_observations=missing,
                 retrieval=retrieval,
             )
 
         evidence = _assemble_evidence(result.hits, result.parents)
         evidence = _relevant_evidence(evidence, request)
         if not evidence:
+            missing = _missing_observations(request, require_symptom_detail=True)
             return TroubleshootingResponse(
                 status="abstained",
                 session_id=request.session_id,
+                answer=_observation_request(missing),
                 observations=_confirmed_observations(state),
-                missing_observations=_missing_observations(request, require_symptom_detail=True),
+                missing_observations=missing,
                 retrieval=RetrievalSummary(
                     abstained=True,
                     reason="retrieved_evidence_not_specific_to_symptom",
@@ -154,11 +158,13 @@ class TroubleshootingService:
         try:
             step = await self.answer_generator.generate_step(request.query, evidence, state)
         except UnsupportedAnswerError:
+            missing = _missing_observations(request)
             return TroubleshootingResponse(
                 status="abstained",
                 session_id=request.session_id,
+                answer=_observation_request(missing),
                 observations=_confirmed_observations(state),
-                missing_observations=_missing_observations(request),
+                missing_observations=missing,
                 retrieval=RetrievalSummary(
                     abstained=True,
                     reason="answer_not_supported_by_retrieved_evidence",
@@ -166,11 +172,13 @@ class TroubleshootingService:
                 ),
             )
         except InvalidAnswerError:
+            missing = _missing_observations(request)
             return TroubleshootingResponse(
                 status="abstained",
                 session_id=request.session_id,
+                answer=_observation_request(missing),
                 observations=_confirmed_observations(state),
-                missing_observations=_missing_observations(request),
+                missing_observations=missing,
                 retrieval=RetrievalSummary(
                     abstained=True,
                     reason="answer_failed_evidence_validation",
@@ -186,7 +194,7 @@ class TroubleshootingService:
             awaiting_observation=True,
             images=images,
             evidence=evidence,
-            citations=[item.citation for item in evidence],
+            citations=_step_citations(step, evidence),
             observations=_confirmed_observations(state),
             retrieval=retrieval,
         )
@@ -227,13 +235,15 @@ class TroubleshootingService:
         retrieval = RetrievalSummary(abstained=result.abstained, reason=result.reason, timings_ms=result.timings_ms)
         yield {"type": "retrieval", "retrieval": retrieval.model_dump()}
         if result.abstained or not result.hits:
+            missing = _missing_observations(request)
             yield {
                 "type": "complete",
                 "response": TroubleshootingResponse(
                     status="abstained",
                     session_id=request.session_id,
+                    answer=_observation_request(missing),
                     observations=_confirmed_observations(state),
-                    missing_observations=_missing_observations(request),
+                    missing_observations=missing,
                     retrieval=retrieval,
                 ).model_dump(),
             }
@@ -241,13 +251,15 @@ class TroubleshootingService:
         evidence = _assemble_evidence(result.hits, result.parents)
         evidence = _relevant_evidence(evidence, request)
         if not evidence:
+            missing = _missing_observations(request, require_symptom_detail=True)
             yield {
                 "type": "complete",
                 "response": TroubleshootingResponse(
                     status="abstained",
                     session_id=request.session_id,
+                    answer=_observation_request(missing),
                     observations=_confirmed_observations(state),
-                    missing_observations=_missing_observations(request, require_symptom_detail=True),
+                    missing_observations=missing,
                     retrieval=RetrievalSummary(
                         abstained=True,
                         reason="retrieved_evidence_not_specific_to_symptom",
@@ -266,13 +278,15 @@ class TroubleshootingService:
             if step is None:
                 raise InvalidAnswerError("LLM stream ended without a diagnostic step")
         except (UnsupportedAnswerError, InvalidAnswerError) as error:
+            missing = _missing_observations(request)
             yield {
                 "type": "complete",
                 "response": TroubleshootingResponse(
                     status="abstained",
                     session_id=request.session_id,
+                    answer=_observation_request(missing),
                     observations=_confirmed_observations(state),
-                    missing_observations=_missing_observations(request),
+                    missing_observations=missing,
                     retrieval=RetrievalSummary(
                         abstained=True,
                         reason="answer_not_supported_by_retrieved_evidence"
@@ -291,7 +305,7 @@ class TroubleshootingService:
             awaiting_observation=True,
             images=_images_for_evidence(self.image_manifest, evidence),
             evidence=evidence,
-            citations=[item.citation for item in evidence],
+            citations=_step_citations(step, evidence),
             observations=_confirmed_observations(state),
             retrieval=retrieval,
         )
@@ -311,6 +325,22 @@ def _remember_current_step(state: DiagnosticSessionState, response: Troubleshoot
     state.current_images = response.images
     state.current_citations = response.citations
     state.last_turn_was_acknowledgement = False
+
+
+def _step_citations(step: DiagnosticStep, evidence: Sequence[EvidenceContext]) -> list[Citation]:
+    """Return only the manual locations the verified step explicitly uses."""
+
+    by_id = {item.chunk_id: item.citation for item in evidence}
+    citations: list[Citation] = []
+    seen: set[tuple[str, int, str]] = set()
+    for source_id in step.source_ids:
+        citation = by_id[source_id]
+        key = (citation.document_id, citation.page, citation.section)
+        if key in seen:
+            continue
+        seen.add(key)
+        citations.append(citation)
+    return citations
 
 
 def _awaiting_current_observation(state: DiagnosticSessionState, session_id: str) -> TroubleshootingResponse:
@@ -432,6 +462,20 @@ def _missing_observations(request: TroubleshootingRequest, *, require_symptom_de
     if require_symptom_detail and _is_broad_print_failure(request.query):
         missing.append("any message or error code shown on the printer control panel")
     return missing
+
+
+def _observation_request(missing: Sequence[str]) -> str:
+    """Ask only for the fact that the deterministic safety gate needs."""
+
+    if missing == ["any message or error code shown on the printer control panel"]:
+        return "What exactly appears on the printer control panel—an error code, a message, or its normal status?"
+    if missing == ["manufacturer", "model"]:
+        return "Which manufacturer and model are you working with?"
+    if missing == ["manufacturer"]:
+        return "Which manufacturer made the device?"
+    if missing == ["model"]:
+        return "What is the device model?"
+    return "I could not verify a safe next step from the available manual evidence."
 
 
 def _retrieval_query(request: TroubleshootingRequest) -> str:

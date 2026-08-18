@@ -234,7 +234,7 @@ def test_text_layer_abstains_and_requests_device_observations() -> None:
     response = asyncio.run(_service([]).answer(TroubleshootingRequest(query="It does not work")))
 
     assert response.status == "abstained"
-    assert response.answer is None
+    assert response.answer == "Which manufacturer and model are you working with?"
     assert response.missing_observations == ["manufacturer", "model"]
 
 
@@ -428,7 +428,20 @@ def test_text_endpoint_runs_litellm_answer_layer() -> None:
     body = response.json()
     assert response.status_code == 200
     assert body["status"] == "ready"
-    assert body["answer"] == "Check the cable. [Example Manual · p. 4 · Troubleshooting > Connection]"
+    assert body["answer"] == "Check the cable."
+    assert body["citations"] == [
+        {
+            "chunk_id": "child-1",
+            "document_id": "manual",
+            "document_title": "Example Manual",
+            "manufacturer": "Example",
+            "model": "Example 1",
+            "document_version": "v1",
+            "page": 4,
+            "section": "Troubleshooting > Connection",
+            "source_url": "https://example.test/manual.pdf",
+        }
+    ]
     assert body["images"][0]["asset_id"] == "asset-1"
     assert body["images"][0]["url"] == "/v1/assets/images/asset-1"
 
@@ -828,4 +841,5 @@ def test_step_citation_display_deduplicates_identical_manual_locations() -> None
 
     expanded = _expand_step_citations(step, [*evidence, duplicate])
 
-    assert expanded.instruction.count("[Example Manual · p. 4 · Troubleshooting > Connection]") == 1
+    assert expanded.instruction == "Check the connection."
+    assert expanded.source_ids == ["child-1", "child-duplicate"]

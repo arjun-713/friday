@@ -3,17 +3,13 @@
 import { FormEvent, KeyboardEvent, useEffect, useRef, useState } from "react";
 import type { ComponentType, SVGProps } from "react";
 import {
-  ArrowPathIcon,
   ArrowRightIcon,
   ArrowTopRightOnSquareIcon,
   BookOpenIcon,
   CheckIcon,
   ChevronDownIcon,
-  ClipboardDocumentIcon,
   ComputerDesktopIcon,
   EllipsisHorizontalIcon,
-  HandThumbDownIcon,
-  HandThumbUpIcon,
   MicrophoneIcon,
   PaperAirplaneIcon,
   PauseIcon,
@@ -32,7 +28,7 @@ import {
 } from "../lib/api";
 import { FridayVoiceClient, type VoiceEvent } from "../lib/voice";
 
-type Message = { id: string; role: "user" | "assistant"; text: string; meta?: string; response?: TroubleshootingResponse };
+type Message = { id: string; role: "user" | "assistant"; text: string; response?: TroubleshootingResponse };
 type SessionState = "ready" | "connecting" | "listening" | "thinking" | "speaking" | "interrupted";
 type DeviceCategory = "laptop" | "router" | "printer";
 type SessionStatus = "active" | "open" | "resolved";
@@ -103,7 +99,7 @@ function deviceProfile(device: SupportedDevice): DeviceProfile {
   };
 }
 
-type IconName = "arrow" | "mic" | "send" | "check" | "pause" | "chevron" | "laptop" | "router" | "printer" | "external" | "manual" | "more" | "regenerate" | "like" | "dislike" | "copy";
+type IconName = "arrow" | "mic" | "send" | "check" | "pause" | "chevron" | "laptop" | "router" | "printer" | "external" | "manual" | "more";
 const iconMap: Record<IconName, ComponentType<SVGProps<SVGSVGElement>>> = {
   arrow: ArrowRightIcon,
   mic: MicrophoneIcon,
@@ -117,15 +113,18 @@ const iconMap: Record<IconName, ComponentType<SVGProps<SVGSVGElement>>> = {
   external: ArrowTopRightOnSquareIcon,
   manual: BookOpenIcon,
   more: EllipsisHorizontalIcon,
-  regenerate: ArrowPathIcon,
-  like: HandThumbUpIcon,
-  dislike: HandThumbDownIcon,
-  copy: ClipboardDocumentIcon,
 };
 
 function Icon({ name }: { name: IconName }) {
   const Component = iconMap[name];
   return <Component aria-hidden="true" className="icon" />;
+}
+
+function responseText(response: TroubleshootingResponse): string {
+  if (response.status === "ready") {
+    return response.step?.instruction ?? response.answer ?? "The manual does not provide an answer for this observation.";
+  }
+  return response.answer ?? "I could not verify a safe next step from the available manuals.";
 }
 
 export default function Home() {
@@ -142,11 +141,8 @@ export default function Home() {
   const [selectedCategory, setSelectedCategory] = useState<DeviceCategory>("router");
   const [selectedModel, setSelectedModel] = useState("Archer C6");
   const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
-  const [whyOpen, setWhyOpen] = useState(false);
   const [sessionMenuOpen, setSessionMenuOpen] = useState(false);
   const [evidenceOpen, setEvidenceOpen] = useState(false);
-  const [feedbackByMessage, setFeedbackByMessage] = useState<Record<string, "like" | "dislike">>({});
-  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const [apiError, setApiError] = useState<string | null>(null);
   const requestController = useRef<AbortController | null>(null);
   const messageSequence = useRef(0);
@@ -188,11 +184,8 @@ export default function Home() {
     setSelectedAnswer(null);
     setState("ready");
     setApiError(null);
-    setWhyOpen(false);
     setEvidenceOpen(false);
     setSessionMenuOpen(false);
-    setFeedbackByMessage({});
-    setCopiedMessageId(null);
   }
 
   function chooseSession(session: Session) {
@@ -207,10 +200,7 @@ export default function Home() {
     setSelectedAnswer(session.selectedAnswer);
     setState("ready");
     setApiError(null);
-    setWhyOpen(false);
     setEvidenceOpen(false);
-    setFeedbackByMessage({});
-    setCopiedMessageId(null);
   }
 
   async function deleteCurrentSession() {
@@ -240,7 +230,7 @@ export default function Home() {
     setApiError(null);
     setState("thinking");
     if (addUser) {
-      setMessages((current) => [...current, { id: createMessageId("user"), role: "user", text: displayText, meta: "just now" }]);
+      setMessages((current) => [...current, { id: createMessageId("user"), role: "user", text: displayText }]);
       if (!caseQuery) {
         setCaseQuery(displayText);
         setActiveSession(sessionId);
@@ -252,7 +242,7 @@ export default function Home() {
     const manufacturer = selectedDevice.manufacturer;
     try {
       const assistantId = createMessageId("assistant");
-      setMessages((current) => [...current, { id: assistantId, role: "assistant", text: "", meta: "just now" }]);
+      setMessages((current) => [...current, { id: assistantId, role: "assistant", text: "" }]);
       let completed: TroubleshootingResponse | null = null;
       await troubleshootStream(
         {
@@ -273,12 +263,7 @@ export default function Home() {
           if (event.type === "complete") {
             completed = event.response;
             const result = event.response;
-            const answerText =
-              result.status === "ready"
-                ? result.step?.instruction ?? result.answer ?? "The manual does not provide an answer for this observation."
-                : result.missing_observations.length > 0
-                  ? `I need one more observation: ${result.missing_observations.join(", ")}.`
-                  : "I could not verify a safe next step from the available manuals.";
+            const answerText = responseText(result);
             setMessages((current) =>
               current.map((message) => (message.id === assistantId ? { ...message, text: answerText, response: result } : message)),
             );
@@ -324,26 +309,8 @@ export default function Home() {
     event.currentTarget.form?.requestSubmit();
   }
 
-  function regenerateResponse(messageIndex: number) {
-    const precedingUserMessage = messages.slice(0, messageIndex).reverse().find((message) => message.role === "user");
-    if (precedingUserMessage) void runTroubleshoot(precedingUserMessage.text, "", false, { regenerate: true });
-  }
-
-  async function copyResponse(messageId: string, response?: TroubleshootingResponse) {
-    if (!response) return;
-    const citations = response.citations.map((citation) => `${citation.document_title}, page ${citation.page}, ${citation.section}`).join("; ");
-    await navigator.clipboard?.writeText(`${response.answer ?? ""}${citations ? `\n\nSources: ${citations}` : ""}`);
-    setCopiedMessageId(messageId);
-    window.setTimeout(() => setCopiedMessageId((current) => (current === messageId ? null : current)), 1400);
-  }
-
   function completeAssistant(id: string, response: TroubleshootingResponse) {
-    const answerText =
-      response.status === "ready"
-        ? response.step?.instruction ?? response.answer ?? "The manual does not provide an answer for this observation."
-        : response.missing_observations.length > 0
-          ? `I need one more observation: ${response.missing_observations.join(", ")}.`
-          : "I could not verify a safe next step from the available manuals.";
+    const answerText = responseText(response);
     setMessages((current) => current.map((message) => (message.id === id ? { ...message, text: answerText, response } : message)));
   }
 
@@ -380,8 +347,8 @@ export default function Home() {
       setApiError(null);
       setMessages((current) => [
         ...current,
-        { id: createMessageId("user"), role: "user", text: event.text, meta: "just now" },
-        { id: assistantId, role: "assistant", text: "", meta: "just now" },
+        { id: createMessageId("user"), role: "user", text: event.text },
+        { id: assistantId, role: "assistant", text: "" },
       ]);
       if (!caseQuery) {
         setCaseQuery(event.text);
@@ -576,32 +543,31 @@ export default function Home() {
 
             <div className="message-list" aria-live="polite">
               {messages.length === 0 && <div className="empty-thread"><h2>Describe the problem to start.</h2><p>Use your own words. Friday will ask for one observation at a time.</p></div>}
-              {messages.filter((message) => message.role !== "assistant" || message.text || message.response).map((message, index) => (
-                <article className={`message ${message.role}`} key={message.id}>
-                  {message.role === "user" && <div className="message-meta"><span>You</span><span>{message.meta}</span></div>}
-                  {message.role === "user" && <p>{message.text}</p>}
-                  {message.role === "assistant" && (
-                    message.id !== latestAssistantMessage?.id ? (
-                      <div className="assistant-history">
-                        <p>{message.text || "Checking the manual…"}</p>
-                        {message.response?.citations[0] && <a href={message.response.citations[0].source_url || "#source"}>{message.response.citations[0].document_title} · p. {message.response.citations[0].page}</a>}
+              {messages.filter((message) => message.role !== "assistant" || message.text || message.response).map((message, index) => {
+                const response = message.response;
+                const isLatestResponse = message.id === latestAssistantMessage?.id;
+                const selectedHistoricalAnswer = messages.slice(index + 1).find((item) => item.role === "user")?.text;
+                return (
+                  <article className={`message ${message.role}`} key={message.id}>
+                    {message.role === "user" && <p>{message.text}</p>}
+                    {message.role === "assistant" && response && (
+                      <div className={`step-panel ${isLatestResponse ? "active-step" : "history-step"} ${response.status === "abstained" ? "abstained-panel" : ""}`}>
+                        <div className="step-heading"><h2>{response.status === "abstained" ? (response.missing_observations.length > 0 ? "One detail to verify" : "No verified step found") : response.step?.title ?? "Next check"}</h2></div>
+                        <p className="instruction response-copy">{message.text}</p>
+                        {response.status === "abstained" ? <ul className="missing-observations">{response.missing_observations.map((observation) => <li key={observation}>{observation}</li>)}</ul> : <>
+                          {response.step && <div className="procedure-content"><p className="instruction">{response.step.question}</p></div>}
+                          {response.step && response.step.options.length > 0 && <div className="answer-options" aria-label="Diagnostic answer options">{response.step.options.map((option) => {
+                            const isSelected = isLatestResponse ? selectedAnswer === option.label : selectedHistoricalAnswer === option.label;
+                            return <button className={isSelected ? "selected" : ""} key={option.id} type="button" aria-pressed={isSelected} disabled={!isLatestResponse} onClick={() => submitAnswer(option)}>{option.label}</button>;
+                          })}</div>}
+                          {response.images.length > 0 && <div className="manual-images" aria-label="Figures from the manufacturer manual">{response.images.map((image) => <figure key={image.asset_id}><img src={`${API_BASE_URL}${image.url}`} alt={`${image.document_title}, page ${image.page}`} /><figcaption>{image.document_title} · p. {image.page}</figcaption></figure>)}</div>}
+                        </>}
+                        {response.citations[0] && <div className="source-line"><Icon name="manual" /><a href={response.citations[0].source_url || "#source"}>{response.citations[0].document_title} · p. {response.citations[0].page} · {response.citations[0].section}</a><Icon name="external" /></div>}
                       </div>
-                    ) : <div className={`step-panel ${message.response?.status === "abstained" ? "abstained-panel" : ""}`}>
-                      <div className="step-heading"><h2>{message.response?.status === "abstained" ? (message.response.missing_observations.length > 0 ? "I need another observation" : "No verified step found") : message.response?.step?.title ?? "Next check"}</h2></div>
-                      <p className="instruction response-copy">{message.text}</p>
-                      {message.response?.status === "abstained" ? <ul className="missing-observations">{message.response.missing_observations.map((observation) => <li key={observation}>{observation}</li>)}</ul> : <>
-                        {message.response?.step && <div className="procedure-content"><div className="procedure-copy"><p className="instruction">{message.response.step.question}</p></div></div>}
-                        {message.response?.step && message.response.step.options.length > 0 && <div className="answer-options" aria-label="Diagnostic answer options">{message.response.step.options.map((option) => <button className={selectedAnswer === option.label ? "selected" : ""} key={option.id} type="button" aria-pressed={selectedAnswer === option.label} onClick={() => submitAnswer(option)}>{option.label}</button>)}</div>}
-                        {message.response?.images && message.response.images.length > 0 && <div className="manual-images" aria-label="Figures from the manufacturer manual">{message.response.images.map((image) => <figure key={image.asset_id}><img src={`${API_BASE_URL}${image.url}`} alt={`${image.document_title}, page ${image.page}`} /><figcaption>{image.document_title} · p. {image.page}</figcaption></figure>)}</div>}
-                        <button className="why-button" type="button" aria-expanded={whyOpen} onClick={() => setWhyOpen((open) => !open)}>Why this step?</button>
-                        {whyOpen && <p className="why-copy">The retrieved manual evidence is used to choose the next observation before changing any settings.</p>}
-                      </>}
-                      {message.response?.citations[0] && <div className="source-line"><Icon name="manual" /><a href={message.response.citations[0].source_url || "#source"}>{message.response.citations[0].document_title} · p. {message.response.citations[0].page} · {message.response.citations[0].section}</a><Icon name="external" /></div>}
-                    </div>
-                  )}
-                  {message.role === "assistant" && <div className="assistant-actions" aria-label="Response actions"><button type="button" aria-label="Regenerate response" title="Regenerate response" onClick={() => regenerateResponse(index)}><Icon name="regenerate" /></button><button className={feedbackByMessage[message.id] === "like" ? "selected" : ""} type="button" aria-label="Like response" title="Like response" aria-pressed={feedbackByMessage[message.id] === "like"} onClick={() => setFeedbackByMessage((current) => ({ ...current, [message.id]: "like" }))}><Icon name="like" /></button><button className={feedbackByMessage[message.id] === "dislike" ? "selected" : ""} type="button" aria-label="Dislike response" title="Dislike response" aria-pressed={feedbackByMessage[message.id] === "dislike"} onClick={() => setFeedbackByMessage((current) => ({ ...current, [message.id]: "dislike" }))}><Icon name="dislike" /></button><button className={copiedMessageId === message.id ? "selected" : ""} type="button" aria-label={copiedMessageId === message.id ? "Response copied" : "Copy response"} title={copiedMessageId === message.id ? "Copied" : "Copy response"} onClick={() => void copyResponse(message.id, message.response)}><Icon name="copy" /></button></div>}
-                </article>
-              ))}
+                    )}
+                  </article>
+                );
+              })}
               {apiError && <div className="api-error" role="alert"><strong>Couldn&apos;t check the manuals.</strong><span>{apiError}</span><button type="button" onClick={() => { const latestUserMessage = [...messages].reverse().find((message) => message.role === "user"); if (latestUserMessage) void runTroubleshoot(latestUserMessage.text, "", false); }}>Try again</button></div>}
               {isThinking && <div className="thinking-line" role="status"><span className="thinking-pulse" /> Checking the manual</div>}
               <div ref={threadEnd} />
