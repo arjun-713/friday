@@ -126,9 +126,10 @@ h1, h2, p { margin-top: 0; }
 
 .composer-wrap { margin-top: auto; padding-top: 28px; position: sticky; bottom: 0; background: linear-gradient(to bottom, transparent, var(--bg) 22%); }
 .composer { display: flex; align-items: center; gap: 6px; min-height: 54px; padding: 7px 8px 7px 14px; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--surface-raised); box-shadow: 0 8px 18px rgba(23, 32, 51, 0.06); }
-.composer:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--focus); }
+.composer:focus-within { border-color: var(--border-strong); box-shadow: 0 8px 18px rgba(23, 32, 51, 0.06); }
 .composer.listening { border-color: var(--accent); }
 .composer textarea { min-width: 0; max-height: 160px; flex: 1; padding: 7px 0; border: 0; outline: 0; resize: none; background: transparent; color: var(--text); font-size: 14px; line-height: 1.5; overflow-y: auto; }
+.composer textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 3px; }
 .composer textarea::placeholder { color: var(--muted); }
 .mic-button, .send-button { display: grid; width: 36px; height: 36px; place-items: center; padding: 0; border: 0; border-radius: 7px; }
 .mic-button { background: #eef2f7; color: var(--text); }
