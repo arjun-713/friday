@@ -13,7 +13,7 @@ from time import perf_counter
 from typing import Any, Literal, cast
 
 from ..config import config_section, load_runtime_config
-from ..prompts import build_messages
+from ..prompts import build_conversation_messages, build_messages
 from .models import (
     DecisionBasis,
     DiagnosticAction,
@@ -25,7 +25,7 @@ from .models import (
     EvidenceContext,
     ObservationRequest,
 )
-from .tools import AGENT_TOOLS, AgentToolExecutor
+from .tools import AgentToolExecutor
 
 
 class AnswerGenerationError(RuntimeError):
@@ -84,7 +84,6 @@ _UNSUPPORTED = "UNSUPPORTED"
 # One optional retrieval/tool refinement is enough after the initial hybrid
 # retrieval. More rounds turn a single diagnostic turn into a slow questionnaire
 # and delay the first TTS audio without improving the response contract.
-_MAX_AGENT_TOOL_ROUNDS = 1
 logger = logging.getLogger(__name__)
 
 
@@ -221,81 +220,50 @@ class LiteLLMAnswerGenerator:
         state: DiagnosticSessionState,
         execute_tool: AgentToolExecutor,
     ) -> AgentRun:
-        """Let one LLM choose local RAG tools before producing its final turn."""
+        """Generate one grounded conversational turn without an agent loop."""
 
-        return await self._generate_agent_turn(query, evidence, state, execute_tool, allow_tools=True)
+        del execute_tool
+        return await self._generate_agent_turn(query, evidence, state)
 
-    async def generate_agent_turn_fast(
+    async def stream_conversation(
         self,
         query: str,
         evidence: Sequence[EvidenceContext],
         state: DiagnosticSessionState,
-    ) -> AgentRun:
-        """Generate a validated voice turn in one provider request.
+    ) -> AsyncIterator[str]:
+        """Stream one grounded natural-language reply without planner JSON."""
 
-        Voice already performed hybrid retrieval immediately before this call.
-        Skipping the optional local tool round removes a second provider
-        request from the latency-critical path without allowing unsupported
-        instructions: the same structured schema and evidence validation run.
-        """
-
-        compact_evidence = [
-            item.model_copy(update={"content": item.content[:2400]})
-            for item in evidence[:3]
-        ]
-        return await self._generate_agent_turn(query, compact_evidence, state, None, allow_tools=False)
+        response = await self._complete_messages(
+            build_conversation_messages(query, evidence, state),
+            stream=True,
+            structured=False,
+        )
+        async for chunk in response:
+            text = _stream_text(chunk)
+            if text:
+                yield text
 
     async def _generate_agent_turn(
         self,
         query: str,
         evidence: Sequence[EvidenceContext],
         state: DiagnosticSessionState,
-        execute_tool: AgentToolExecutor | None,
-        *,
-        allow_tools: bool,
     ) -> AgentRun:
 
         messages: list[dict[str, Any]] = build_messages(query, evidence, state)
-        active_evidence = list(evidence)
-        rounds = _MAX_AGENT_TOOL_ROUNDS + 1 if allow_tools else 1
-        for _ in range(rounds):
-            response = await self._complete_messages(
-                messages,
-                # Parse and validate locally below.  Sarvam's schema-constrained
-                # mode adds substantial first-response latency on voice turns.
-                structured=False,
-                tools=AGENT_TOOLS if allow_tools else None,
-                max_tokens=320 if not allow_tools else None,
-            )
-            calls = _tool_calls(response)
-            if calls:
-                if execute_tool is None:
-                    raise InvalidAnswerError("voice agent returned an unexpected tool call")
-                messages.append(_assistant_tool_message(response, calls))
-                for call in calls:
-                    result = await execute_tool(call["name"], call["arguments"])
-                    active_evidence = _merge_evidence(active_evidence, result.evidence)
-                    messages.append(
-                        {
-                            "role": "tool",
-                            "tool_call_id": call["id"],
-                            "content": result.content,
-                        }
-                    )
-                continue
-            answer = _response_text(response).strip()
-            if answer.upper() == _UNSUPPORTED:
-                raise UnsupportedAnswerError("the model could not answer from the supplied evidence")
-            try:
-                payload = json.loads(_strip_json_fence(answer))
-                if not isinstance(payload, dict):
-                    raise TypeError("turn response must be a JSON object")
-                turn = _diagnostic_turn(payload)
-            except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
-                raise InvalidAnswerError("LLM response was not a valid diagnostic turn") from error
-            _validate_turn(turn, active_evidence, state)
-            return AgentRun(turn=turn, evidence=active_evidence)
-        raise InvalidAnswerError("diagnostic agent exceeded its local tool-call budget")
+        response = await self._complete_messages(messages, structured=True)
+        answer = _response_text(response).strip()
+        if answer.upper() == _UNSUPPORTED:
+            raise UnsupportedAnswerError("the model could not answer from the supplied evidence")
+        try:
+            payload = json.loads(_strip_json_fence(answer))
+            if not isinstance(payload, dict):
+                raise TypeError("turn response must be a JSON object")
+            turn = _diagnostic_turn(payload)
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
+            raise InvalidAnswerError("LLM response was not a valid diagnostic turn") from error
+        _validate_turn(turn, evidence, state)
+        return AgentRun(turn=turn, evidence=list(evidence))
 
     async def stream_generate_turn(
         self,
@@ -435,66 +403,10 @@ def _response_text(response: Any) -> str:
     raise InvalidAnswerError("LLM response content was not text")
 
 
-def _tool_calls(response: Any) -> list[dict[str, Any]]:
-    """Normalize OpenAI-compatible tool calls and reject malformed requests."""
-
-    try:
-        raw_calls = response.choices[0].message.tool_calls
-    except (AttributeError, IndexError, KeyError, TypeError):
-        return []
-    if not raw_calls:
-        return []
-    calls: list[dict[str, Any]] = []
-    for raw in raw_calls:
-        try:
-            call_id = str(raw.id)
-            name = str(raw.function.name)
-            arguments = json.loads(str(raw.function.arguments or "{}"))
-        except (AttributeError, TypeError, ValueError, json.JSONDecodeError) as error:
-            raise InvalidAnswerError("agent requested an invalid tool call") from error
-        if name not in {"search_manual", "find_error_code", "open_manual_page", "get_diagnostic_state"}:
-            raise InvalidAnswerError("agent requested an unapproved tool")
-        if not isinstance(arguments, dict):
-            raise InvalidAnswerError("tool arguments must be a JSON object")
-        calls.append({"id": call_id, "name": name, "arguments": arguments})
-    return calls
-
-
-def _assistant_tool_message(response: Any, calls: Sequence[dict[str, Any]]) -> dict[str, Any]:
-    """Retain the provider's call IDs while making the next turn portable."""
-
-    try:
-        content = response.choices[0].message.content
-    except (AttributeError, IndexError, KeyError, TypeError):
-        content = None
-    return {
-        "role": "assistant",
-        "content": content,
-        "tool_calls": [
-            {
-                "id": call["id"],
-                "type": "function",
-                "function": {"name": call["name"], "arguments": json.dumps(call["arguments"])},
-            }
-            for call in calls
-        ],
-    }
-
-
-def _merge_evidence(
-    current: Sequence[EvidenceContext], additions: Sequence[EvidenceContext]
-) -> list[EvidenceContext]:
-    seen: set[str] = set()
-    merged: list[EvidenceContext] = []
-    for item in [*current, *additions]:
-        if item.chunk_id not in seen:
-            seen.add(item.chunk_id)
-            merged.append(item)
-    return merged
-
-
 def _stream_text(chunk: Any) -> str:
     try:
+        if not chunk.choices:
+            return ""
         content = chunk.choices[0].delta.content
     except (AttributeError, IndexError, KeyError, TypeError) as error:
         raise InvalidAnswerError("LLM stream chunk did not contain assistant content") from error

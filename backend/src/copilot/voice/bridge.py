@@ -147,7 +147,6 @@ class SarvamVoiceBridge:
             session_id=context.session_id,
             manufacturer=context.manufacturer,
             model=context.model,
-            voice_mode=True,
         )
         try:
             async for event in self.service.stream_answer(request):
@@ -200,11 +199,12 @@ class SarvamVoiceBridge:
             text = " ".join(part for part in (answer, action_text, question) if part)
         else:
             step = response.get("step")
-            if not isinstance(step, dict):
-                return
-            instruction = str(step.get("instruction", "")).split(" [", 1)[0].strip()
-            question = str(step.get("question", "")).strip()
-            text = " ".join(part for part in (instruction, question) if part)
+            if isinstance(step, dict):
+                instruction = str(step.get("instruction", "")).split(" [", 1)[0].strip()
+                question = str(step.get("question", "")).strip()
+                text = " ".join(part for part in (instruction, question) if part)
+            else:
+                text = str(response.get("answer", "")).strip()
         if not text:
             return
         started = perf_counter()

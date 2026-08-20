@@ -287,9 +287,9 @@ export default function Home() {
         },
         (event) => {
           if (event.type === "token") {
-            // The generator streams a JSON object. Do not render its partial
-            // instruction before the server has verified source IDs and schema.
-            // The visible "Checking the manual" state is clearer and safer.
+            setMessages((current) => current.map((message) => (
+              message.id === assistantId ? { ...message, text: `${message.text}${event.text}` } : message
+            )));
           }
           if (event.type === "complete") {
             completed = event.response;
@@ -392,8 +392,9 @@ export default function Home() {
       return;
     }
     if (event.type === "assistant.token" && voiceAssistantId.current && event.turn_id === voiceTurnId.current) {
-      // Keep partial structured output off-screen until its citations have
-      // passed backend validation. Voice still receives the final step.
+      setMessages((current) => current.map((message) => (
+        message.id === voiceAssistantId.current ? { ...message, text: `${message.text}${event.text}` } : message
+      )));
       return;
     }
     if (
@@ -622,28 +623,19 @@ export default function Home() {
                 const response = message.response;
                 const isLatestResponse = message.id === latestAssistantMessage?.id;
                 const selectedHistoricalAnswer = messages.slice(index + 1).find((item) => item.role === "user")?.text;
-                const presentation = response ? modePresentation(response) : null;
-                const action = response?.turn?.next_action ?? (response?.step ? { instruction: response.step.instruction } : null);
-                const question = response?.turn?.observation_request?.question ?? response?.step?.question;
                 const options = response?.turn?.observation_request?.options ?? response?.step?.options ?? [];
                 return (
                   <article className={`message diagnostic-entry ${message.role}`} key={message.id}>
-                    <span className={`timeline-marker ${message.role === "assistant" ? presentation?.className ?? "" : "observation-marker"}`} aria-hidden="true" />
-                    {message.role === "user" && <div className="observation-entry"><div className="entry-meta">YOU <span>{message.meta ?? "NOW"}</span></div><p>{message.text}</p></div>}
+                    {message.role === "user" && <div className="chat-bubble user-bubble"><p>{message.text}</p></div>}
                     {message.role === "assistant" && response && (
-                      <div className={`diagnostic-response ${isLatestResponse ? "active-response" : "history-response"} ${presentation?.className ?? ""}`}>
-                        <div className="response-mode">{presentation?.label}</div>
-                        <section className="assessment-block"><span className="block-label">CURRENT ASSESSMENT</span><p className="response-copy">{message.text}</p></section>
-                        {response.status === "abstained" ? <ul className="missing-observations">{response.missing_observations.map((observation) => <li key={observation}>{observation}</li>)}</ul> : <>
-                          {action && <section className="next-check"><span className="block-label">NEXT CHECK</span><p className="action-instruction">{action.instruction}</p>{question && <p className="observation-question">{question}</p>}{options.length > 0 && <div className="answer-options" aria-label="Diagnostic answer options">{options.map((option) => {
-                            const isSelected = isLatestResponse ? selectedAnswer === option.label : selectedHistoricalAnswer === option.label;
-                            return <button className={isSelected ? "selected" : ""} key={option.id} type="button" aria-pressed={isSelected} disabled={!isLatestResponse} onClick={() => submitAnswer(option)}>{option.label}</button>;
-                          })}</div>}
-                          {action.why && <section className="why-check"><span className="block-label">WHY THIS CHECK</span><p>{action.why}</p></section>}
-                          </section>}
-                          {!action && question && <section className="next-check"><span className="block-label">NEED ONE DETAIL</span><p className="observation-question">{question}</p>{options.length > 0 && <div className="answer-options" aria-label="Diagnostic answer options">{options.map((option) => <button className={selectedAnswer === option.label ? "selected" : ""} key={option.id} type="button" aria-pressed={selectedAnswer === option.label} disabled={!isLatestResponse} onClick={() => submitAnswer(option)}>{option.label}</button>)}</div>}</section>}
-                          {response.images.length > 0 && <div className="manual-images" aria-label="Figures from the manufacturer manual">{response.images.map((image) => <figure key={image.asset_id}><img src={`${API_BASE_URL}${image.url}`} alt={`${image.document_title}, page ${image.page}`} /><figcaption>{image.document_title} · p. {image.page}</figcaption></figure>)}</div>}
-                        </>}
+                      <div className={`chat-bubble assistant-bubble ${isLatestResponse ? "active-response" : "history-response"}`}>
+                        <p className="response-copy">{message.text}</p>
+                        {response.status === "abstained" && response.missing_observations.length > 0 && <ul className="missing-observations">{response.missing_observations.map((observation) => <li key={observation}>{observation}</li>)}</ul>}
+                        {options.length > 0 && <div className="answer-options" aria-label="Diagnostic answer options">{options.map((option) => {
+                          const isSelected = isLatestResponse ? selectedAnswer === option.label : selectedHistoricalAnswer === option.label;
+                          return <button className={isSelected ? "selected" : ""} key={option.id} type="button" aria-pressed={isSelected} disabled={!isLatestResponse} onClick={() => submitAnswer(option)}>{option.label}</button>;
+                        })}</div>}
+                        {response.images.length > 0 && <div className="manual-images" aria-label="Figures from the manufacturer manual">{response.images.map((image) => <figure key={image.asset_id}><img src={`${API_BASE_URL}${image.url}`} alt={`${image.document_title}, page ${image.page}`} /><figcaption>{image.document_title} · p. {image.page}</figcaption></figure>)}</div>}
                         {response.citations[0] && <div className="source-line"><Icon name="manual" /><a href={response.citations[0].source_url || "#source"} target="_blank" rel="noreferrer">{response.citations[0].document_title} · p. {response.citations[0].page} · {response.citations[0].section}</a><Icon name="external" /></div>}
                       </div>
                     )}
