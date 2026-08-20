@@ -28,7 +28,7 @@ def test_saaras_realtime_url_uses_fast_vad_pcm_configuration() -> None:
     assert parsed["endpointing"] == ["vad"]
     assert parsed["encoding"] == ["linear16"]
     assert parsed["sample_rate"] == ["16000"]
-    assert parsed["silence_duration_ms"] == ["500"]
+    assert parsed["silence_duration_ms"] == ["1000"]
 
 
 def test_bulbul_stream_url_enables_completion_events() -> None:
@@ -139,6 +139,20 @@ def test_voice_bridge_forwards_final_transcript_then_answers_and_speaks() -> Non
     assert events[3]["turn_id"]
     assert events[4]["turn_id"] == events[3]["turn_id"]
     assert events[5]["turn_id"] == events[3]["turn_id"]
+
+
+def test_voice_bridge_does_not_interrupt_on_vad_without_transcript() -> None:
+    async def run() -> list[dict[str, object]]:
+        bridge = SarvamVoiceBridge(_VoiceService())
+        client = _VoiceClient()
+        await bridge._forward_stt(
+            _SttEvents([{"event": "vad.speech_start"}, {"event": "vad.speech_end"}]),
+            client,  # type: ignore[arg-type]
+            lambda: VoiceTurnContext(session_id="voice-1"),
+        )
+        return client.events
+
+    assert [event["type"] for event in asyncio.run(run())] == ["speech.end"]
 
 
 def test_voice_bridge_cancellation_stops_an_active_answer_before_notifying_browser() -> None:

@@ -100,6 +100,9 @@ class SarvamVoiceBridge:
         client: WebSocket,
         context: Callable[[], VoiceTurnContext | None],
     ) -> None:
+        speech_active = False
+        speech_confirmed = False
+
         async for raw_message in stt:
             if not isinstance(raw_message, str):
                 continue
@@ -112,16 +115,26 @@ class SarvamVoiceBridge:
             if event_name == "session.begin":
                 logger.info("Sarvam realtime STT session began request_id=%s", _request_id(payload) or "unknown")
             if event_name == "vad.speech_start":
-                await self._cancel_active_turn(client)
-                await self._send(client, {"type": "speech.start"})
+                # Saaras can emit VAD starts for keyboard clicks, fan noise, or
+                # a short microphone transient. Do not interrupt Friday until
+                # there is actual transcript evidence of a user utterance.
+                speech_active = True
+                speech_confirmed = False
             elif event_name == "vad.speech_end":
-                await self._send(client, {"type": "speech.end"})
+                if speech_active:
+                    await self._send(client, {"type": "speech.end"})
             elif event_name == "transcript.partial" and transcript:
+                if not speech_confirmed:
+                    speech_confirmed = True
+                    await self._cancel_active_turn(client)
+                    await self._send(client, {"type": "speech.start"})
                 await self._send(client, {"type": "transcript.partial", "text": transcript})
             elif event_name == "transcript.final" and transcript:
                 logger.info("Sarvam realtime STT final transcript received chars=%d", len(transcript))
                 active_context = context()
                 if active_context is not None:
+                    speech_active = False
+                    speech_confirmed = False
                     await self._cancel_active_turn(client, notify=False)
                     turn_id = uuid4().hex
                     self._active_turn_id = turn_id
