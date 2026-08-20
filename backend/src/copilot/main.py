@@ -38,7 +38,7 @@ _service: TroubleshootingService | None = None
 _service_lock = asyncio.Lock()
 _image_manifest: dict[str, object] = {"assets": {}}
 _browser_origins = {"http://localhost:3000", "http://127.0.0.1:3000"}
-_PROJECT_ROOT = Path(__file__).resolve().parents[3]
+_PROJECT_ROOT = Path(os.getenv("FRIDAY_ROOT", str(Path(__file__).resolve().parents[3])))
 
 
 def _runtime_path(environment_variable: str, default: str) -> Path:
