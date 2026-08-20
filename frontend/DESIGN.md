@@ -28,6 +28,7 @@ generic AI chat surface or a dashboard.
 | Structural rule | `--border` |
 | Product action and focus | `--accent` |
 | Confirmed observation | `--success` |
+| Clarification | `--warning` |
 | Warning / error | `--danger` |
 
 The palette is neutral blue-gray with one cobalt accent. Cobalt signals a
@@ -49,7 +50,7 @@ used.
 - The primary action is always answering the current diagnostic question.
 - Voice starts a persistent, interruptible session. Its status lives directly
   beside the composer, not in the global navigation.
-- User messages are right-aligned inside the work surface; Friday's procedural
-  response is left-aligned and carries citations at the point of instruction.
-- “What we know” is an evidence ledger. It never repeats generic schema fields
-  or placeholder values, and changes as observations become known.
+- User observations are quiet transcript entries; Friday's response is a
+  structured assessment with one raised next-check surface.
+- “Diagnostic state” is an evidence ledger. It separates confirmed facts from
+  only the unknown currently relevant to the next check.

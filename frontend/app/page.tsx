@@ -28,10 +28,11 @@ import {
 } from "../lib/api";
 import { FridayVoiceClient, type VoiceEvent } from "../lib/voice";
 
-type Message = { id: string; role: "user" | "assistant"; text: string; response?: TroubleshootingResponse };
+type Message = { id: string; role: "user" | "assistant"; text: string; meta?: string; response?: TroubleshootingResponse };
 type SessionState = "ready" | "connecting" | "listening" | "thinking" | "speaking" | "interrupted";
 type DeviceCategory = "laptop" | "router" | "printer";
 type SessionStatus = "active" | "open" | "resolved";
+type DiagnosticMode = "advance" | "clarify" | "solve" | "abstain";
 
 type Session = {
   id: string;
@@ -121,11 +122,36 @@ function Icon({ name }: { name: IconName }) {
 }
 
 function responseText(response: TroubleshootingResponse): string {
-  if (response.turn?.response) return response.turn.response;
-  if (response.status === "ready") {
-    return response.step?.instruction ?? response.answer ?? "The manual does not provide an answer for this observation.";
-  }
-  return response.answer ?? "I could not verify a safe next step from the available manuals.";
+  const raw = response.turn?.response
+    ?? (response.status === "ready"
+      ? response.step?.instruction ?? response.answer ?? "The manual does not provide an answer for this observation."
+      : response.answer ?? "I could not verify a safe next step from the available manuals.");
+  // Citations are rendered in the evidence row. Remove citation markers that
+  // older/provider-specific response formats may have embedded in prose.
+  const withoutInlineCitations = response.citations.reduce((text, citation) => {
+    const labels = [
+      `[${citation.document_title} · p. ${citation.page} · ${citation.section}]`,
+      `[${citation.document_title}, page ${citation.page}]`,
+    ];
+    return labels.reduce((value, label) => value.replaceAll(label, ""), text);
+  }, raw);
+  return withoutInlineCitations.replace(/[ \t]{2,}/g, " ").trim();
+}
+
+function sessionStatusLabel(status: SessionStatus): string {
+  return status === "resolved" ? "Resolved" : "In progress";
+}
+
+function factKeyLabel(key: string): string {
+  return key.replaceAll("_", " ");
+}
+
+function modePresentation(response: TroubleshootingResponse): { mode: DiagnosticMode; label: string; className: string } {
+  if (response.status === "abstained") return { mode: "abstain", label: "MANUAL EVIDENCE INSUFFICIENT", className: "mode-abstain" };
+  const mode = response.turn?.mode ?? "advance";
+  if (mode === "solve") return { mode, label: "RESOLUTION", className: "mode-solve" };
+  if (mode === "clarify") return { mode, label: "NEED ONE DETAIL", className: "mode-clarify" };
+  return { mode: "advance", label: "NEXT CHECK", className: "mode-advance" };
 }
 
 export default function Home() {
@@ -144,6 +170,7 @@ export default function Home() {
   const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
   const [sessionMenuOpen, setSessionMenuOpen] = useState(false);
   const [evidenceOpen, setEvidenceOpen] = useState(false);
+  const [navigationOpen, setNavigationOpen] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
   const requestController = useRef<AbortController | null>(null);
   const messageSequence = useRef(0);
@@ -187,6 +214,7 @@ export default function Home() {
     setState("ready");
     setApiError(null);
     setEvidenceOpen(false);
+    setNavigationOpen(false);
     setSessionMenuOpen(false);
   }
 
@@ -203,6 +231,7 @@ export default function Home() {
     setState("ready");
     setApiError(null);
     setEvidenceOpen(false);
+    setNavigationOpen(false);
   }
 
   async function deleteCurrentSession() {
@@ -500,11 +529,16 @@ export default function Home() {
     ? latestResponse.turn?.observation_request?.question ?? latestResponse.step?.question
     : undefined;
   const observations = latestResponse?.observations ?? [];
+  const confirmedFacts = Object.values(latestResponse?.facts ?? {});
   const factTransitions = Object.values(latestResponse?.fact_history ?? {}).flatMap((history) => {
     const latest = history.at(-1);
     if (!latest?.previous_value || latest.previous_value === latest.value) return [];
     return [`${latest.label}: ${latest.previous_value} → ${latest.value}`];
   });
+  const hasReportedProblem = messages.some((message) => message.role === "user");
+  const hasEvidence = Boolean(latestCitation);
+  const hasConfirmedState = confirmedFacts.length > 0 || observations.length > 0;
+  const isWaitingForObservation = Boolean(activeQuestion) && !isThinking;
   const orderedSessions = [...sessions].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
 
   return (
@@ -512,12 +546,13 @@ export default function Home() {
       <header className="topbar">
         <a className="wordmark" href="#conversation" aria-label="Friday home"><span className="wordmark-mark"><Icon name="router" /></span><span>friday</span></a>
         <div className="topbar-center"><span className="topbar-context">{selectedDevice.name}<span>/</span>{caseQuery || "New session"}</span></div>
+        <button className="mobile-nav-toggle" type="button" aria-expanded={navigationOpen} onClick={() => setNavigationOpen((open) => !open)}>Cases <Icon name="chevron" /></button>
       </header>
 
       <div className="workspace">
         <aside className="session-sidebar" aria-label="Device and troubleshooting sessions">
           <div className="device-picker">
-            <span className="sidebar-title">DEVICE CATEGORIES</span>
+            <span className="sidebar-title">DEVICES</span>
             {Object.entries(deviceCategories).map(([category, device]) => (
               <button className={`device-category ${selectedCategory === category ? "selected" : ""}`} key={category} type="button" onClick={() => startNewSession(category as DeviceCategory)}>
                 <Icon name={device.icon} /><span>{device.label}</span>
@@ -532,18 +567,27 @@ export default function Home() {
           </div>
 
           <button className="new-session-quiet" type="button" onClick={() => startNewSession()}><span>＋</span> New session</button>
-          <div className="sidebar-heading"><h2>Sessions</h2></div>
+          <div className="sidebar-heading"><h2>Cases</h2></div>
           <div className="session-list">
             {orderedSessions.map((session) => (
               <button className={`session-item ${activeSession === session.id ? "selected" : ""}`} key={session.id} type="button" onClick={() => chooseSession(session)}>
                 <span className={`session-status-dot ${activeSession === session.id ? "active" : session.status}`} aria-hidden="true" />
                 <span className="session-item-copy"><strong>{session.title}</strong><span>{session.device}</span></span>
-                <span className="session-time">{session.status === "resolved" ? "Resolved" : relativeSessionTime(session.updatedAt)}</span>
+                <span className="session-time">{sessionStatusLabel(session.status)}<small>{relativeSessionTime(session.updatedAt)}</small></span>
               </button>
             ))}
             {sessionsHydrated && orderedSessions.length === 0 && <p className="session-empty">Your troubleshooting history will appear here.</p>}
           </div>
           <p className="local-sessions-note">Sessions stay in this browser until you delete them.</p>
+        </aside>
+
+        {navigationOpen && <button className="mobile-nav-backdrop" type="button" aria-label="Close case navigation" onClick={() => setNavigationOpen(false)} />}
+        <aside className={`mobile-navigation ${navigationOpen ? "mobile-navigation-open" : ""}`} aria-label="Mobile device and case navigation">
+          <div className="mobile-navigation-header"><strong>Case navigation</strong><button type="button" onClick={() => setNavigationOpen(false)}>Close</button></div>
+          <div className="mobile-navigation-section"><span className="sidebar-title">DEVICE</span>{Object.entries(deviceCategories).map(([category, device]) => <button className={`device-category ${selectedCategory === category ? "selected" : ""}`} key={category} type="button" onClick={() => startNewSession(category as DeviceCategory)}><Icon name={device.icon} /><span>{device.label}</span></button>)}</div>
+          <div className="mobile-navigation-section"><span className="sidebar-title">CURRENT DEVICE</span><strong className="mobile-current-device">{selectedDevice.manufacturer} {selectedDevice.name}</strong><span className="mobile-device-detail">{selectedDevice.detail}</span></div>
+          <button className="new-session-quiet" type="button" onClick={() => startNewSession()}>＋ New session</button>
+          <div className="mobile-navigation-section"><span className="sidebar-title">CASES</span>{orderedSessions.map((session) => <button className={`mobile-case ${activeSession === session.id ? "selected" : ""}`} key={session.id} type="button" onClick={() => chooseSession(session)}><strong>{session.title}</strong><span>{sessionStatusLabel(session.status)} · {session.device}</span></button>)}{sessionsHydrated && orderedSessions.length === 0 && <p className="session-empty">No saved cases yet.</p>}</div>
         </aside>
 
         <section className="conversation" id="conversation" aria-labelledby="conversation-title">
@@ -554,33 +598,53 @@ export default function Home() {
                 <button className="session-menu-button" type="button" aria-label="Session actions" aria-expanded={sessionMenuOpen} onClick={() => setSessionMenuOpen((open) => !open)}><Icon name="more" /></button>
                 {sessionMenuOpen && <div className="session-menu" role="menu"><button type="button" onClick={() => startNewSession()}>Start a new session</button>{activeSession !== "new" && <button type="button" onClick={() => void deleteCurrentSession()}>Delete this session</button>}</div>}
               </div>
-              <button className="evidence-toggle" type="button" aria-expanded={evidenceOpen} onClick={() => setEvidenceOpen((open) => !open)}>What we know <Icon name="chevron" /></button>
+              <button className="evidence-toggle" type="button" aria-expanded={evidenceOpen} onClick={() => setEvidenceOpen((open) => !open)}>Diagnostic state <Icon name="chevron" /></button>
             </div>
 
+            <div className="diagnostic-progress" aria-label="Diagnostic progress">
+              <span className={hasReportedProblem ? "complete" : "pending"}><i aria-hidden="true" />Problem reported</span>
+              <span className={hasEvidence ? "complete" : hasReportedProblem ? "current" : "pending"}><i aria-hidden="true" />Evidence retrieved</span>
+              <span className={hasConfirmedState ? "complete" : hasEvidence ? "current" : "pending"}><i aria-hidden="true" />Observation confirmed</span>
+              <span className={isWaitingForObservation ? "current" : "pending"}><i aria-hidden="true" />{isWaitingForObservation ? "Waiting" : "Next check"}</span>
+            </div>
             <div className="message-list" aria-live="polite">
-              {messages.length === 0 && <div className="empty-thread"><h2>Describe the problem to start.</h2><p>Use your own words. Friday will ask for one observation at a time.</p></div>}
+              {messages.length === 0 && <div className="empty-thread">
+                <span className="empty-kicker">NEW TROUBLESHOOTING SESSION</span>
+                <h2>Tell Friday what the device is doing.</h2>
+                <ol className="workflow-preview">
+                  <li><span>01</span>Identify the relevant manual evidence</li>
+                  <li><span>02</span>Track what you have confirmed</li>
+                  <li><span>03</span>Give one diagnostic check at a time</li>
+                  <li><span>04</span>Show the source behind each recommendation</li>
+                </ol>
+              </div>}
               {messages.filter((message) => message.role !== "assistant" || message.text || message.response).map((message, index) => {
                 const response = message.response;
                 const isLatestResponse = message.id === latestAssistantMessage?.id;
                 const selectedHistoricalAnswer = messages.slice(index + 1).find((item) => item.role === "user")?.text;
+                const presentation = response ? modePresentation(response) : null;
+                const action = response?.turn?.next_action ?? (response?.step ? { instruction: response.step.instruction } : null);
+                const question = response?.turn?.observation_request?.question ?? response?.step?.question;
+                const options = response?.turn?.observation_request?.options ?? response?.step?.options ?? [];
                 return (
-                  <article className={`message ${message.role}`} key={message.id}>
-                    {message.role === "user" && <p>{message.text}</p>}
+                  <article className={`message diagnostic-entry ${message.role}`} key={message.id}>
+                    <span className={`timeline-marker ${message.role === "assistant" ? presentation?.className ?? "" : "observation-marker"}`} aria-hidden="true" />
+                    {message.role === "user" && <div className="observation-entry"><div className="entry-meta">YOU <span>{message.meta ?? "NOW"}</span></div><p>{message.text}</p></div>}
                     {message.role === "assistant" && response && (
-                      <div className={`step-panel ${isLatestResponse ? "active-step" : "history-step"} ${response.status === "abstained" ? "abstained-panel" : ""}`}>
-                        <div className="step-heading"><h2>{response.status === "abstained" ? (response.missing_observations.length > 0 ? "One detail to verify" : "No verified step found") : response.turn?.mode === "solve" ? "What this points to" : response.turn?.mode === "clarify" ? "One thing to check" : "Next check"}</h2></div>
-                        <p className="instruction response-copy">{message.text}</p>
+                      <div className={`diagnostic-response ${isLatestResponse ? "active-response" : "history-response"} ${presentation?.className ?? ""}`}>
+                        <div className="response-mode">{presentation?.label}</div>
+                        <section className="assessment-block"><span className="block-label">CURRENT ASSESSMENT</span><p className="response-copy">{message.text}</p></section>
                         {response.status === "abstained" ? <ul className="missing-observations">{response.missing_observations.map((observation) => <li key={observation}>{observation}</li>)}</ul> : <>
-                          {response.turn?.next_action && <div className="procedure-content"><p className="action-instruction">{response.turn.next_action.instruction}</p>{response.turn.next_action.why && <p className="action-why">{response.turn.next_action.why}</p>}</div>}
-                          {!response.turn && response.step && <div className="procedure-content"><p className="action-instruction">{response.step.instruction}</p></div>}
-                          {(response.turn?.observation_request?.question ?? response.step?.question) && <div className="observation-question"><p>{response.turn?.observation_request?.question ?? response.step?.question}</p></div>}
-                          {(response.turn?.observation_request?.options ?? response.step?.options ?? []).length > 0 && <div className="answer-options" aria-label="Diagnostic answer options">{(response.turn?.observation_request?.options ?? response.step?.options ?? []).map((option) => {
+                          {action && <section className="next-check"><span className="block-label">NEXT CHECK</span><p className="action-instruction">{action.instruction}</p>{question && <p className="observation-question">{question}</p>}{options.length > 0 && <div className="answer-options" aria-label="Diagnostic answer options">{options.map((option) => {
                             const isSelected = isLatestResponse ? selectedAnswer === option.label : selectedHistoricalAnswer === option.label;
                             return <button className={isSelected ? "selected" : ""} key={option.id} type="button" aria-pressed={isSelected} disabled={!isLatestResponse} onClick={() => submitAnswer(option)}>{option.label}</button>;
                           })}</div>}
+                          {action.why && <section className="why-check"><span className="block-label">WHY THIS CHECK</span><p>{action.why}</p></section>}
+                          </section>}
+                          {!action && question && <section className="next-check"><span className="block-label">NEED ONE DETAIL</span><p className="observation-question">{question}</p>{options.length > 0 && <div className="answer-options" aria-label="Diagnostic answer options">{options.map((option) => <button className={selectedAnswer === option.label ? "selected" : ""} key={option.id} type="button" aria-pressed={selectedAnswer === option.label} disabled={!isLatestResponse} onClick={() => submitAnswer(option)}>{option.label}</button>)}</div>}</section>}
                           {response.images.length > 0 && <div className="manual-images" aria-label="Figures from the manufacturer manual">{response.images.map((image) => <figure key={image.asset_id}><img src={`${API_BASE_URL}${image.url}`} alt={`${image.document_title}, page ${image.page}`} /><figcaption>{image.document_title} · p. {image.page}</figcaption></figure>)}</div>}
                         </>}
-                        {response.citations[0] && <div className="source-line"><Icon name="manual" /><a href={response.citations[0].source_url || "#source"}>{response.citations[0].document_title} · p. {response.citations[0].page} · {response.citations[0].section}</a><Icon name="external" /></div>}
+                        {response.citations[0] && <div className="source-line"><Icon name="manual" /><a href={response.citations[0].source_url || "#source"} target="_blank" rel="noreferrer">{response.citations[0].document_title} · p. {response.citations[0].page} · {response.citations[0].section}</a><Icon name="external" /></div>}
                       </div>
                     )}
                   </article>
@@ -606,17 +670,17 @@ export default function Home() {
                 {voiceConnected ? <button className="mic-button active" type="button" aria-label="Stop listening" onClick={() => void stopVoice()}><Icon name="pause" /></button> : <button className={`mic-button ${draft ? "quiet" : "primary"}`} type="button" aria-label="Start voice input" disabled={state === "connecting"} onClick={() => void startVoice()}><Icon name="mic" /></button>}
                 <button className="send-button visible" type="submit" aria-label="Send observation" disabled={!draft.trim()}><Icon name="send" /></button>
               </form>
-              {(voiceConnected || state === "connecting") && <div className="voice-status" role="status"><span className="waveform" aria-hidden="true"><i /><i /><i /><i /><i /></span><span>{state === "connecting" ? "Connecting your microphone…" : isListening ? "Listening — speak naturally; Friday sends each final transcript automatically." : "Friday is responding — speak to interrupt."}</span><button type="button" onClick={() => void stopVoice()}>Stop</button></div>}
+              {(voiceConnected || state === "connecting") && <div className="voice-status" role="status"><span className="waveform" aria-hidden="true"><i /><i /><i /><i /><i /></span><span className="voice-status-label">{state === "connecting" ? "CONNECTING" : isListening ? "LISTENING" : "FRIDAY IS SPEAKING"}</span><button type="button" onClick={() => void stopVoice()}>{isListening ? "Stop" : "Interrupt"}</button></div>}
             </div>
           </div>
         </section>
 
-        <aside className={`diagnostic-rail ${evidenceOpen ? "mobile-open" : ""}`} aria-label="Evidence ledger">
-          <div className="rail-header"><h2>What we know</h2><button className="rail-toggle" type="button" aria-label="Close evidence ledger" onClick={() => setEvidenceOpen(false)}><Icon name="chevron" /></button></div>
-          <div className="rail-section"><div className="rail-label">DEVICE</div><p className="rail-device">{selectedDevice.name}<span>{selectedDevice.detail}</span></p></div>
-          <div className="rail-section"><div className="rail-label">OBSERVED</div>{observations.length > 0 ? <ul className="observation-list">{observations.map((observation) => <li key={observation}><span className="observation-dot done" /><span>{observation}</span></li>)}</ul> : <p className="rail-empty">No confirmed observations yet.</p>}{factTransitions.length > 0 && <div className="fact-transitions"><div className="rail-label">CHANGED AFTER CHECK</div>{factTransitions.map((transition) => <p key={transition}>{transition}</p>)}</div>}</div>
-          {activeQuestion && <div className="rail-section"><div className="rail-label">NEED TO VERIFY</div><ul className="observation-list"><li><span className="observation-dot pending" /><span>{activeQuestion}</span></li></ul></div>}
-          {latestCitation && <div className="rail-section evidence-section"><div className="rail-label">MANUAL EVIDENCE</div><div className="evidence-card"><strong>{latestCitation.document_title}</strong><span>Page {latestCitation.page} · {latestCitation.section}</span><a href={latestCitation.source_url || "#source"}>Open cited page <Icon name="arrow" /></a></div></div>}
+        <aside className={`diagnostic-rail ${evidenceOpen ? "mobile-open" : ""}`} aria-label="Diagnostic state and evidence">
+          <div className="rail-header"><h2>Diagnostic state</h2><button className="rail-toggle" type="button" aria-label="Close diagnostic state" onClick={() => setEvidenceOpen(false)}><Icon name="chevron" /></button></div>
+          <div className="rail-section"><div className="rail-label">DEVICE</div><p className="rail-device">{selectedDevice.manufacturer} {selectedDevice.name}<span>{selectedDevice.detail}</span>{latestCitation && <span className="device-manual-status"><Icon name="check" /> Manual loaded</span>}</p></div>
+          <div className="rail-section"><div className="rail-label">CONFIRMED</div>{confirmedFacts.length > 0 ? <dl className="fact-list">{confirmedFacts.map((fact) => <div className="fact-row" key={fact.key}><dt>{factKeyLabel(fact.key)}</dt><dd><span>{fact.value}</span><Icon name="check" /></dd></div>)}</dl> : observations.length > 0 ? <ul className="observation-list">{observations.map((observation) => <li key={observation}><span className="observation-dot done" /><span>{observation}</span></li>)}</ul> : <p className="rail-empty">No confirmed observations yet.</p>}{factTransitions.length > 0 && <div className="fact-transitions"><div className="rail-label">CHANGED AFTER CHECK</div>{factTransitions.map((transition) => <p key={transition}>{transition}</p>)}</div>}</div>
+          {(activeQuestion || (latestResponse?.missing_observations ?? []).length > 0) && <div className="rail-section"><div className="rail-label">STILL UNKNOWN</div><ul className="unknown-list">{activeQuestion && <li><code>{latestResponse?.turn?.observation_request?.fact_key ?? "next_observation"}</code><span>—</span></li>}{!activeQuestion && latestResponse?.missing_observations.map((observation) => <li key={observation}><span>{observation}</span><span>—</span></li>)}</ul></div>}
+          {latestCitation && <div className="rail-section evidence-section"><div className="rail-label">MANUAL EVIDENCE</div><div className="evidence-card"><strong>{latestCitation.document_title}</strong><span>{latestCitation.section}</span><span className="evidence-page">Page {latestCitation.page}</span><details className="manual-viewer"><summary>View original page</summary><div className="manual-viewer-content"><iframe title={`${latestCitation.document_title}, page ${latestCitation.page}`} src={`${latestCitation.source_url || "about:blank"}#page=${latestCitation.page}`} loading="lazy" /></div></details><a href={latestCitation.source_url || "#source"} target="_blank" rel="noreferrer">Open manual page <Icon name="arrow" /></a></div></div>}
         </aside>
       </div>
     </main>
