@@ -96,7 +96,7 @@ def test_voice_bridge_forwards_final_transcript_then_answers_and_speaks() -> Non
         client = _VoiceClient()
         spoken: list[dict[str, object]] = []
 
-        async def speak(_client, response: dict[str, object]) -> None:
+        async def speak(_client, response: dict[str, object], _turn_id: str) -> None:
             spoken.append(response)
 
         bridge._speak_step = speak  # type: ignore[method-assign]
@@ -126,6 +126,9 @@ def test_voice_bridge_forwards_final_transcript_then_answers_and_speaks() -> Non
         "retrieval",
         "assistant.complete",
     ]
+    assert events[3]["turn_id"]
+    assert events[4]["turn_id"] == events[3]["turn_id"]
+    assert events[5]["turn_id"] == events[3]["turn_id"]
 
 
 def test_voice_bridge_cancellation_stops_an_active_answer_before_notifying_browser() -> None:

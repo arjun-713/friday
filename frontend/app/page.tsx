@@ -149,6 +149,7 @@ export default function Home() {
   const messageSequence = useRef(0);
   const voiceClient = useRef<FridayVoiceClient | null>(null);
   const voiceAssistantId = useRef<string | null>(null);
+  const voiceTurnId = useRef<string | null>(null);
   const composerInput = useRef<HTMLTextAreaElement | null>(null);
   const [voiceConnected, setVoiceConnected] = useState(false);
   const threadEnd = useRef<HTMLDivElement | null>(null);
@@ -343,6 +344,7 @@ export default function Home() {
     if (event.type === "transcript.final") {
       const assistantId = createMessageId("assistant");
       voiceAssistantId.current = assistantId;
+      voiceTurnId.current = event.turn_id;
       setDraft("");
       setSelectedAnswer(null);
       setApiError(null);
@@ -360,24 +362,30 @@ export default function Home() {
       setState("thinking");
       return;
     }
-    if (event.type === "assistant.token" && voiceAssistantId.current) {
+    if (event.type === "assistant.token" && voiceAssistantId.current && event.turn_id === voiceTurnId.current) {
       // Keep partial structured output off-screen until its citations have
       // passed backend validation. Voice still receives the final step.
       return;
     }
-    if (event.type === "assistant.complete" && voiceAssistantId.current) {
+    if (
+      event.type === "assistant.complete" &&
+      voiceAssistantId.current &&
+      event.turn_id === voiceTurnId.current
+    ) {
       completeAssistant(voiceAssistantId.current, event.response);
       setState(event.response.status === "ready" ? "speaking" : "listening");
       return;
     }
-    if (event.type === "assistant.audio_complete") {
+    if (event.type === "assistant.audio_complete" && event.turn_id === voiceTurnId.current) {
       setState("listening");
       return;
     }
     if (event.type === "assistant.cancelled") {
+      if (event.turn_id && event.turn_id !== voiceTurnId.current) return;
       const id = voiceAssistantId.current;
       if (id) setMessages((current) => current.filter((message) => message.id !== id || Boolean(message.response)));
       voiceAssistantId.current = null;
+      voiceTurnId.current = null;
       setState("listening");
       return;
     }

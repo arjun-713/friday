@@ -8,6 +8,7 @@ import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from urllib.parse import urlencode
+from uuid import uuid4
 
 from fastapi import WebSocket, WebSocketDisconnect
 from websockets.asyncio.client import ClientConnection, connect
@@ -42,6 +43,7 @@ class SarvamVoiceBridge:
         self.stt_settings = stt_settings or SarvamRealtimeSettings.from_env()
         self.tts_settings = tts_settings or SarvamTTSSettings.from_env()
         self._turn_task: asyncio.Task[None] | None = None
+        self._active_turn_id: str | None = None
         self._tts: ClientConnection | None = None
         self._send_lock = asyncio.Lock()
 
@@ -117,11 +119,15 @@ class SarvamVoiceBridge:
                 await self._send(client, {"type": "transcript.partial", "text": transcript})
             elif event_name == "transcript.final" and transcript:
                 logger.info("Sarvam realtime STT final transcript received chars=%d", len(transcript))
-                await self._send(client, {"type": "transcript.final", "text": transcript})
                 active_context = context()
                 if active_context is not None:
                     await self._cancel_active_turn(client, notify=False)
-                    self._turn_task = asyncio.create_task(self._answer_turn(client, active_context, transcript))
+                    turn_id = uuid4().hex
+                    self._active_turn_id = turn_id
+                    await self._send(client, {"type": "transcript.final", "text": transcript, "turn_id": turn_id})
+                    self._turn_task = asyncio.create_task(
+                        self._answer_turn(client, active_context, transcript, turn_id)
+                    )
             elif event_name == "error":
                 logger.warning(
                     "Sarvam realtime STT error code=%s fatal=%s",
@@ -130,7 +136,9 @@ class SarvamVoiceBridge:
                 )
                 await self._send(client, {"type": "voice.error", "message": _error_message(payload)})
 
-    async def _answer_turn(self, client: WebSocket, context: VoiceTurnContext, transcript: str) -> None:
+    async def _answer_turn(
+        self, client: WebSocket, context: VoiceTurnContext, transcript: str, turn_id: str
+    ) -> None:
         request = TroubleshootingRequest(
             query=transcript,
             observation=transcript,
@@ -142,21 +150,30 @@ class SarvamVoiceBridge:
             async for event in self.service.stream_answer(request):
                 event_type = str(event.get("type", ""))
                 if event_type == "token":
-                    await self._send(client, {"type": "assistant.token", "text": str(event.get("text", ""))})
+                    await self._send(
+                        client,
+                        {"type": "assistant.token", "text": str(event.get("text", "")), "turn_id": turn_id},
+                    )
                 elif event_type == "retrieval":
-                    await self._send(client, {"type": "retrieval", "retrieval": event.get("retrieval", {})})
+                    await self._send(
+                        client,
+                        {"type": "retrieval", "retrieval": event.get("retrieval", {}), "turn_id": turn_id},
+                    )
                 elif event_type == "complete":
                     response = event.get("response", {})
-                    await self._send(client, {"type": "assistant.complete", "response": response})
+                    await self._send(
+                        client,
+                        {"type": "assistant.complete", "response": response, "turn_id": turn_id},
+                    )
                     if isinstance(response, dict) and response.get("status") == "ready":
-                        await self._speak_step(client, response)
+                        await self._speak_step(client, response, turn_id)
         except asyncio.CancelledError:
             raise
         except Exception as error:
             logger.warning("Voice answer turn failed (%s)", type(error).__name__)
             await self._send(client, {"type": "voice.error", "message": "Friday could not complete that check."})
 
-    async def _speak_step(self, client: WebSocket, response: dict[str, object]) -> None:
+    async def _speak_step(self, client: WebSocket, response: dict[str, object], turn_id: str) -> None:
         turn = response.get("turn")
         if isinstance(turn, dict):
             answer = str(turn.get("response", "")).strip()
@@ -190,10 +207,15 @@ class SarvamVoiceBridge:
                 if audio:
                     await self._send(
                         client,
-                        {"type": "assistant.audio", "audio": audio, "sample_rate": self.tts_settings.sample_rate},
+                        {
+                            "type": "assistant.audio",
+                            "audio": audio,
+                            "sample_rate": self.tts_settings.sample_rate,
+                            "turn_id": turn_id,
+                        },
                     )
             elif event_type in {"event", "completion"}:
-                await self._send(client, {"type": "assistant.audio_complete"})
+                await self._send(client, {"type": "assistant.audio_complete", "turn_id": turn_id})
                 return
             elif event_type == "error":
                 await self._send(client, {"type": "voice.error", "message": _error_message(payload)})
@@ -225,12 +247,20 @@ class SarvamVoiceBridge:
 
     async def _cancel_active_turn(self, client: WebSocket, *, notify: bool = True) -> None:
         task = self._turn_task
+        turn_id = self._active_turn_id
         self._turn_task = None
+        self._active_turn_id = None
         if task is not None and not task.done():
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
+            if self._tts is not None:
+                await self._tts.close()
+                self._tts = None
         if notify:
-            await self._send(client, {"type": "assistant.cancelled"})
+            payload: dict[str, object] = {"type": "assistant.cancelled"}
+            if turn_id is not None:
+                payload["turn_id"] = turn_id
+            await self._send(client, payload)
 
     async def _send(self, client: WebSocket, payload: dict[str, object]) -> None:
         async with self._send_lock:
