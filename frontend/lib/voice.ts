@@ -58,6 +58,7 @@ export class FridayVoiceClient {
   private playbackSources = new Set<AudioBufferSourceNode>();
   private nextPlaybackTime = 0;
   private stopping = false;
+  private captureEnabled = true;
   private activeTurnId: string | null = null;
 
   constructor(private readonly onEvent: (event: VoiceEvent) => void) {}
@@ -70,6 +71,7 @@ export class FridayVoiceClient {
     const socket = new WebSocket(voiceUrl());
     this.socket = socket;
     this.stopping = false;
+    this.captureEnabled = true;
     this.activeTurnId = null;
     try {
       await new Promise<void>((resolve, reject) => {
@@ -102,7 +104,7 @@ export class FridayVoiceClient {
       this.silence = context.createGain();
       this.silence.gain.value = 0;
       this.processor.port.onmessage = (event: MessageEvent<ArrayBuffer>) => {
-        if (this.socket?.readyState === WebSocket.OPEN) {
+        if (this.captureEnabled && this.socket?.readyState === WebSocket.OPEN) {
           this.socket.send(JSON.stringify({ type: "audio", audio: encodePcm(event.data) }));
         }
       };
@@ -120,6 +122,10 @@ export class FridayVoiceClient {
     if (this.socket?.readyState === WebSocket.OPEN) this.socket.send(JSON.stringify({ type: "assistant.cancel" }));
   }
 
+  setCaptureEnabled(enabled: boolean): void {
+    this.captureEnabled = enabled;
+  }
+
   async stop(): Promise<void> {
     this.stopping = true;
     this.cancelAssistant();
@@ -127,6 +133,7 @@ export class FridayVoiceClient {
     this.socket?.close();
     this.socket = null;
     this.activeTurnId = null;
+    this.captureEnabled = false;
     this.processor?.disconnect();
     this.source?.disconnect();
     this.silence?.disconnect();

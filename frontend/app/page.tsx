@@ -186,6 +186,7 @@ export default function Home() {
   const sessionStarted = useRef(false);
   const composerInput = useRef<HTMLTextAreaElement | null>(null);
   const [voiceConnected, setVoiceConnected] = useState(false);
+  const [voiceCaptureEnabled, setVoiceCaptureEnabled] = useState(true);
   const threadEnd = useRef<HTMLDivElement | null>(null);
 
   function resizeComposer() {
@@ -459,6 +460,7 @@ export default function Home() {
       if (voiceClient.current) return;
       const client = new FridayVoiceClient(handleVoiceEvent);
       voiceClient.current = client;
+      setVoiceCaptureEnabled(true);
       setState("connecting");
       await client.start({ sessionId, manufacturer: selectedDevice.manufacturer, model: selectedDevice.name });
       setApiError(null);
@@ -477,7 +479,20 @@ export default function Home() {
     voiceClient.current = null;
     await client?.stop();
     setVoiceConnected(false);
+    setVoiceCaptureEnabled(false);
     setState("ready");
+  }
+
+  function toggleVoiceCapture() {
+    const enabled = !voiceCaptureEnabled;
+    voiceClient.current?.setCaptureEnabled(enabled);
+    setVoiceCaptureEnabled(enabled);
+    if (!enabled) setDraft("");
+  }
+
+  function interruptVoice() {
+    voiceClient.current?.cancelAssistant();
+    setState("listening");
   }
 
   useEffect(() => {
@@ -682,7 +697,15 @@ export default function Home() {
                 {voiceConnected ? <button className="mic-button active" type="button" aria-label="Stop listening" onClick={() => void stopVoice()}><Icon name="pause" /></button> : <button className={`mic-button ${draft ? "quiet" : "primary"}`} type="button" aria-label="Start voice input" disabled={state === "connecting"} onClick={() => void startVoice()}><Icon name="mic" /></button>}
                 <button className="send-button visible" type="submit" aria-label="Send observation" disabled={!draft.trim()}><Icon name="send" /></button>
               </form>
-              {(voiceConnected || state === "connecting") && <div className="voice-status" role="status"><span className="waveform" aria-hidden="true"><i /><i /><i /><i /><i /></span><span className="voice-status-label">{state === "connecting" ? "CONNECTING" : isListening ? "LISTENING" : "FRIDAY IS SPEAKING"}</span><button type="button" onClick={() => void stopVoice()}>{isListening ? "Stop" : "Interrupt"}</button></div>}
+              {(voiceConnected || state === "connecting") && <div className="voice-status" role="status">
+                <span className="waveform" aria-hidden="true"><i /><i /><i /><i /><i /></span>
+                <span className="voice-status-label">{state === "connecting" ? "CONNECTING" : state === "speaking" ? "FRIDAY IS SPEAKING" : state === "thinking" ? "PROCESSING" : voiceCaptureEnabled ? "LISTENING" : "MIC PAUSED"}</span>
+                <div className="voice-controls">
+                  <button type="button" onClick={toggleVoiceCapture}>{voiceCaptureEnabled ? "Pause mic" : "Resume mic"}</button>
+                  {state === "speaking" && <button type="button" onClick={interruptVoice}>Interrupt</button>}
+                  <button type="button" onClick={() => void stopVoice()}>End voice</button>
+                </div>
+              </div>}
             </div>
           </div>
         </section>

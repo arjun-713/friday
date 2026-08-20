@@ -123,13 +123,17 @@ class SarvamVoiceBridge:
             elif event_name == "vad.speech_end":
                 if speech_active:
                     await self._send(client, {"type": "speech.end"})
-            elif event_name == "transcript.partial" and transcript:
+            elif event_name == "transcript.partial" and _meaningful_transcript(transcript):
                 if not speech_confirmed:
                     speech_confirmed = True
                     await self._cancel_active_turn(client)
                     await self._send(client, {"type": "speech.start"})
                 await self._send(client, {"type": "transcript.partial", "text": transcript})
-            elif event_name == "transcript.final" and transcript:
+            elif event_name == "transcript.final" and _meaningful_transcript(transcript):
+                if not speech_confirmed:
+                    logger.info("Ignoring final transcript without confirmed partial speech chars=%d", len(transcript))
+                    speech_active = False
+                    continue
                 logger.info("Sarvam realtime STT final transcript received chars=%d", len(transcript))
                 active_context = context()
                 if active_context is not None:
@@ -366,6 +370,12 @@ def _transcript(payload: dict[str, object]) -> str:
     if value is None and isinstance(data, dict):
         value = data.get("text") or data.get("transcript")
     return str(value or "").strip()
+
+
+def _meaningful_transcript(text: str) -> bool:
+    """Require enough spoken content to reject noise-only STT events."""
+
+    return sum(character.isalnum() for character in text) >= 3
 
 
 def _request_id(payload: dict[str, object]) -> str:

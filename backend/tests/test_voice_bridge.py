@@ -155,6 +155,20 @@ def test_voice_bridge_does_not_interrupt_on_vad_without_transcript() -> None:
     assert [event["type"] for event in asyncio.run(run())] == ["speech.end"]
 
 
+def test_voice_bridge_ignores_final_transcript_without_partial_speech() -> None:
+    async def run() -> list[dict[str, object]]:
+        bridge = SarvamVoiceBridge(_VoiceService())
+        client = _VoiceClient()
+        await bridge._forward_stt(
+            _SttEvents([{"event": "vad.speech_start"}, {"event": "transcript.final", "text": "Actually"}]),
+            client,  # type: ignore[arg-type]
+            lambda: VoiceTurnContext(session_id="voice-1"),
+        )
+        return client.events
+
+    assert asyncio.run(run()) == []
+
+
 def test_voice_bridge_cancellation_stops_an_active_answer_before_notifying_browser() -> None:
     async def run() -> tuple[bool, list[dict[str, object]]]:
         bridge = SarvamVoiceBridge(_VoiceService())
