@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import re
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
@@ -76,6 +77,7 @@ CompletionFunction = Callable[..., Awaitable[Any]]
 _SOURCE_MARKER = re.compile(r"\[source:([^\]]+)\]")
 _UNSUPPORTED = "UNSUPPORTED"
 _MAX_AGENT_TOOL_ROUNDS = 2
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -344,6 +346,13 @@ class LiteLLMAnswerGenerator:
         try:
             return await completion(**request)
         except Exception as error:  # LiteLLM maps provider failures to its own exception hierarchy.
+            api_key = os.getenv(api_key_env) if api_key_env else None
+            safe_message = str(error).replace(api_key or "", "<redacted>")[:500]
+            logger.warning(
+                "LLM provider request failed type=%s message=%s",
+                type(error).__name__,
+                safe_message,
+            )
             raise AnswerProviderUnavailable("configured LLM provider is unavailable") from error
 
 

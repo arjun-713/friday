@@ -11,11 +11,6 @@ services:
     ports:
       - "6333:6333"
       - "6334:6334"
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "--quiet", "http://localhost:6333/healthz"]
-      interval: 5s
-      timeout: 3s
-      retries: 20
     volumes:
       - qdrant_storage:/qdrant/storage
 
@@ -25,13 +20,16 @@ services:
       dockerfile: backend/Dockerfile
     restart: unless-stopped
     depends_on:
-      qdrant:
-        condition: service_healthy
+      - qdrant
     env_file:
       - backend/.env
     environment:
       FRIDAY_ROOT: /app
       FRIDAY_CONFIG: /app/backend/config.yml
+      EMBEDDING_BACKEND: onnx
+      EMBEDDING_MODEL: /app/data/models/granite-small-r2-onnx
+      EMBEDDING_MODEL_FILE: onnx/model_int8-avx2.onnx
+      EMBEDDING_WARMUP: "true"
       QDRANT_URL: http://qdrant:6333
       HF_HOME: /app/data/models/huggingface
       TRANSFORMERS_CACHE: /app/data/models/huggingface

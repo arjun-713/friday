@@ -1,6 +1,7 @@
 .git
 .github
-.venv
+**/.venv
+**/.deepeval
 **/__pycache__
 **/.pytest_cache
 **/.mypy_cache
@@ -9,5 +10,5 @@
 **/.next
 **/*.tsbuildinfo
 **/.env
-data
+**/data
 tmp

@@ -12,7 +12,7 @@ from urllib.request import Request, urlopen
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base-url", default="http://localhost:8000")
-    parser.add_argument("--query", default="My HP LaserJet Pro M404 is powered on but it will not print.")
+    parser.add_argument("--query", default="The display says Ready, but the print job stays in the queue.")
     parser.add_argument("--manufacturer", default="HP")
     parser.add_argument("--model", default="LaserJet Pro M404/M405")
     args = parser.parse_args()
@@ -32,7 +32,7 @@ def main() -> int:
         method="POST",
     )
     try:
-        with urlopen(request, timeout=60) as response:
+        with urlopen(request, timeout=180) as response:
             result = json.load(response)
     except (HTTPError, URLError, TimeoutError) as error:
         detail = error.read().decode("utf-8", errors="replace") if isinstance(error, HTTPError) else str(error)
