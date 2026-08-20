@@ -14,6 +14,7 @@ import {
   PaperAirplaneIcon,
   PauseIcon,
   PrinterIcon,
+  StopIcon,
   WifiIcon,
 } from "@heroicons/react/24/outline";
 import {
@@ -106,13 +107,14 @@ function deviceProfile(device: SupportedDevice): DeviceProfile {
   };
 }
 
-type IconName = "arrow" | "mic" | "send" | "check" | "pause" | "chevron" | "laptop" | "router" | "printer" | "external" | "manual" | "more";
+type IconName = "arrow" | "mic" | "send" | "check" | "pause" | "stop" | "chevron" | "laptop" | "router" | "printer" | "external" | "manual" | "more";
 const iconMap: Record<IconName, ComponentType<SVGProps<SVGSVGElement>>> = {
   arrow: ArrowRightIcon,
   mic: MicrophoneIcon,
   send: PaperAirplaneIcon,
   check: CheckIcon,
   pause: PauseIcon,
+  stop: StopIcon,
   chevron: ChevronDownIcon,
   laptop: ComputerDesktopIcon,
   router: WifiIcon,
@@ -629,7 +631,7 @@ export default function Home() {
         <section className="conversation" id="conversation" aria-labelledby="conversation-title">
           <div className="troubleshooting-thread">
             <div className="conversation-header">
-              <div><span className="case-context">{selectedDevice.detail.toUpperCase()} / {selectedDevice.name.toUpperCase()}</span><h1 id="conversation-title">{caseQuery || "What is happening with this device?"}</h1><p className="case-subtitle">Friday keeps the checks, observations, and manual evidence together as you work.</p></div>
+              <div><span className="case-context">{selectedDevice.detail.toUpperCase()} / {selectedDevice.name.toUpperCase()}</span><h1 id="conversation-title">{caseQuery || "What is happening with this device?"}</h1></div>
               <div className="session-menu-wrap">
                 <button className="session-menu-button" type="button" aria-label="Session actions" aria-expanded={sessionMenuOpen} onClick={() => setSessionMenuOpen((open) => !open)}><Icon name="more" /></button>
                 {sessionMenuOpen && <div className="session-menu" role="menu"><button type="button" onClick={() => startNewSession()}>Start a new session</button>{activeSession !== "new" && <button type="button" onClick={() => void deleteCurrentSession()}>Delete this session</button>}</div>}
@@ -660,11 +662,13 @@ export default function Home() {
                 const selectedHistoricalAnswer = messages.slice(index + 1).find((item) => item.role === "user")?.text;
                 const options = response?.turn?.observation_request?.options ?? response?.step?.options ?? [];
                 return (
-                  <article className={`message diagnostic-entry ${message.role}`} key={message.id}>
+                  <article className={`message message-row diagnostic-entry ${message.role}`} key={message.id}>
                     {message.role === "user" && <div className="chat-bubble user-bubble"><p>{message.text}</p></div>}
                     {message.role === "assistant" && response && (
-                      <div className={`chat-bubble assistant-bubble ${isLatestResponse ? "active-response" : "history-response"}`}>
-                        <p className="response-copy">{message.text}</p>
+                      <div className={`assistant-message ${isLatestResponse ? "active-response" : "history-response"}`}>
+                        <div className="assistant-signal" aria-hidden="true"><span /></div>
+                        <div className="chat-bubble assistant-bubble">
+                          <p className="response-copy">{message.text}</p>
                         {response.status === "abstained" && response.missing_observations.length > 0 && <ul className="missing-observations">{response.missing_observations.map((observation) => <li key={observation}>{observation}</li>)}</ul>}
                         {options.length > 0 && <div className="answer-options" aria-label="Diagnostic answer options">{options.map((option) => {
                           const isSelected = isLatestResponse ? selectedAnswer === option.label : selectedHistoricalAnswer === option.label;
@@ -672,6 +676,7 @@ export default function Home() {
                         })}</div>}
                         {response.images.length > 0 && <div className="manual-images" aria-label="Figures from the manufacturer manual">{response.images.map((image) => <figure key={image.asset_id}><img src={`${API_BASE_URL}${image.url}`} alt={`${image.document_title}, page ${image.page}`} /><figcaption>{image.document_title} · p. {image.page}</figcaption></figure>)}</div>}
                         {response.citations[0] && <div className="source-line"><Icon name="manual" /><a href={response.citations[0].source_url || "#source"} target="_blank" rel="noreferrer">{response.citations[0].document_title} · p. {response.citations[0].page} · {response.citations[0].section}</a><Icon name="external" /></div>}
+                        </div>
                       </div>
                     )}
                   </article>
@@ -683,29 +688,26 @@ export default function Home() {
             </div>
 
             <div className="composer-wrap">
-              <form className={`composer ${isListening ? "listening" : ""}`} onSubmit={submitMessage}>
-                <label className="sr-only" htmlFor="message">Describe what you see</label>
-                <textarea
-                  ref={composerInput}
-                  id="message"
-                  rows={1}
-                  value={draft}
-                  onChange={(event) => setDraft(event.target.value)}
-                  onKeyDown={handleComposerKeyDown}
-                  placeholder={isListening ? "Voice input is ready; type if needed…" : "Describe what you see…"}
-                />
-                {voiceConnected ? <button className="mic-button active" type="button" aria-label="Stop listening" onClick={() => void stopVoice()}><Icon name="pause" /></button> : <button className={`mic-button ${draft ? "quiet" : "primary"}`} type="button" aria-label="Start voice input" disabled={state === "connecting"} onClick={() => void startVoice()}><Icon name="mic" /></button>}
-                <button className="send-button visible" type="submit" aria-label="Send observation" disabled={!draft.trim()}><Icon name="send" /></button>
-              </form>
-              {(voiceConnected || state === "connecting") && <div className="voice-status" role="status">
-                <span className="waveform" aria-hidden="true"><i /><i /><i /><i /><i /></span>
-                <span className="voice-status-label">{state === "connecting" ? "CONNECTING" : state === "speaking" ? "FRIDAY IS SPEAKING" : state === "thinking" ? "PROCESSING" : voiceCaptureEnabled ? "LISTENING" : "MIC PAUSED"}</span>
-                <div className="voice-controls">
-                  <button type="button" onClick={toggleVoiceCapture}>{voiceCaptureEnabled ? "Pause mic" : "Resume mic"}</button>
-                  {state === "speaking" && <button type="button" onClick={interruptVoice}>Interrupt</button>}
-                  <button type="button" onClick={() => void stopVoice()}>End voice</button>
+              {(voiceConnected || state === "connecting") ? <section className={`voice-console ${isListening ? "voice-console-listening" : ""}`} aria-label="Voice controls">
+                <div className="voice-console-header">
+                  <div className="voice-console-title"><span className="voice-live-dot" aria-hidden="true" /><strong>{state === "connecting" ? "Connecting to voice" : state === "speaking" ? "Friday is speaking" : state === "thinking" ? "Working on your case" : voiceCaptureEnabled ? "Listening" : "Microphone paused"}</strong><span className="voice-console-hint">{state === "speaking" ? "You can interrupt at any time" : "Speak naturally; pause when you are finished"}</span></div>
+                  <button className="voice-end-button" type="button" onClick={() => void stopVoice()}>End session</button>
                 </div>
-              </div>}
+                <div className="voice-console-body">
+                  <div className="voice-orbit" aria-hidden="true"><span className="voice-orbit-core"><Icon name={state === "speaking" ? "send" : "mic"} /></span><span className="voice-orbit-ring ring-one" /><span className="voice-orbit-ring ring-two" /></div>
+                  <p className="voice-transcript" aria-live="polite">{draft || (state === "speaking" ? "Friday is responding…" : state === "thinking" ? "Checking the manual…" : "Say what you noticed…")}</p>
+                </div>
+                <div className="voice-console-footer">
+                  <button className={`voice-control-button ${voiceCaptureEnabled ? "selected" : ""}`} type="button" onClick={toggleVoiceCapture}><Icon name={voiceCaptureEnabled ? "pause" : "mic"} /><span>{voiceCaptureEnabled ? "Pause microphone" : "Resume microphone"}</span></button>
+                  {state === "speaking" && <button className="voice-control-button interrupt-control" type="button" onClick={interruptVoice}><Icon name="stop" /><span>Interrupt Friday</span></button>}
+                  <span className="voice-console-shortcut">Text input stays available after you end voice</span>
+                </div>
+              </section> : <form className="composer" onSubmit={submitMessage}>
+                <label className="sr-only" htmlFor="message">Describe what you see</label>
+                <textarea ref={composerInput} id="message" rows={1} value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={handleComposerKeyDown} placeholder="Describe what you see…" />
+                <button className={`mic-button ${draft ? "quiet" : "primary"}`} type="button" aria-label="Start voice input" onClick={() => void startVoice()}><Icon name="mic" /></button>
+                <button className="send-button visible" type="submit" aria-label="Send observation" disabled={!draft.trim()}><Icon name="send" /></button>
+              </form>}
             </div>
           </div>
         </section>
