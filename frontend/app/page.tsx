@@ -694,8 +694,8 @@ export default function Home() {
                   <button className="voice-end-button" type="button" onClick={() => void stopVoice()}>End session</button>
                 </div>
                 <div className="voice-console-body">
-                  <div className="voice-orbit" aria-hidden="true"><span className="voice-orbit-core"><Icon name={state === "speaking" ? "send" : "mic"} /></span><span className="voice-orbit-ring ring-one" /><span className="voice-orbit-ring ring-two" /></div>
-                  <p className="voice-transcript" aria-live="polite">{draft || (state === "speaking" ? "Friday is responding…" : state === "thinking" ? "Checking the manual…" : "Say what you noticed…")}</p>
+                  <div className={`voice-meter voice-meter-${state}`} aria-hidden="true"><i /><i /><i /><i /><i /><i /><i /><i /><i /></div>
+                  <div className="voice-transcript-wrap"><span className="voice-transcript-label">{state === "speaking" ? "OUTPUT" : "LIVE TRANSCRIPT"}</span><p className="voice-transcript" aria-live="polite">{draft || (state === "speaking" ? "Friday is responding…" : state === "thinking" ? "Checking the manual…" : "Say what you noticed…")}</p></div>
                 </div>
                 <div className="voice-console-footer">
                   <button className={`voice-control-button ${voiceCaptureEnabled ? "selected" : ""}`} type="button" onClick={toggleVoiceCapture}><Icon name={voiceCaptureEnabled ? "pause" : "mic"} /><span>{voiceCaptureEnabled ? "Pause microphone" : "Resume microphone"}</span></button>

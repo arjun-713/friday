@@ -330,7 +330,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .voice-console-hint { overflow: hidden; color: var(--muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .voice-end-button { flex: 0 0 auto; padding: 4px 0; border: 0; background: transparent; color: var(--muted); font-size: 11px; }
 .voice-end-button:hover { color: var(--danger); }
-.voice-console-body { display: flex; min-height: 104px; align-items: center; gap: 17px; padding: 17px 20px; background: linear-gradient(105deg, #f8faff, #fff 72%); }
+.voice-console-body { display: flex; min-height: 104px; align-items: center; gap: 20px; padding: 17px 20px; background: var(--surface-raised); }
 .voice-orbit { position: relative; display: grid; width: 54px; height: 54px; flex: 0 0 auto; place-items: center; }
 .voice-orbit-core { position: relative; z-index: 1; display: grid; width: 34px; height: 34px; place-items: center; border-radius: 50%; background: var(--accent); color: white; }
 .voice-orbit-core .icon { width: 16px; height: 16px; }
@@ -339,6 +339,18 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .ring-two { width: 54px; height: 54px; animation: voice-ring 1.8s .6s ease-out infinite; }
 @keyframes voice-ring { 0%, 100% { transform: scale(.88); opacity: .08; } 45% { transform: scale(1); opacity: .3; } }
 .voice-transcript { max-width: 52ch; margin: 0; color: var(--text); font-size: 15px; line-height: 1.45; }
+.voice-meter { display: flex; width: 56px; height: 42px; flex: 0 0 auto; align-items: center; justify-content: space-between; padding: 0 4px; border-right: 1px solid var(--border); }
+.voice-meter i { width: 3px; height: 10px; border-radius: 1px; background: var(--border-strong); transform-origin: center; }
+.voice-meter-listening i, .voice-meter-speaking i { background: var(--accent); animation: signal-meter 850ms ease-in-out infinite alternate; }
+.voice-meter i:nth-child(1), .voice-meter i:nth-child(9) { height: 8px; animation-delay: -600ms; }
+.voice-meter i:nth-child(2), .voice-meter i:nth-child(8) { height: 16px; animation-delay: -420ms; }
+.voice-meter i:nth-child(3), .voice-meter i:nth-child(7) { height: 24px; animation-delay: -180ms; }
+.voice-meter i:nth-child(4), .voice-meter i:nth-child(6) { height: 31px; animation-delay: -540ms; }
+.voice-meter i:nth-child(5) { height: 38px; animation-delay: -80ms; }
+@keyframes signal-meter { from { opacity: .42; transform: scaleY(.48); } to { opacity: 1; transform: scaleY(1); } }
+.voice-meter-thinking i { background: var(--warning); }
+.voice-transcript-wrap { min-width: 0; }
+.voice-transcript-label { display: block; margin-bottom: 7px; color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 9px; font-weight: 800; letter-spacing: .14em; }
 .voice-console-footer { justify-content: flex-start; border-top: 1px solid var(--border); background: var(--surface); }
 .voice-control-button { display: inline-flex; align-items: center; gap: 7px; min-height: 32px; padding: 6px 9px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-raised); color: var(--text); font-size: 11px; font-weight: 700; }
 .voice-control-button:hover, .voice-control-button.selected { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-strong); }
@@ -348,7 +360,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .voice-console-shortcut { margin-left: auto; color: var(--muted); font-size: 10px; }
 
 @media (prefers-reduced-motion: reduce) {
-  .voice-orbit-ring { animation: none; }
+  .voice-orbit-ring, .voice-meter i { animation: none; }
 }
 @media (max-width: 760px) {
   .message-row.assistant { padding-left: 15px; }
@@ -357,6 +369,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   .user-bubble { max-width: 88%; }
   .voice-console-hint, .voice-console-shortcut { display: none; }
   .voice-console-body { min-height: 92px; padding: 14px; }
+  .voice-meter { width: 45px; gap: 3px; }
   .voice-console-footer { flex-wrap: wrap; }
   .voice-control-button { flex: 1; justify-content: center; }
 }
