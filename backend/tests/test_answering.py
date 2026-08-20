@@ -316,6 +316,29 @@ def test_litellm_generator_sends_evidence_and_accepts_known_citation() -> None:
     assert "troubleshooting-v5" in messages[0]["content"]
 
 
+def test_litellm_generator_explicitly_disables_sarvam_reasoning() -> None:
+    captured: dict[str, object] = {}
+
+    async def completion(**request):
+        captured.update(request)
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="Check the cable. [source:child-1]"))]
+        )
+
+    generator = LiteLLMAnswerGenerator(
+        LiteLLMSettings(
+            enabled=True,
+            model="openai/sarvam-105b-conversations",
+            disable_reasoning=True,
+        ),
+        completion=completion,
+    )
+    asyncio.run(generator.generate("The router cannot connect", _assemble_evidence([_hit()], [_chunk()])))
+
+    assert "reasoning_effort" in captured
+    assert captured["reasoning_effort"] is None
+
+
 def test_litellm_generator_uses_strict_schema_for_diagnostic_steps() -> None:
     captured: dict[str, object] = {}
 

@@ -58,6 +58,7 @@ class LiteLLMSettings:
     api_key_env: str | None = None
     response_format: str | None = "json_object"
     reasoning_effort: str | None = None
+    disable_reasoning: bool = False
 
     @classmethod
     def from_env(cls) -> LiteLLMSettings:
@@ -73,6 +74,7 @@ class LiteLLMSettings:
             api_key_env=str(values["api_key_env"]) if values.get("api_key_env") else None,
             response_format=str(values["response_format"]) if values.get("response_format") else None,
             reasoning_effort=str(values["reasoning_effort"]) if values.get("reasoning_effort") else None,
+            disable_reasoning=bool(values.get("disable_reasoning", False)),
         )
 
 
@@ -391,7 +393,12 @@ class LiteLLMAnswerGenerator:
         if tools:
             request["tools"] = list(tools)
             request["tool_choice"] = "auto"
-        if self.settings.reasoning_effort:
+        if self.settings.disable_reasoning:
+            # Sarvam treats an omitted value as its default reasoning mode.
+            # The explicit JSON null is therefore intentional, not a missing
+            # setting: it removes hidden reasoning tokens from the latency path.
+            request["reasoning_effort"] = None
+        elif self.settings.reasoning_effort:
             request["reasoning_effort"] = self.settings.reasoning_effort
         started = perf_counter()
         try:

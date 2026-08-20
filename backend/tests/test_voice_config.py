@@ -55,5 +55,6 @@ def test_runtime_yaml_contains_non_secret_provider_settings() -> None:
     assert llm.model == "openai/sarvam-105b-conversations"
     assert llm.api_base == "https://api.sarvam.ai/v1"
     assert llm.api_key_env == "SARVAM_API_KEY"
+    assert llm.disable_reasoning is True
     assert stt.model == "saaras:v3-realtime"
     assert tts.model == "bulbul:v3"

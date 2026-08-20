@@ -15,7 +15,10 @@ llm:
   # Sarvam Structured Outputs: guarantees the diagnostic response has all
   # required fields, including a non-empty source_ids list.
   response_format: json_schema
-  reasoning_effort: null
+  # Sarvam otherwise enables hidden reasoning by default. Friday's retrieval
+  # and validation layers already perform the needed diagnostic grounding, so
+  # disable it explicitly for responsive text and voice turns.
+  disable_reasoning: true
 
 voice:
   stt:
