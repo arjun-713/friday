@@ -53,6 +53,7 @@ class LiteLLMSettings:
     temperature: float = 0.0
     max_tokens: int = 400
     timeout_seconds: float = 20.0
+    max_retries: int = 0
     api_key_env: str | None = None
     response_format: str | None = "json_object"
     reasoning_effort: str | None = None
@@ -67,6 +68,7 @@ class LiteLLMSettings:
             temperature=float(values.get("temperature", 0.0)),
             max_tokens=int(values.get("max_tokens", 400)),
             timeout_seconds=float(values.get("timeout_seconds", 20.0)),
+            max_retries=int(values.get("max_retries", 0)),
             api_key_env=str(values["api_key_env"]) if values.get("api_key_env") else None,
             response_format=str(values["response_format"]) if values.get("response_format") else None,
             reasoning_effort=str(values["reasoning_effort"]) if values.get("reasoning_effort") else None,
@@ -323,6 +325,7 @@ class LiteLLMAnswerGenerator:
             "temperature": self.settings.temperature,
             "max_tokens": self.settings.max_tokens,
             "timeout": self.settings.timeout_seconds,
+            "num_retries": self.settings.max_retries,
             "stream": stream,
         }
         if self.settings.api_base:
