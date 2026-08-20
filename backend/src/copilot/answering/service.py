@@ -186,8 +186,8 @@ class TroubleshootingService:
             lexical_retriever=self.lexical_retriever,
             parent_store=self.parent_store,
             metadata_filter=metadata_filter,
-            limit=5,
-            candidate_limit=32,
+            limit=3 if request.voice_mode else 5,
+            candidate_limit=16 if request.voice_mode else 32,
             dense_weight=1.0,
             lexical_weight=1.5,
             rrf_k=30,
@@ -234,6 +234,7 @@ class TroubleshootingService:
                 evidence,
                 state,
                 self._tool_executor(request, state, evidence),
+                fast=request.voice_mode,
             )
         except UnsupportedAnswerError:
             missing = _missing_observations(request)
@@ -390,9 +391,14 @@ async def _generate_turn(
     evidence: Sequence[EvidenceContext],
     state: DiagnosticSessionState,
     execute_tool: AgentToolExecutor,
+    fast: bool = False,
 ) -> AgentRun:
     """Use the new planner contract while preserving local test generators."""
 
+    if fast:
+        generate_fast_turn = getattr(generator, "generate_agent_turn_fast", None)
+        if callable(generate_fast_turn):
+            return await generate_fast_turn(query, evidence, state)
     generate_agent_turn = getattr(generator, "generate_agent_turn", None)
     if callable(generate_agent_turn):
         return await generate_agent_turn(query, evidence, state, execute_tool)

@@ -147,6 +147,7 @@ class SarvamVoiceBridge:
             session_id=context.session_id,
             manufacturer=context.manufacturer,
             model=context.model,
+            voice_mode=True,
         )
         try:
             async for event in self.service.stream_answer(request):

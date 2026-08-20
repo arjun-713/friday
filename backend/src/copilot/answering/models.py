@@ -13,6 +13,7 @@ class TroubleshootingRequest(BaseModel):
     observation: str | None = Field(default=None, min_length=1)
     selected_option: str | None = Field(default=None, min_length=1, max_length=64)
     regenerate: bool = False
+    voice_mode: bool = False
 
 
 class DiagnosticOption(BaseModel):

@@ -9,6 +9,7 @@ import os
 import re
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from dataclasses import dataclass
+from time import perf_counter
 from typing import Any, Literal, cast
 
 from ..config import config_section, load_runtime_config
@@ -220,12 +221,54 @@ class LiteLLMAnswerGenerator:
     ) -> AgentRun:
         """Let one LLM choose local RAG tools before producing its final turn."""
 
+        return await self._generate_agent_turn(query, evidence, state, execute_tool, allow_tools=True)
+
+    async def generate_agent_turn_fast(
+        self,
+        query: str,
+        evidence: Sequence[EvidenceContext],
+        state: DiagnosticSessionState,
+    ) -> AgentRun:
+        """Generate a validated voice turn in one provider request.
+
+        Voice already performed hybrid retrieval immediately before this call.
+        Skipping the optional local tool round removes a second provider
+        request from the latency-critical path without allowing unsupported
+        instructions: the same structured schema and evidence validation run.
+        """
+
+        compact_evidence = [
+            item.model_copy(update={"content": item.content[:2400]})
+            for item in evidence[:3]
+        ]
+        return await self._generate_agent_turn(query, compact_evidence, state, None, allow_tools=False)
+
+    async def _generate_agent_turn(
+        self,
+        query: str,
+        evidence: Sequence[EvidenceContext],
+        state: DiagnosticSessionState,
+        execute_tool: AgentToolExecutor | None,
+        *,
+        allow_tools: bool,
+    ) -> AgentRun:
+
         messages: list[dict[str, Any]] = build_messages(query, evidence, state)
         active_evidence = list(evidence)
-        for _ in range(_MAX_AGENT_TOOL_ROUNDS + 1):
-            response = await self._complete_messages(messages, structured=True, tools=AGENT_TOOLS)
+        rounds = _MAX_AGENT_TOOL_ROUNDS + 1 if allow_tools else 1
+        for _ in range(rounds):
+            response = await self._complete_messages(
+                messages,
+                # Parse and validate locally below.  Sarvam's schema-constrained
+                # mode adds substantial first-response latency on voice turns.
+                structured=False,
+                tools=AGENT_TOOLS if allow_tools else None,
+                max_tokens=320 if not allow_tools else None,
+            )
             calls = _tool_calls(response)
             if calls:
+                if execute_tool is None:
+                    raise InvalidAnswerError("voice agent returned an unexpected tool call")
                 messages.append(_assistant_tool_message(response, calls))
                 for call in calls:
                     result = await execute_tool(call["name"], call["arguments"])
@@ -313,6 +356,7 @@ class LiteLLMAnswerGenerator:
         stream: bool = False,
         structured: bool = False,
         tools: Sequence[dict[str, object]] | None = None,
+        max_tokens: int | None = None,
     ) -> Any:
         completion = self._completion
         if completion is None:
@@ -326,7 +370,7 @@ class LiteLLMAnswerGenerator:
             "model": self.settings.model,
             "messages": list(messages),
             "temperature": self.settings.temperature,
-            "max_tokens": self.settings.max_tokens,
+            "max_tokens": max_tokens or self.settings.max_tokens,
             "timeout": self.settings.timeout_seconds,
             "num_retries": self.settings.max_retries,
             "stream": stream,
@@ -349,8 +393,17 @@ class LiteLLMAnswerGenerator:
             request["tool_choice"] = "auto"
         if self.settings.reasoning_effort:
             request["reasoning_effort"] = self.settings.reasoning_effort
+        started = perf_counter()
         try:
-            return await completion(**request)
+            result = await completion(**request)
+            logger.info(
+                "llm_completion_complete stream=%s structured=%s max_tokens=%s latency_ms=%.1f",
+                stream,
+                structured,
+                request["max_tokens"],
+                (perf_counter() - started) * 1000,
+            )
+            return result
         except Exception as error:  # LiteLLM maps provider failures to its own exception hierarchy.
             api_key = os.getenv(api_key_env) if api_key_env else None
             safe_message = str(error).replace(api_key or "", "<redacted>")[:500]
