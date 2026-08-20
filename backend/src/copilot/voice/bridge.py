@@ -7,6 +7,7 @@ import json
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from time import perf_counter
 from urllib.parse import urlencode
 from uuid import uuid4
 
@@ -139,6 +140,7 @@ class SarvamVoiceBridge:
     async def _answer_turn(
         self, client: WebSocket, context: VoiceTurnContext, transcript: str, turn_id: str
     ) -> None:
+        started = perf_counter()
         request = TroubleshootingRequest(
             query=transcript,
             observation=transcript,
@@ -155,11 +157,24 @@ class SarvamVoiceBridge:
                         {"type": "assistant.token", "text": str(event.get("text", "")), "turn_id": turn_id},
                     )
                 elif event_type == "retrieval":
+                    retrieval = event.get("retrieval", {})
+                    timings = retrieval.get("timings_ms", {}) if isinstance(retrieval, dict) else {}
+                    logger.info(
+                        "voice_retrieval_complete turn_id=%s latency_ms=%.1f timings=%s",
+                        turn_id,
+                        (perf_counter() - started) * 1000,
+                        timings,
+                    )
                     await self._send(
                         client,
-                        {"type": "retrieval", "retrieval": event.get("retrieval", {}), "turn_id": turn_id},
+                        {"type": "retrieval", "retrieval": retrieval, "turn_id": turn_id},
                     )
                 elif event_type == "complete":
+                    logger.info(
+                        "voice_answer_complete turn_id=%s latency_ms=%.1f",
+                        turn_id,
+                        (perf_counter() - started) * 1000,
+                    )
                     response = event.get("response", {})
                     await self._send(
                         client,
@@ -191,9 +206,12 @@ class SarvamVoiceBridge:
             text = " ".join(part for part in (instruction, question) if part)
         if not text:
             return
+        started = perf_counter()
+        logger.info("voice_tts_start turn_id=%s chars=%d", turn_id, len(text))
         tts = await self._ensure_tts()
         await tts.send(json.dumps({"type": "text", "data": {"text": text}}))
         await tts.send(json.dumps({"type": "flush"}))
+        first_audio = True
         async for raw_message in tts:
             if not isinstance(raw_message, str):
                 continue
@@ -205,6 +223,14 @@ class SarvamVoiceBridge:
             if event_type == "audio":
                 audio = _audio(payload)
                 if audio:
+                    if first_audio:
+                        first_audio = False
+                        logger.info(
+                            "voice_tts_first_audio turn_id=%s latency_ms=%.1f bytes=%d",
+                            turn_id,
+                            (perf_counter() - started) * 1000,
+                            len(audio),
+                        )
                     await self._send(
                         client,
                         {
@@ -215,6 +241,11 @@ class SarvamVoiceBridge:
                         },
                     )
             elif event_type in {"event", "completion"}:
+                logger.info(
+                    "voice_tts_complete turn_id=%s latency_ms=%.1f",
+                    turn_id,
+                    (perf_counter() - started) * 1000,
+                )
                 await self._send(client, {"type": "assistant.audio_complete", "turn_id": turn_id})
                 return
             elif event_type == "error":
@@ -233,13 +264,7 @@ class SarvamVoiceBridge:
                 json.dumps(
                     {
                         "type": "config",
-                        "data": {
-                            "target_language_code": self.tts_settings.language,
-                            "speaker": self.tts_settings.speaker,
-                            "pace": self.tts_settings.pace,
-                            "speech_sample_rate": self.tts_settings.sample_rate,
-                            "output_audio_codec": self.tts_settings.codec,
-                        },
+                        "data": _tts_config(self.tts_settings),
                     }
                 )
             )
@@ -287,6 +312,20 @@ def _stt_url(settings: SarvamRealtimeSettings) -> str:
 def _tts_url(settings: SarvamTTSSettings) -> str:
     params = {"model": settings.model, "send_completion_event": str(settings.send_completion_event).lower()}
     return f"{settings.endpoint}?{urlencode(params)}"
+
+
+def _tts_config(settings: SarvamTTSSettings) -> dict[str, object]:
+    """Build the Bulbul v3 config using the public WebSocket field names."""
+
+    return {
+        "language_code": settings.language,
+        "speaker": settings.speaker,
+        "pace": settings.pace,
+        "speech_sample_rate": settings.sample_rate,
+        "output_audio_codec": settings.codec,
+        "min_buffer_size": 50,
+        "max_chunk_length": 200,
+    }
 
 
 def _voice_context(message: dict[str, object]) -> VoiceTurnContext:

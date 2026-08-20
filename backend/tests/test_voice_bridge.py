@@ -12,6 +12,7 @@ from copilot.voice.bridge import (
     _event_name,
     _stt_url,
     _transcript,
+    _tts_config,
     _tts_url,
     _voice_context,
 )
@@ -36,6 +37,15 @@ def test_bulbul_stream_url_enables_completion_events() -> None:
 
     assert parsed["model"] == ["bulbul:v3"]
     assert parsed["send_completion_event"] == ["true"]
+
+
+def test_bulbul_config_uses_pcm_and_public_language_field_names() -> None:
+    config = _tts_config(SarvamTTSSettings(enabled=True, api_key="test-key"))
+
+    assert config["language_code"] == "en-IN"
+    assert config["output_audio_codec"] == "linear16"
+    assert config["speech_sample_rate"] == 24000
+    assert "target_language_code" not in config
 
 
 def test_voice_event_helpers_accept_sarvam_payload_shapes() -> None:

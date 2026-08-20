@@ -7,7 +7,9 @@ llm:
   api_base: https://api.sarvam.ai/v1
   api_key_env: SARVAM_API_KEY
   temperature: 0.4
-  max_tokens: 2048
+  # Diagnostic turns are intentionally concise: the UI renders the action and
+  # evidence separately, so a large completion budget only increases latency.
+  max_tokens: 700
   timeout_seconds: 60
   max_retries: 0
   # Sarvam Structured Outputs: guarantees the diagnostic response has all

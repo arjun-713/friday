@@ -78,7 +78,10 @@ class LiteLLMSettings:
 CompletionFunction = Callable[..., Awaitable[Any]]
 _SOURCE_MARKER = re.compile(r"\[source:([^\]]+)\]")
 _UNSUPPORTED = "UNSUPPORTED"
-_MAX_AGENT_TOOL_ROUNDS = 2
+# One optional retrieval/tool refinement is enough after the initial hybrid
+# retrieval. More rounds turn a single diagnostic turn into a slow questionnaire
+# and delay the first TTS audio without improving the response contract.
+_MAX_AGENT_TOOL_ROUNDS = 1
 logger = logging.getLogger(__name__)
 
 

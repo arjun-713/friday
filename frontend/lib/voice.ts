@@ -39,9 +39,13 @@ function encodePcm(buffer: ArrayBuffer): string {
 
 function decodePcm(encoded: string): Int16Array {
   const binary = window.atob(encoded);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
-  return new Int16Array(bytes.buffer);
+  const byteLength = binary.length - (binary.length % 2);
+  const bytes = new Uint8Array(byteLength);
+  for (let index = 0; index < byteLength; index += 1) bytes[index] = binary.charCodeAt(index);
+  const pcm = new Int16Array(byteLength / 2);
+  const view = new DataView(bytes.buffer);
+  for (let index = 0; index < pcm.length; index += 1) pcm[index] = view.getInt16(index * 2, true);
+  return pcm;
 }
 
 export class FridayVoiceClient {
@@ -141,7 +145,7 @@ export class FridayVoiceClient {
       const event = JSON.parse(message.data) as VoiceEvent;
       if (event.type === "transcript.final") this.activeTurnId = event.turn_id;
       if (event.type === "assistant.audio" && event.turn_id === this.activeTurnId) {
-        this.playPcm(event.audio, event.sample_rate);
+        void this.playPcm(event.audio, event.sample_rate);
       }
       if (event.type === "assistant.cancelled" && (!event.turn_id || event.turn_id === this.activeTurnId)) {
         this.clearPlayback();
@@ -153,10 +157,12 @@ export class FridayVoiceClient {
     }
   }
 
-  private playPcm(encoded: string, sampleRate: number): void {
+  private async playPcm(encoded: string, sampleRate: number): Promise<void> {
     const context = this.context;
-    if (!context) return;
+    if (!context || !Number.isFinite(sampleRate) || sampleRate <= 0) return;
+    await context.resume();
     const pcm = decodePcm(encoded);
+    if (pcm.length === 0) return;
     const audio = context.createBuffer(1, pcm.length, sampleRate);
     const channel = audio.getChannelData(0);
     for (let index = 0; index < pcm.length; index += 1) channel[index] = pcm[index] / 0x8000;
@@ -171,7 +177,13 @@ export class FridayVoiceClient {
   }
 
   private clearPlayback(): void {
-    for (const source of this.playbackSources) source.stop();
+    for (const source of this.playbackSources) {
+      try {
+        source.stop();
+      } catch {
+        // A source may have ended between iteration and cancellation.
+      }
+    }
     this.playbackSources.clear();
     this.nextPlaybackTime = 0;
   }
