@@ -581,7 +581,7 @@ export default function Home() {
     <main className="app-shell">
       <header className="topbar">
         <a className="wordmark" href="#conversation" aria-label="Friday home"><span className="wordmark-mark"><Icon name="router" /></span><span>friday</span></a>
-        <div className="topbar-center"><span className="topbar-context">{selectedDevice.name}<span>/</span>{caseQuery || "New session"}</span></div>
+        <div className="topbar-center"><span className="topbar-kicker">CASEBOOK</span><span className="topbar-context">{selectedDevice.name}<span>/</span>{caseQuery || "New session"}</span></div>
         <button className="mobile-nav-toggle" type="button" aria-expanded={navigationOpen} onClick={() => setNavigationOpen((open) => !open)}>Cases <Icon name="chevron" /></button>
       </header>
 
@@ -603,7 +603,7 @@ export default function Home() {
           </div>
 
           <button className="new-session-quiet" type="button" onClick={() => startNewSession()}><span>＋</span> New session</button>
-          <div className="sidebar-heading"><h2>Cases</h2></div>
+          <div className="sidebar-heading"><span className="sidebar-title">CASEBOOK</span><h2>Recent cases</h2></div>
           <div className="session-list">
             {orderedSessions.map((session) => (
               <button className={`session-item ${activeSession === session.id ? "selected" : ""}`} key={session.id} type="button" onClick={() => chooseSession(session)}>
@@ -629,7 +629,7 @@ export default function Home() {
         <section className="conversation" id="conversation" aria-labelledby="conversation-title">
           <div className="troubleshooting-thread">
             <div className="conversation-header">
-              <div><span className="case-context">{selectedDevice.detail.toUpperCase()} / {selectedDevice.name.toUpperCase()}</span><h1 id="conversation-title">{caseQuery || "New troubleshooting session"}</h1></div>
+              <div><span className="case-context">{selectedDevice.detail.toUpperCase()} / {selectedDevice.name.toUpperCase()}</span><h1 id="conversation-title">{caseQuery || "What is happening with this device?"}</h1><p className="case-subtitle">Friday keeps the checks, observations, and manual evidence together as you work.</p></div>
               <div className="session-menu-wrap">
                 <button className="session-menu-button" type="button" aria-label="Session actions" aria-expanded={sessionMenuOpen} onClick={() => setSessionMenuOpen((open) => !open)}><Icon name="more" /></button>
                 {sessionMenuOpen && <div className="session-menu" role="menu"><button type="button" onClick={() => startNewSession()}>Start a new session</button>{activeSession !== "new" && <button type="button" onClick={() => void deleteCurrentSession()}>Delete this session</button>}</div>}
@@ -711,11 +711,11 @@ export default function Home() {
         </section>
 
         <aside className={`diagnostic-rail ${evidenceOpen ? "mobile-open" : ""}`} aria-label="Diagnostic state and evidence">
-          <div className="rail-header"><h2>Diagnostic state</h2><button className="rail-toggle" type="button" aria-label="Close diagnostic state" onClick={() => setEvidenceOpen(false)}><Icon name="chevron" /></button></div>
-          <div className="rail-section"><div className="rail-label">DEVICE</div><p className="rail-device">{selectedDevice.manufacturer} {selectedDevice.name}<span>{selectedDevice.detail}</span>{latestCitation && <span className="device-manual-status"><Icon name="check" /> Manual loaded</span>}</p></div>
+          <div className="rail-header"><div><span className="rail-kicker">CASE RECORD</span><h2>Evidence ledger</h2></div><button className="rail-toggle" type="button" aria-label="Close diagnostic state" onClick={() => setEvidenceOpen(false)}><Icon name="chevron" /></button></div>
+          <div className="rail-section"><div className="rail-label">CURRENT DEVICE</div><p className="rail-device">{selectedDevice.manufacturer} {selectedDevice.name}<span>{selectedDevice.detail}</span></p></div>
           <div className="rail-section"><div className="rail-label">CONFIRMED</div>{confirmedFacts.length > 0 ? <dl className="fact-list">{confirmedFacts.map((fact) => <div className="fact-row" key={fact.key}><dt>{factKeyLabel(fact.key)}</dt><dd><span>{fact.value}</span><Icon name="check" /></dd></div>)}</dl> : observations.length > 0 ? <ul className="observation-list">{observations.map((observation) => <li key={observation}><span className="observation-dot done" /><span>{observation}</span></li>)}</ul> : <p className="rail-empty">No confirmed observations yet.</p>}{factTransitions.length > 0 && <div className="fact-transitions"><div className="rail-label">CHANGED AFTER CHECK</div>{factTransitions.map((transition) => <p key={transition}>{transition}</p>)}</div>}</div>
-          {(activeQuestion || (latestResponse?.missing_observations ?? []).length > 0) && <div className="rail-section"><div className="rail-label">STILL UNKNOWN</div><ul className="unknown-list">{activeQuestion && <li><code>{latestResponse?.turn?.observation_request?.fact_key ?? "next_observation"}</code><span>—</span></li>}{!activeQuestion && latestResponse?.missing_observations.map((observation) => <li key={observation}><span>{observation}</span><span>—</span></li>)}</ul></div>}
-          {latestCitation && <div className="rail-section evidence-section"><div className="rail-label">MANUAL EVIDENCE</div><div className="evidence-card"><strong>{latestCitation.document_title}</strong><span>{latestCitation.section}</span><span className="evidence-page">Page {latestCitation.page}</span><details className="manual-viewer"><summary>View original page</summary><div className="manual-viewer-content"><iframe title={`${latestCitation.document_title}, page ${latestCitation.page}`} src={`${latestCitation.source_url || "about:blank"}#page=${latestCitation.page}`} loading="lazy" /></div></details><a href={latestCitation.source_url || "#source"} target="_blank" rel="noreferrer">Open manual page <Icon name="arrow" /></a></div></div>}
+          {(activeQuestion || (latestResponse?.missing_observations ?? []).length > 0) && <div className="rail-section"><div className="rail-label">NEXT TO ESTABLISH</div><ul className="unknown-list">{activeQuestion && <li><code>{latestResponse?.turn?.observation_request?.fact_key ?? "next_observation"}</code><span>—</span></li>}{!activeQuestion && latestResponse?.missing_observations.map((observation) => <li key={observation}><span>{observation}</span><span>—</span></li>)}</ul></div>}
+          {latestCitation && <div className="rail-section evidence-section"><div className="rail-label">SOURCE</div><div className="evidence-card"><strong>{latestCitation.document_title}</strong><span>{latestCitation.section}</span><span className="evidence-page">Page {latestCitation.page}</span><details className="manual-viewer"><summary>View original page</summary><div className="manual-viewer-content"><iframe title={`${latestCitation.document_title}, page ${latestCitation.page}`} src={`${latestCitation.source_url || "about:blank"}#page=${latestCitation.page}`} loading="lazy" /></div></details><a href={latestCitation.source_url || "#source"} target="_blank" rel="noreferrer">Open manual page <Icon name="arrow" /></a></div></div>}
         </aside>
       </div>
     </main>

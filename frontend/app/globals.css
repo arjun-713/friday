@@ -284,3 +284,117 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
 }
+
+/* Snowe direction: Friday as a diagnostic desk / casebook.
+   The signal spine is the identity carrier: one restrained cobalt line marks
+   the live case, while rules and paper-toned surfaces hold the evidence. */
+:root {
+  --bg: #f3f5f8;
+  --surface: #f8fafc;
+  --surface-raised: #ffffff;
+  --text: #172033;
+  --muted: #667085;
+  --border: #d7dee8;
+  --border-strong: #b8c4d2;
+  --accent: #2d63d7;
+  --accent-strong: #204fae;
+  --accent-soft: #e8f0ff;
+  --surface-hover: #edf2f8;
+  --shadow-procedure: 0 12px 30px rgba(23, 32, 51, 0.07);
+}
+
+.topbar { min-height: 70px; grid-template-columns: clamp(220px, 16vw, 280px) minmax(0, 1fr) clamp(290px, 20vw, 350px); background: var(--surface-raised); }
+.wordmark { padding-left: clamp(22px, 2.4vw, 36px); font-size: 21px; letter-spacing: -0.06em; }
+.wordmark-mark { width: 25px; height: 25px; border-radius: 5px; background: var(--text); }
+.topbar-center { align-items: center; gap: 14px; padding: 0 clamp(24px, 4vw, 64px); border-left: 1px solid var(--border); }
+.topbar-kicker, .rail-kicker { color: var(--accent-strong); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 9px; font-weight: 800; letter-spacing: .14em; }
+.topbar-context { color: var(--text); font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+.topbar-context span { color: var(--border-strong); }
+
+.session-sidebar { padding: 28px 16px 18px; background: var(--surface); }
+.device-picker { padding-bottom: 20px; border-bottom: 1px solid var(--border); }
+.device-category { min-height: 38px; border-radius: 5px; font-size: 12px; }
+.device-category.selected { background: transparent; color: var(--accent-strong); box-shadow: inset 2px 0 0 var(--accent); }
+.device-category.selected:hover { background: var(--accent-soft); }
+.current-device { margin-top: 22px; }
+.current-device-card { margin: 0 9px; padding: 9px 0 13px; border-bottom: 1px solid var(--border); }
+.current-device-image { width: 34px; height: 34px; border: 0; background: var(--surface-hover); color: var(--text); }
+.new-session-quiet { margin: 18px 9px 22px; font-size: 12px; }
+.sidebar-heading { padding: 0 9px 9px; }
+.sidebar-heading .sidebar-title { margin: 0 0 5px; }
+.sidebar-heading h2 { font-size: 15px; }
+.session-list { gap: 0; margin-top: 3px; }
+.session-item { grid-template-columns: 7px minmax(0, 1fr) auto; padding: 11px 9px; border-bottom: 1px solid rgba(215, 222, 232, .7); border-radius: 0; }
+.session-item:hover, .session-item.selected { background: var(--surface-hover); }
+.session-item.selected { box-shadow: inset 2px 0 0 var(--accent); }
+.session-item-copy strong { font-weight: 700; }
+.session-time { display: grid; gap: 2px; justify-items: end; font-size: 9px; }
+.session-time small { color: var(--muted); font-size: 9px; }
+.local-sessions-note { margin-right: 9px; margin-left: 9px; }
+
+.conversation { padding: clamp(28px, 4vw, 54px) clamp(24px, 5vw, 84px) 24px; }
+.conversation-header { padding-bottom: 22px; }
+.case-context { color: var(--accent-strong); letter-spacing: .13em; }
+.conversation-header h1 { max-width: 34ch; margin-top: 8px; font-size: clamp(25px, 2.2vw, 31px); letter-spacing: -.05em; }
+.case-subtitle { max-width: 58ch; margin: 9px 0 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.diagnostic-progress { gap: 10px 24px; margin-bottom: 20px; padding: 11px 0; }
+.diagnostic-progress span { font-size: 9px; letter-spacing: .06em; text-transform: uppercase; }
+.message-list { gap: 8px; padding-right: 14px; }
+.message { margin-bottom: 14px; }
+.diagnostic-entry { padding-left: 18px; }
+.diagnostic-entry.assistant::before { position: absolute; top: 0; bottom: 0; left: 0; display: block; width: 2px; background: var(--border); content: ""; }
+.diagnostic-entry.assistant:last-of-type::before { background: var(--accent); }
+.chat-bubble { max-width: min(82%, 700px); border-radius: 9px; padding: 12px 15px; font-size: 14px; line-height: 1.6; box-shadow: none; }
+.user-bubble { border-color: #c2d4f7; border-bottom-right-radius: 3px; background: #eaf1ff; }
+.assistant-bubble { max-width: min(92%, 760px); border-color: var(--border); border-bottom-left-radius: 3px; background: var(--surface-raised); }
+.assistant-bubble.active-response { border-color: var(--border-strong); box-shadow: var(--shadow-procedure); }
+.assistant-bubble.history-response { opacity: .68; }
+.response-copy { max-width: 70ch; margin: 0; }
+.answer-options { margin-top: 16px; }
+.answer-options button { border-radius: 5px; font-size: 12px; }
+.source-line { margin-top: 15px; padding-top: 11px; font-size: 10px; }
+.empty-thread { padding: 58px 0; border-top: 1px solid var(--border); }
+.empty-thread h2 { max-width: 28ch; font-size: 27px; }
+.workflow-preview { max-width: 600px; margin-top: 24px; }
+.workflow-preview li { padding: 12px 0; font-size: 13px; }
+
+.composer-wrap { padding-top: 22px; }
+.composer { min-height: 56px; border-color: var(--border-strong); border-radius: 8px; box-shadow: 0 7px 18px rgba(23, 32, 51, .055); }
+.composer:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--focus), 0 7px 18px rgba(23, 32, 51, .055); }
+.composer textarea:focus-visible { outline: 0; }
+.mic-button, .send-button { border-radius: 6px; }
+.voice-status { margin-top: 9px; }
+.voice-controls button { color: var(--muted); }
+.voice-controls button:hover { color: var(--accent-strong); }
+
+.diagnostic-rail { padding: 30px clamp(20px, 2.4vw, 30px); background: var(--surface); }
+.rail-header { padding-bottom: 18px; }
+.rail-kicker { display: block; margin-bottom: 6px; }
+.rail-header h2 { font-size: 19px; }
+.rail-section { padding: 16px 0; }
+.rail-label { margin-bottom: 9px; color: var(--accent-strong); font-size: 9px; letter-spacing: .13em; }
+.rail-device { font-size: 13px; }
+.device-manual-status { display: none; }
+.fact-list, .observation-list { gap: 9px; }
+.fact-row dt, .fact-row dd, .unknown-list code { font-size: 10px; }
+.fact-row dd { text-transform: none; }
+.fact-row dd .icon { width: 12px; }
+.unknown-list li { font-size: 11px; }
+.evidence-card { gap: 5px; padding-top: 2px; }
+.evidence-card strong { font-size: 12px; }
+.evidence-card span { font-size: 11px; }
+.evidence-card a { font-size: 11px; }
+.manual-viewer-content { height: 220px; }
+
+@media (max-width: 980px) {
+  .topbar { grid-template-columns: clamp(210px, 24vw, 250px) 1fr; }
+  .topbar-center { padding: 0 24px; }
+}
+@media (max-width: 760px) {
+  .topbar { min-height: 58px; }
+  .conversation { padding: 22px 14px 16px; }
+  .conversation-header h1 { font-size: 27px; }
+  .case-subtitle { font-size: 11px; }
+  .diagnostic-entry { padding-left: 12px; }
+  .chat-bubble, .assistant-bubble { max-width: 94%; }
+}
