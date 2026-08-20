@@ -164,7 +164,7 @@ h1, h2, p { margin-top: 0; }
 .observation-list li { display: grid; grid-template-columns: 10px minmax(0, 1fr); gap: 8px; align-items: start; font-size: 13px; line-height: 1.45; }
 .fact-transitions { margin-top: 15px; padding-top: 13px; border-top: 1px solid var(--border); }
 .fact-transitions .rail-label { margin-bottom: 7px; }
-.fact-transitions p { margin: 0; color: var(--ink-soft); font-size: 12px; line-height: 1.45; }
+.fact-transitions p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
 .observation-dot { width: 7px; height: 7px; margin-top: 6px; border-radius: 50%; }
 .observation-dot.done { background: var(--success); }
 .observation-dot.pending { border: 1px solid var(--accent); }
@@ -184,6 +184,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   .diagnostic-rail { position: fixed; z-index: 10; top: 0; right: 0; width: min(360px, 88vw); height: 100dvh; overflow-y: auto; box-shadow: -12px 0 28px rgba(23, 32, 51, 0.12); transform: translateX(104%); transition: transform 160ms ease; }
   .diagnostic-rail.mobile-open { transform: translateX(0); }
   .evidence-toggle { display: inline-flex; }
+  .rail-toggle { display: grid; width: 34px; height: 34px; place-items: center; border: 0; border-radius: 6px; background: transparent; color: var(--muted); }
+  .rail-toggle:hover { background: #eef2f7; color: var(--text); }
 }
 @media (max-width: 760px) {
   .topbar { grid-template-columns: 1fr; min-height: 58px; }
