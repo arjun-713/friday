@@ -61,7 +61,7 @@ function relativeSessionTime(value: string): string {
 function restoreSessions(raw: unknown): Session[] {
   if (!Array.isArray(raw)) return [];
   const fallbackTimestamp = new Date().toISOString();
-  return raw.flatMap((item): Session[] => {
+  const restored = raw.flatMap((item): Session[] => {
     if (!item || typeof item !== "object") return [];
     const session = item as Partial<Session>;
     if (typeof session.id !== "string" || typeof session.title !== "string" || typeof session.device !== "string") return [];
@@ -78,6 +78,12 @@ function restoreSessions(raw: unknown): Session[] {
       selectedAnswer: typeof session.selectedAnswer === "string" ? session.selectedAnswer : null,
     }];
   });
+  const byId = new Map<string, Session>();
+  for (const session of restored) {
+    const previous = byId.get(session.id);
+    if (!previous || previous.updatedAt <= session.updatedAt) byId.set(session.id, session);
+  }
+  return [...byId.values()];
 }
 
 type DeviceProfile = { manufacturer: string; name: string; category: DeviceCategory; detail: string; icon: IconName };
@@ -177,6 +183,7 @@ export default function Home() {
   const voiceClient = useRef<FridayVoiceClient | null>(null);
   const voiceAssistantId = useRef<string | null>(null);
   const voiceTurnId = useRef<string | null>(null);
+  const sessionStarted = useRef(false);
   const composerInput = useRef<HTMLTextAreaElement | null>(null);
   const [voiceConnected, setVoiceConnected] = useState(false);
   const threadEnd = useRef<HTMLDivElement | null>(null);
@@ -206,6 +213,7 @@ export default function Home() {
     setSelectedCategory(category);
     setSelectedModel(model ?? deviceCatalog.find((device) => device.category === category)?.name ?? selectedModel);
     setActiveSession("new");
+    sessionStarted.current = false;
     const nextSessionId = `session-${globalThis.crypto?.randomUUID?.() ?? Date.now()}`;
     setSessionId(nextSessionId);
     setCaseQuery("");
@@ -222,6 +230,7 @@ export default function Home() {
     requestController.current?.abort();
     void stopVoice();
     setActiveSession(session.id);
+    sessionStarted.current = true;
     setSessionId(session.id);
     setCaseQuery(session.title);
     setSelectedCategory(session.category);
@@ -246,6 +255,27 @@ export default function Home() {
     }
   }
 
+  function ensureSessionStarted(title: string) {
+    if (sessionStarted.current) return;
+    sessionStarted.current = true;
+    setCaseQuery(title);
+    setActiveSession(sessionId);
+    const timestamp = new Date().toISOString();
+    setSessions((current) => current.some((session) => session.id === sessionId)
+      ? current
+      : [{
+          id: sessionId,
+          title,
+          device: selectedDevice.name,
+          category: selectedCategory,
+          status: "active",
+          createdAt: timestamp,
+          updatedAt: timestamp,
+          messages: [],
+          selectedAnswer: null,
+        }, ...current]);
+  }
+
   async function runTroubleshoot(
     query: string,
     displayText = query,
@@ -262,12 +292,7 @@ export default function Home() {
     setState("thinking");
     if (addUser) {
       setMessages((current) => [...current, { id: createMessageId("user"), role: "user", text: displayText }]);
-      if (!caseQuery) {
-        setCaseQuery(displayText);
-        setActiveSession(sessionId);
-        const timestamp = new Date().toISOString();
-        setSessions((current) => [{ id: sessionId, title: displayText, device: selectedDevice.name, category: selectedCategory, status: "active", createdAt: timestamp, updatedAt: timestamp, messages: [], selectedAnswer: null }, ...current]);
-      }
+      ensureSessionStarted(displayText);
     }
 
     const manufacturer = selectedDevice.manufacturer;
@@ -382,12 +407,7 @@ export default function Home() {
         { id: createMessageId("user"), role: "user", text: event.text },
         { id: assistantId, role: "assistant", text: "" },
       ]);
-      if (!caseQuery) {
-        setCaseQuery(event.text);
-        setActiveSession(sessionId);
-        const timestamp = new Date().toISOString();
-        setSessions((current) => [{ id: sessionId, title: event.text, device: selectedDevice.name, category: selectedCategory, status: "active", createdAt: timestamp, updatedAt: timestamp, messages: [], selectedAnswer: null }, ...current]);
-      }
+      ensureSessionStarted(event.text);
       setState("thinking");
       return;
     }
