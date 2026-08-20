@@ -21,6 +21,12 @@ export type DiagnosticFact = {
   raw: string;
 };
 
+export type FactObservation = DiagnosticFact & {
+  turn_id: string;
+  previous_value?: string | null;
+  observed_after_action_id?: string | null;
+};
+
 export type ObservationRequest = {
   request_id: string;
   fact_key: string;
@@ -102,6 +108,8 @@ export type TroubleshootingResponse = {
   citations: Citation[];
   observations: string[];
   missing_observations: string[];
+  facts: Record<string, DiagnosticFact>;
+  fact_history: Record<string, FactObservation[]>;
   retrieval: RetrievalSummary;
 };
 

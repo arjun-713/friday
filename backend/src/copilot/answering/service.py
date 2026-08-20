@@ -457,6 +457,8 @@ def _turn_response(
         evidence=list(evidence),
         citations=citations,
         observations=_confirmed_observations(state),
+        facts=dict(state.facts),
+        fact_history={key: list(events) for key, events in state.fact_history.items()},
         retrieval=retrieval,
     )
 

@@ -141,6 +141,8 @@ class TroubleshootingResponse(BaseModel):
     # an evidence ledger without treating every sentence as a verified fact.
     observations: list[str] = Field(default_factory=list)
     missing_observations: list[str] = Field(default_factory=list)
+    facts: dict[str, DiagnosticFact] = Field(default_factory=dict)
+    fact_history: dict[str, list[FactObservation]] = Field(default_factory=dict)
     retrieval: RetrievalSummary
 
 
