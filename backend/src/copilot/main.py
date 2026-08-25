@@ -2,6 +2,7 @@ import asyncio
 import json
 import os
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, WebSocket
@@ -26,7 +27,18 @@ from .retrieval.indexer import load_vector_chunks
 from .retrieval.qdrant import QdrantSettings, QdrantVectorIndex
 from .voice.bridge import SarvamVoiceBridge
 
-app = FastAPI(title="Troubleshooting Copilot", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    """Optionally warm local embeddings before accepting user traffic."""
+
+    if os.getenv("EMBEDDING_WARMUP", "false").casefold() in {"1", "true", "yes", "on"}:
+        service = await get_troubleshooting_service()
+        await service.embedding_provider.embed_query("Friday embedding warmup")
+    yield
+
+
+app = FastAPI(title="Troubleshooting Copilot", version="0.1.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
@@ -38,7 +50,7 @@ _service: TroubleshootingService | None = None
 _service_lock = asyncio.Lock()
 _image_manifest: dict[str, object] = {"assets": {}}
 _browser_origins = {"http://localhost:3000", "http://127.0.0.1:3000"}
-_PROJECT_ROOT = Path(__file__).resolve().parents[3]
+_PROJECT_ROOT = Path(os.getenv("FRIDAY_ROOT", str(Path(__file__).resolve().parents[3])))
 
 
 def _runtime_path(environment_variable: str, default: str) -> Path:

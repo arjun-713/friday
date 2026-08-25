@@ -15,7 +15,6 @@ from copilot.answering.litellm import (
 )
 from copilot.answering.models import DiagnosticSessionState, DiagnosticStep, TroubleshootingRequest
 from copilot.answering.service import TroubleshootingService, _assemble_evidence, _relevant_evidence
-from copilot.answering.tools import AgentToolResult
 from copilot.ingestion.models import ChunkKind, DocumentChunk, Evidence, RetrievalProfile, SourceDocument
 from copilot.main import _runtime_path, app, get_troubleshooting_service
 from copilot.retrieval.contracts import MetadataFilter, VectorHit
@@ -311,9 +310,32 @@ def test_litellm_generator_sends_evidence_and_accepts_known_citation() -> None:
     assert isinstance(messages, list)
     assert "Example Manual" in messages[1]["content"]
     assert "[source:child-1]" in messages[1]["content"]
-    assert "You are the diagnostic planner" in messages[0]["content"]
+    assert "natural conversation with the device owner" in messages[0]["content"]
     assert "Do not use general world knowledge" in messages[0]["content"]
     assert "troubleshooting-v5" in messages[0]["content"]
+
+
+def test_litellm_generator_explicitly_disables_sarvam_reasoning() -> None:
+    captured: dict[str, object] = {}
+
+    async def completion(**request):
+        captured.update(request)
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="Check the cable. [source:child-1]"))]
+        )
+
+    generator = LiteLLMAnswerGenerator(
+        LiteLLMSettings(
+            enabled=True,
+            model="openai/sarvam-105b-conversations",
+            disable_reasoning=True,
+        ),
+        completion=completion,
+    )
+    asyncio.run(generator.generate("The router cannot connect", _assemble_evidence([_hit()], [_chunk()])))
+
+    assert "reasoning_effort" in captured
+    assert captured["reasoning_effort"] is None
 
 
 def test_litellm_generator_uses_strict_schema_for_diagnostic_steps() -> None:
@@ -494,71 +516,6 @@ def test_litellm_turn_rejects_a_recheck_without_an_action() -> None:
             )
         )
 
-
-def test_agent_chooses_a_local_manual_tool_before_answering() -> None:
-    calls = 0
-    observed_tools: list[str] = []
-
-    async def completion(**request):
-        nonlocal calls
-        calls += 1
-        if calls == 1:
-            assert request["tool_choice"] == "auto"
-            return SimpleNamespace(
-                choices=[
-                    SimpleNamespace(
-                        message=SimpleNamespace(
-                            content=None,
-                            tool_calls=[
-                                SimpleNamespace(
-                                    id="call-search",
-                                    function=SimpleNamespace(
-                                        name="search_manual", arguments='{"query":"battery light"}'
-                                    ),
-                                )
-                            ],
-                        )
-                    )
-                ]
-            )
-        return SimpleNamespace(
-            choices=[
-                SimpleNamespace(
-                    message=SimpleNamespace(
-                        content=(
-                            '{"mode":"clarify","response":"The light state will distinguish the next check.",'
-                            '"interpretation":null,"next_action":null,"observation_request":'
-                            '{"request_id":"battery-led","fact_key":"battery_led_state",'
-                            '"question":"What color is the battery light?","options":[],"recheck_after_action":false},'
-                            '"decision_basis":{"why_not_solved":"The light state is needed before a documented path can be selected.",'
-                            '"discriminates_between":["adapter detection","battery state"],'
-                            '"expected_discrimination":"The reported light state selects the applicable documented check."},'
-                            '"facts_learned":[],"candidate_causes":[],"ruled_out_causes":[],"source_ids":["child-1"]}'
-                        ),
-                        tool_calls=[],
-                    )
-                )
-            ]
-        )
-
-    async def execute_tool(name: str, arguments: dict[str, object]) -> AgentToolResult:
-        observed_tools.append(name)
-        assert arguments == {"query": "battery light"}
-        evidence = _assemble_evidence([_hit()], [_chunk()])
-        return AgentToolResult("[source:child-1] Manual evidence", evidence)
-
-    run = asyncio.run(
-        LiteLLMAnswerGenerator(completion=completion).generate_agent_turn(
-            "Battery is not charging",
-            _assemble_evidence([_hit()], [_chunk()]),
-            DiagnosticSessionState(session_id="tool-agent"),
-            execute_tool,
-        )
-    )
-
-    assert observed_tools == ["search_manual"]
-    assert run.turn.observation_request is not None
-    assert run.turn.observation_request.fact_key == "battery_led_state"
 
 def test_litellm_generator_rejects_unknown_citation() -> None:
     async def completion(**request):
@@ -784,12 +741,15 @@ def test_sarvam_litellm_request_uses_compatible_endpoint_and_structured_output(m
 
 def test_stream_endpoint_emits_tokens_and_final_response() -> None:
     async def completion(**request):
-        assert request["stream"] is False
-        payload = (
-            '{"title":"Check the cable","instruction":"Check the cable.",'
-            '"question":"Did you find a problem?","options":[],"source_ids":["child-1"]}'
-        )
-        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=payload, tool_calls=[]))])
+        assert request["stream"] is True
+        assert "response_format" not in request
+
+        async def chunks():
+            yield SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content="Check the cable. "))])
+            yield SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content="It is connected."))])
+            yield SimpleNamespace(choices=[])
+
+        return chunks()
 
     base_service = _service([_hit()])
     service = TroubleshootingService(
@@ -1030,6 +990,18 @@ def test_evidence_uses_exact_retrieved_child_not_broad_parent_context() -> None:
 
     assert evidence[0].content == child.content
     assert evidence[0].pages == [4]
+
+
+def test_evidence_deduplicates_identical_parent_and_child_content() -> None:
+    parent = _chunk()
+    child = parent.model_copy(deep=True)
+    child.chunk_id = "child-duplicate"
+    child.kind = ChunkKind.CHILD
+    duplicate_hit = _hit().model_copy(update={"id": "child-duplicate"})
+
+    evidence = _assemble_evidence([_hit(), duplicate_hit], [parent, child])
+
+    assert len(evidence) == 1
 
 
 def test_step_citation_display_deduplicates_identical_manual_locations() -> None:

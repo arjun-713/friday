@@ -12,9 +12,9 @@ def test_sarvam_realtime_defaults() -> None:
     assert settings.endpointing == "vad"
     assert settings.encoding == "linear16"
     assert settings.sample_rate == 16_000
-    assert settings.vad_threshold == 0.3
-    assert settings.silence_ms == 500
-    assert settings.min_speech_ms == 250
+    assert settings.vad_threshold == 0.55
+    assert settings.silence_ms == 1000
+    assert settings.min_speech_ms == 400
 
 
 def test_sarvam_realtime_requires_key_when_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -52,8 +52,9 @@ def test_runtime_yaml_contains_non_secret_provider_settings() -> None:
     stt = SarvamRealtimeSettings.from_env()
     tts = SarvamTTSSettings.from_env()
 
-    assert llm.model == "openai/sarvam-105b-conversations"
-    assert llm.api_base == "https://api.sarvam.ai/v1"
-    assert llm.api_key_env == "SARVAM_API_KEY"
+    assert llm.model == "groq/openai/gpt-oss-120b"
+    assert llm.api_base == "https://api.groq.com/openai/v1"
+    assert llm.api_key_env == "GROQ_API_KEY"
+    assert llm.reasoning_effort == "low"
     assert stt.model == "saaras:v3-realtime"
     assert tts.model == "bulbul:v3"

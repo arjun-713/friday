@@ -4,14 +4,16 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import re
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from dataclasses import dataclass
+from time import perf_counter
 from typing import Any, Literal, cast
 
 from ..config import config_section, load_runtime_config
-from ..prompts import build_messages
+from ..prompts import build_conversation_messages, build_messages
 from .models import (
     DecisionBasis,
     DiagnosticAction,
@@ -23,7 +25,7 @@ from .models import (
     EvidenceContext,
     ObservationRequest,
 )
-from .tools import AGENT_TOOLS, AgentToolExecutor
+from .tools import AgentToolExecutor
 
 
 class AnswerGenerationError(RuntimeError):
@@ -52,9 +54,11 @@ class LiteLLMSettings:
     temperature: float = 0.0
     max_tokens: int = 400
     timeout_seconds: float = 20.0
+    max_retries: int = 0
     api_key_env: str | None = None
     response_format: str | None = "json_object"
     reasoning_effort: str | None = None
+    disable_reasoning: bool = False
 
     @classmethod
     def from_env(cls) -> LiteLLMSettings:
@@ -66,16 +70,21 @@ class LiteLLMSettings:
             temperature=float(values.get("temperature", 0.0)),
             max_tokens=int(values.get("max_tokens", 400)),
             timeout_seconds=float(values.get("timeout_seconds", 20.0)),
+            max_retries=int(values.get("max_retries", 0)),
             api_key_env=str(values["api_key_env"]) if values.get("api_key_env") else None,
             response_format=str(values["response_format"]) if values.get("response_format") else None,
             reasoning_effort=str(values["reasoning_effort"]) if values.get("reasoning_effort") else None,
+            disable_reasoning=bool(values.get("disable_reasoning", False)),
         )
 
 
 CompletionFunction = Callable[..., Awaitable[Any]]
 _SOURCE_MARKER = re.compile(r"\[source:([^\]]+)\]")
 _UNSUPPORTED = "UNSUPPORTED"
-_MAX_AGENT_TOOL_ROUNDS = 2
+# One optional retrieval/tool refinement is enough after the initial hybrid
+# retrieval. More rounds turn a single diagnostic turn into a slow questionnaire
+# and delay the first TTS audio without improving the response contract.
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -211,39 +220,50 @@ class LiteLLMAnswerGenerator:
         state: DiagnosticSessionState,
         execute_tool: AgentToolExecutor,
     ) -> AgentRun:
-        """Let one LLM choose local RAG tools before producing its final turn."""
+        """Generate one grounded conversational turn without an agent loop."""
+
+        del execute_tool
+        return await self._generate_agent_turn(query, evidence, state)
+
+    async def stream_conversation(
+        self,
+        query: str,
+        evidence: Sequence[EvidenceContext],
+        state: DiagnosticSessionState,
+    ) -> AsyncIterator[str]:
+        """Stream one grounded natural-language reply without planner JSON."""
+
+        response = await self._complete_messages(
+            build_conversation_messages(query, evidence, state),
+            stream=True,
+            structured=False,
+        )
+        async for chunk in response:
+            text = _stream_text(chunk)
+            if text:
+                yield text
+
+    async def _generate_agent_turn(
+        self,
+        query: str,
+        evidence: Sequence[EvidenceContext],
+        state: DiagnosticSessionState,
+    ) -> AgentRun:
 
         messages: list[dict[str, Any]] = build_messages(query, evidence, state)
-        active_evidence = list(evidence)
-        for _ in range(_MAX_AGENT_TOOL_ROUNDS + 1):
-            response = await self._complete_messages(messages, structured=True, tools=AGENT_TOOLS)
-            calls = _tool_calls(response)
-            if calls:
-                messages.append(_assistant_tool_message(response, calls))
-                for call in calls:
-                    result = await execute_tool(call["name"], call["arguments"])
-                    active_evidence = _merge_evidence(active_evidence, result.evidence)
-                    messages.append(
-                        {
-                            "role": "tool",
-                            "tool_call_id": call["id"],
-                            "content": result.content,
-                        }
-                    )
-                continue
-            answer = _response_text(response).strip()
-            if answer.upper() == _UNSUPPORTED:
-                raise UnsupportedAnswerError("the model could not answer from the supplied evidence")
-            try:
-                payload = json.loads(_strip_json_fence(answer))
-                if not isinstance(payload, dict):
-                    raise TypeError("turn response must be a JSON object")
-                turn = _diagnostic_turn(payload)
-            except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
-                raise InvalidAnswerError("LLM response was not a valid diagnostic turn") from error
-            _validate_turn(turn, active_evidence, state)
-            return AgentRun(turn=turn, evidence=active_evidence)
-        raise InvalidAnswerError("diagnostic agent exceeded its local tool-call budget")
+        response = await self._complete_messages(messages, structured=True)
+        answer = _response_text(response).strip()
+        if answer.upper() == _UNSUPPORTED:
+            raise UnsupportedAnswerError("the model could not answer from the supplied evidence")
+        try:
+            payload = json.loads(_strip_json_fence(answer))
+            if not isinstance(payload, dict):
+                raise TypeError("turn response must be a JSON object")
+            turn = _diagnostic_turn(payload)
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
+            raise InvalidAnswerError("LLM response was not a valid diagnostic turn") from error
+        _validate_turn(turn, evidence, state)
+        return AgentRun(turn=turn, evidence=list(evidence))
 
     async def stream_generate_turn(
         self,
@@ -306,6 +326,7 @@ class LiteLLMAnswerGenerator:
         stream: bool = False,
         structured: bool = False,
         tools: Sequence[dict[str, object]] | None = None,
+        max_tokens: int | None = None,
     ) -> Any:
         completion = self._completion
         if completion is None:
@@ -319,8 +340,9 @@ class LiteLLMAnswerGenerator:
             "model": self.settings.model,
             "messages": list(messages),
             "temperature": self.settings.temperature,
-            "max_tokens": self.settings.max_tokens,
+            "max_tokens": max_tokens or self.settings.max_tokens,
             "timeout": self.settings.timeout_seconds,
+            "num_retries": self.settings.max_retries,
             "stream": stream,
         }
         if self.settings.api_base:
@@ -339,11 +361,32 @@ class LiteLLMAnswerGenerator:
         if tools:
             request["tools"] = list(tools)
             request["tool_choice"] = "auto"
-        if self.settings.reasoning_effort:
+        if self.settings.disable_reasoning:
+            # Sarvam treats an omitted value as its default reasoning mode.
+            # The explicit JSON null is therefore intentional, not a missing
+            # setting: it removes hidden reasoning tokens from the latency path.
+            request["reasoning_effort"] = None
+        elif self.settings.reasoning_effort:
             request["reasoning_effort"] = self.settings.reasoning_effort
+        started = perf_counter()
         try:
-            return await completion(**request)
+            result = await completion(**request)
+            logger.info(
+                "llm_completion_complete stream=%s structured=%s max_tokens=%s latency_ms=%.1f",
+                stream,
+                structured,
+                request["max_tokens"],
+                (perf_counter() - started) * 1000,
+            )
+            return result
         except Exception as error:  # LiteLLM maps provider failures to its own exception hierarchy.
+            api_key = os.getenv(api_key_env) if api_key_env else None
+            safe_message = str(error).replace(api_key or "", "<redacted>")[:500]
+            logger.warning(
+                "LLM provider request failed type=%s message=%s",
+                type(error).__name__,
+                safe_message,
+            )
             raise AnswerProviderUnavailable("configured LLM provider is unavailable") from error
 
 
@@ -360,66 +403,10 @@ def _response_text(response: Any) -> str:
     raise InvalidAnswerError("LLM response content was not text")
 
 
-def _tool_calls(response: Any) -> list[dict[str, Any]]:
-    """Normalize OpenAI-compatible tool calls and reject malformed requests."""
-
-    try:
-        raw_calls = response.choices[0].message.tool_calls
-    except (AttributeError, IndexError, KeyError, TypeError):
-        return []
-    if not raw_calls:
-        return []
-    calls: list[dict[str, Any]] = []
-    for raw in raw_calls:
-        try:
-            call_id = str(raw.id)
-            name = str(raw.function.name)
-            arguments = json.loads(str(raw.function.arguments or "{}"))
-        except (AttributeError, TypeError, ValueError, json.JSONDecodeError) as error:
-            raise InvalidAnswerError("agent requested an invalid tool call") from error
-        if name not in {"search_manual", "find_error_code", "open_manual_page", "get_diagnostic_state"}:
-            raise InvalidAnswerError("agent requested an unapproved tool")
-        if not isinstance(arguments, dict):
-            raise InvalidAnswerError("tool arguments must be a JSON object")
-        calls.append({"id": call_id, "name": name, "arguments": arguments})
-    return calls
-
-
-def _assistant_tool_message(response: Any, calls: Sequence[dict[str, Any]]) -> dict[str, Any]:
-    """Retain the provider's call IDs while making the next turn portable."""
-
-    try:
-        content = response.choices[0].message.content
-    except (AttributeError, IndexError, KeyError, TypeError):
-        content = None
-    return {
-        "role": "assistant",
-        "content": content,
-        "tool_calls": [
-            {
-                "id": call["id"],
-                "type": "function",
-                "function": {"name": call["name"], "arguments": json.dumps(call["arguments"])},
-            }
-            for call in calls
-        ],
-    }
-
-
-def _merge_evidence(
-    current: Sequence[EvidenceContext], additions: Sequence[EvidenceContext]
-) -> list[EvidenceContext]:
-    seen: set[str] = set()
-    merged: list[EvidenceContext] = []
-    for item in [*current, *additions]:
-        if item.chunk_id not in seen:
-            seen.add(item.chunk_id)
-            merged.append(item)
-    return merged
-
-
 def _stream_text(chunk: Any) -> str:
     try:
+        if not chunk.choices:
+            return ""
         content = chunk.choices[0].delta.content
     except (AttributeError, IndexError, KeyError, TypeError) as error:
         raise InvalidAnswerError("LLM stream chunk did not contain assistant content") from error

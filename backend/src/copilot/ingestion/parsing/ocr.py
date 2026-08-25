@@ -13,7 +13,9 @@ class PaddleOcrUnavailable(RuntimeError):
 
 def _paddle_ocr() -> Any:
     try:
-        from paddleocr import PaddleOCR
+        # PaddleOCR is an optional, deferred extra; the default ingestion path
+        # remains native text parsing and must type-check without it installed.
+        from paddleocr import PaddleOCR  # type: ignore[import-not-found]
     except ImportError as exc:
         raise PaddleOcrUnavailable("Install the OCR extra with: pip install -e '.[ocr]'") from exc
     return PaddleOCR

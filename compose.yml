@@ -24,6 +24,12 @@ services:
     env_file:
       - backend/.env
     environment:
+      FRIDAY_ROOT: /app
+      FRIDAY_CONFIG: /app/backend/config.yml
+      EMBEDDING_BACKEND: onnx
+      EMBEDDING_MODEL: /app/data/models/granite-small-r2-onnx
+      EMBEDDING_MODEL_FILE: onnx/model_int8-avx2.onnx
+      EMBEDDING_WARMUP: "true"
       QDRANT_URL: http://qdrant:6333
       HF_HOME: /app/data/models/huggingface
       TRANSFORMERS_CACHE: /app/data/models/huggingface

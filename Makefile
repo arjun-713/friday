@@ -2,7 +2,7 @@ PYTHON ?= python
 BACKEND_PYTHONPATH := backend/src
 MODULE := PYTHONPATH=$(BACKEND_PYTHONPATH) $(PYTHON) -m
 
-.PHONY: prepare chunk assets ingest qdrant-up qdrant-down compose-up compose-down index-vectors benchmark-retrieval benchmark-retrieval-optimized benchmark-embedding export-embedding eval-retrieval eval-retrieval-optimized eval-conversation-policy backend-venv
+.PHONY: prepare chunk assets ingest qdrant-up qdrant-down compose-up compose-down index-vectors benchmark-retrieval benchmark-retrieval-optimized benchmark-embedding export-embedding eval-retrieval eval-retrieval-optimized eval-conversation-policy smoke-text smoke-voice backend-venv
 
 # Run after adding or replacing manuals in data/manuals.
 prepare:
@@ -50,6 +50,13 @@ eval-retrieval-optimized:
 
 eval-conversation-policy:
 	PYTHONPATH=backend/src backend/.venv/bin/python -m eval.run_conversation_policy
+
+smoke-text:
+	PYTHONPATH=backend/src backend/.venv/bin/python scripts/smoke_text.py
+
+smoke-voice:
+	@test -n "$(AUDIO)" || (echo "Usage: make smoke-voice AUDIO=/path/to/16khz-mono-pcm" && exit 2)
+	PYTHONPATH=backend/src backend/.venv/bin/python scripts/smoke_voice.py "$(AUDIO)"
 
 benchmark-embedding:
 	PYTHONPATH=backend/src backend/.venv/bin/python -m copilot.retrieval.embedding_benchmark

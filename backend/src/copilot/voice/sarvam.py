@@ -21,9 +21,9 @@ class SarvamRealtimeSettings:
     endpointing: str = "vad"
     encoding: str = "linear16"
     sample_rate: int = 16_000
-    vad_threshold: float = 0.3
-    silence_ms: int = 500
-    min_speech_ms: int = 250
+    vad_threshold: float = 0.55
+    silence_ms: int = 1000
+    min_speech_ms: int = 400
     endpoint: str = "wss://api.sarvam.ai/speech-to-text-realtime/ws"
 
     @classmethod
@@ -39,9 +39,9 @@ class SarvamRealtimeSettings:
             endpointing=str(values.get("endpointing", "vad")),
             encoding=str(values.get("encoding", "linear16")),
             sample_rate=int(values.get("sample_rate", 16000)),
-            vad_threshold=float(values.get("vad_threshold", 0.3)),
-            silence_ms=int(values.get("silence_ms", 500)),
-            min_speech_ms=int(values.get("min_speech_ms", 250)),
+            vad_threshold=float(values.get("vad_threshold", 0.55)),
+            silence_ms=int(values.get("silence_ms", 1000)),
+            min_speech_ms=int(values.get("min_speech_ms", 400)),
             endpoint=str(values.get("endpoint", "wss://api.sarvam.ai/speech-to-text-realtime/ws")),
         )
 

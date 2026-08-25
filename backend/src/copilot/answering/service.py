@@ -337,6 +337,50 @@ class TroubleshootingService:
                 ).model_dump(),
             }
             return
+        stream_conversation = getattr(self.answer_generator, "stream_conversation", None)
+        if callable(stream_conversation):
+            conversation_evidence = [
+                item.model_copy(update={"content": item.content[:2200]}) for item in evidence[:3]
+            ]
+            pieces: list[str] = []
+            try:
+                async for piece in stream_conversation(request.query, conversation_evidence, state):
+                    pieces.append(piece)
+                    yield {"type": "token", "text": piece}
+            except (UnsupportedAnswerError, InvalidAnswerError):
+                pieces = []
+            answer = "".join(pieces).strip()
+            if not answer or answer.upper() == "UNSUPPORTED":
+                missing = _missing_observations(request)
+                yield {
+                    "type": "complete",
+                    "response": TroubleshootingResponse(
+                        status="abstained",
+                        session_id=request.session_id,
+                        answer=_observation_request(missing),
+                        observations=_confirmed_observations(state),
+                        missing_observations=missing,
+                        retrieval=RetrievalSummary(
+                            abstained=True,
+                            reason="answer_not_supported_by_retrieved_evidence",
+                            timings_ms=result.timings_ms,
+                        ),
+                    ).model_dump(),
+                }
+                return
+            response = TroubleshootingResponse(
+                status="ready",
+                session_id=request.session_id,
+                answer=answer,
+                observations=_confirmed_observations(state),
+                missing_observations=[],
+                retrieval=retrieval,
+                evidence=conversation_evidence,
+                citations=[item.citation for item in conversation_evidence],
+            )
+            self.session_store.save(state)
+            yield {"type": "complete", "response": response.model_dump()}
+            return
         try:
             run = await _generate_turn(
                 self.answer_generator,
@@ -457,6 +501,8 @@ def _turn_response(
         evidence=list(evidence),
         citations=citations,
         observations=_confirmed_observations(state),
+        facts=dict(state.facts),
+        fact_history={key: list(events) for key, events in state.fact_history.items()},
         retrieval=retrieval,
     )
 
@@ -534,6 +580,7 @@ def _assemble_evidence(hits: Sequence[VectorHit], parents: Sequence[DocumentChun
     chunks_by_id = {chunk.chunk_id: chunk for chunk in parents}
     evidence: list[EvidenceContext] = []
     seen: set[str] = set()
+    seen_content: set[str] = set()
     for hit in hits:
         exact_chunk = chunks_by_id.get(hit.id)
         parent_id = hit.payload.get("parent_chunk_id")
@@ -547,12 +594,14 @@ def _assemble_evidence(hits: Sequence[VectorHit], parents: Sequence[DocumentChun
             or (exact_chunk.content if exact_chunk is not None else "")
             or (parent.content if parent is not None else "")
         )
-        if not content or hit.id in seen:
+        content_key = " ".join(content.split())
+        if not content or hit.id in seen or content_key in seen_content:
             continue
         citation = _citation(hit, exact_chunk or parent)
         if citation is None:
             continue
         seen.add(hit.id)
+        seen_content.add(content_key)
         evidence.append(
             EvidenceContext(
                 chunk_id=hit.id,

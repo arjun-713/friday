@@ -7,13 +7,13 @@ export type VoiceEvent =
   | { type: "speech.start" }
   | { type: "speech.end" }
   | { type: "transcript.partial"; text: string }
-  | { type: "transcript.final"; text: string }
-  | { type: "assistant.token"; text: string }
-  | { type: "assistant.complete"; response: TroubleshootingResponse }
-  | { type: "assistant.audio"; audio: string; sample_rate: number }
-  | { type: "assistant.audio_complete" }
-  | { type: "assistant.cancelled" }
-  | { type: "retrieval"; retrieval: Record<string, unknown> }
+  | { type: "transcript.final"; text: string; turn_id: string }
+  | { type: "assistant.token"; text: string; turn_id: string }
+  | { type: "assistant.complete"; response: TroubleshootingResponse; turn_id: string }
+  | { type: "assistant.audio"; audio: string; sample_rate: number; turn_id: string }
+  | { type: "assistant.audio_complete"; turn_id: string }
+  | { type: "assistant.cancelled"; turn_id?: string }
+  | { type: "retrieval"; retrieval: Record<string, unknown>; turn_id: string }
   | { type: "voice.error"; message: string }
   | { type: "voice.closed"; message: string };
 
@@ -39,9 +39,13 @@ function encodePcm(buffer: ArrayBuffer): string {
 
 function decodePcm(encoded: string): Int16Array {
   const binary = window.atob(encoded);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
-  return new Int16Array(bytes.buffer);
+  const byteLength = binary.length - (binary.length % 2);
+  const bytes = new Uint8Array(byteLength);
+  for (let index = 0; index < byteLength; index += 1) bytes[index] = binary.charCodeAt(index);
+  const pcm = new Int16Array(byteLength / 2);
+  const view = new DataView(bytes.buffer);
+  for (let index = 0; index < pcm.length; index += 1) pcm[index] = view.getInt16(index * 2, true);
+  return pcm;
 }
 
 export class FridayVoiceClient {
@@ -54,6 +58,8 @@ export class FridayVoiceClient {
   private playbackSources = new Set<AudioBufferSourceNode>();
   private nextPlaybackTime = 0;
   private stopping = false;
+  private captureEnabled = true;
+  private activeTurnId: string | null = null;
 
   constructor(private readonly onEvent: (event: VoiceEvent) => void) {}
 
@@ -65,6 +71,8 @@ export class FridayVoiceClient {
     const socket = new WebSocket(voiceUrl());
     this.socket = socket;
     this.stopping = false;
+    this.captureEnabled = true;
+    this.activeTurnId = null;
     try {
       await new Promise<void>((resolve, reject) => {
         socket.addEventListener("open", () => resolve(), { once: true });
@@ -96,7 +104,7 @@ export class FridayVoiceClient {
       this.silence = context.createGain();
       this.silence.gain.value = 0;
       this.processor.port.onmessage = (event: MessageEvent<ArrayBuffer>) => {
-        if (this.socket?.readyState === WebSocket.OPEN) {
+        if (this.captureEnabled && this.socket?.readyState === WebSocket.OPEN) {
           this.socket.send(JSON.stringify({ type: "audio", audio: encodePcm(event.data) }));
         }
       };
@@ -114,12 +122,18 @@ export class FridayVoiceClient {
     if (this.socket?.readyState === WebSocket.OPEN) this.socket.send(JSON.stringify({ type: "assistant.cancel" }));
   }
 
+  setCaptureEnabled(enabled: boolean): void {
+    this.captureEnabled = enabled;
+  }
+
   async stop(): Promise<void> {
     this.stopping = true;
     this.cancelAssistant();
     if (this.socket?.readyState === WebSocket.OPEN) this.socket.send(JSON.stringify({ type: "session.stop" }));
     this.socket?.close();
     this.socket = null;
+    this.activeTurnId = null;
+    this.captureEnabled = false;
     this.processor?.disconnect();
     this.source?.disconnect();
     this.silence?.disconnect();
@@ -136,18 +150,26 @@ export class FridayVoiceClient {
   private handleMessage(message: MessageEvent<string>): void {
     try {
       const event = JSON.parse(message.data) as VoiceEvent;
-      if (event.type === "assistant.audio") this.playPcm(event.audio, event.sample_rate);
-      if (event.type === "assistant.cancelled") this.clearPlayback();
+      if (event.type === "transcript.final") this.activeTurnId = event.turn_id;
+      if (event.type === "assistant.audio" && event.turn_id === this.activeTurnId) {
+        void this.playPcm(event.audio, event.sample_rate);
+      }
+      if (event.type === "assistant.cancelled" && (!event.turn_id || event.turn_id === this.activeTurnId)) {
+        this.clearPlayback();
+        this.activeTurnId = null;
+      }
       this.onEvent(event);
     } catch {
       this.onEvent({ type: "voice.error", message: "Friday received an invalid voice event." });
     }
   }
 
-  private playPcm(encoded: string, sampleRate: number): void {
+  private async playPcm(encoded: string, sampleRate: number): Promise<void> {
     const context = this.context;
-    if (!context) return;
+    if (!context || !Number.isFinite(sampleRate) || sampleRate <= 0) return;
+    await context.resume();
     const pcm = decodePcm(encoded);
+    if (pcm.length === 0) return;
     const audio = context.createBuffer(1, pcm.length, sampleRate);
     const channel = audio.getChannelData(0);
     for (let index = 0; index < pcm.length; index += 1) channel[index] = pcm[index] / 0x8000;
@@ -162,7 +184,13 @@ export class FridayVoiceClient {
   }
 
   private clearPlayback(): void {
-    for (const source of this.playbackSources) source.stop();
+    for (const source of this.playbackSources) {
+      try {
+        source.stop();
+      } catch {
+        // A source may have ended between iteration and cancellation.
+      }
+    }
     this.playbackSources.clear();
     this.nextPlaybackTime = 0;
   }
