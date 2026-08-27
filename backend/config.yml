@@ -12,7 +12,10 @@ llm:
   max_tokens: 220
   timeout_seconds: 15
   max_retries: 0
-  response_format: text
+  # The agentic / non-stream path parses a diagnostic turn object. The
+  # conversation stream remains unstructured because it passes structured=false
+  # and emits natural-language tokens directly.
+  response_format: json_object
   # Provider-managed prefix caching is enabled when the selected provider
   # supports it. Groq currently ignores this because it has no documented
   # prompt-cache contract; switching providers requires no code change.

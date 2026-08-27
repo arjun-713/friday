@@ -275,7 +275,16 @@ class LiteLLMAnswerGenerator:
     ) -> AgentRun:
 
         messages: list[dict[str, Any]] = build_messages(query, evidence, state)
-        response = await self._complete_messages(messages, structured=True)
+        # A diagnostic turn contains several required fields, including the
+        # evidence IDs. Keep conversational streaming concise, but do not let
+        # the shared short voice budget truncate the agent JSON mid-document.
+        # GPT-OSS may spend part of this budget on its internal reasoning even
+        # with low reasoning effort, so the structured path needs headroom.
+        response = await self._complete_messages(
+            messages,
+            structured=True,
+            max_tokens=max(self.settings.max_tokens, 1200),
+        )
         answer = _response_text(response).strip()
         if answer.upper() == _UNSUPPORTED:
             raise UnsupportedAnswerError("the model could not answer from the supplied evidence")
@@ -286,7 +295,11 @@ class LiteLLMAnswerGenerator:
             turn = _diagnostic_turn(payload)
         except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
             raise InvalidAnswerError("LLM response was not a valid diagnostic turn") from error
-        _validate_turn(turn, evidence, state)
+        try:
+            _validate_turn(turn, evidence, state)
+        except InvalidAnswerError as error:
+            logger.warning("LLM diagnostic turn failed validation reason=%s", str(error)[:200])
+            raise
         return AgentRun(turn=turn, evidence=list(evidence))
 
     async def stream_generate_turn(
