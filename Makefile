@@ -2,7 +2,7 @@ PYTHON ?= python
 BACKEND_PYTHONPATH := backend/src
 MODULE := PYTHONPATH=$(BACKEND_PYTHONPATH) $(PYTHON) -m
 
-.PHONY: prepare chunk assets ingest qdrant-up qdrant-down compose-up compose-down index-vectors benchmark-retrieval benchmark-retrieval-optimized benchmark-embedding export-embedding eval-retrieval eval-retrieval-optimized eval-conversation-policy smoke-text smoke-voice backend-venv
+.PHONY: prepare chunk assets ingest qdrant-up qdrant-down compose-up compose-down index-vectors benchmark-retrieval benchmark-retrieval-optimized benchmark-embedding benchmark-voice export-embedding eval-retrieval eval-retrieval-optimized eval-conversation-policy smoke-text smoke-voice backend-venv
 
 # Run after adding or replacing manuals in data/manuals.
 prepare:
@@ -57,6 +57,10 @@ smoke-text:
 smoke-voice:
 	@test -n "$(AUDIO)" || (echo "Usage: make smoke-voice AUDIO=/path/to/16khz-mono-pcm" && exit 2)
 	PYTHONPATH=backend/src backend/.venv/bin/python scripts/smoke_voice.py "$(AUDIO)"
+
+benchmark-voice:
+	@test -n "$(AUDIO)" || (echo "Usage: make benchmark-voice AUDIO=/path/to/16khz-mono-pcm [TRIALS=10]" && exit 2)
+	PYTHONPATH=backend/src:. backend/.venv/bin/python scripts/benchmark_voice.py "$(AUDIO)" --trials "$(or $(TRIALS),10)"
 
 benchmark-embedding:
 	PYTHONPATH=backend/src backend/.venv/bin/python -m copilot.retrieval.embedding_benchmark
