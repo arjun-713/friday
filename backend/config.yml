@@ -13,6 +13,12 @@ llm:
   timeout_seconds: 15
   max_retries: 0
   response_format: text
+  # Provider-managed prefix caching is enabled when the selected provider
+  # supports it. Groq currently ignores this because it has no documented
+  # prompt-cache contract; switching providers requires no code change.
+  prompt_cache_enabled: true
+  prompt_cache_key: friday-grounded-conversation
+  prompt_cache_retention: in_memory
   # GPT-OSS supports low as its minimum reasoning mode. This avoids the
   # default medium reasoning pass on short conversational troubleshooting turns.
   reasoning_effort: low
