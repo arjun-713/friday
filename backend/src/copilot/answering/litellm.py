@@ -59,6 +59,9 @@ class LiteLLMSettings:
     response_format: str | None = "json_object"
     reasoning_effort: str | None = None
     disable_reasoning: bool = False
+    prompt_cache_enabled: bool = True
+    prompt_cache_key: str = "friday-grounded-conversation"
+    prompt_cache_retention: str | None = None
 
     @classmethod
     def from_env(cls) -> LiteLLMSettings:
@@ -75,6 +78,11 @@ class LiteLLMSettings:
             response_format=str(values["response_format"]) if values.get("response_format") else None,
             reasoning_effort=str(values["reasoning_effort"]) if values.get("reasoning_effort") else None,
             disable_reasoning=bool(values.get("disable_reasoning", False)),
+            prompt_cache_enabled=bool(values.get("prompt_cache_enabled", True)),
+            prompt_cache_key=str(values.get("prompt_cache_key", "friday-grounded-conversation")),
+            prompt_cache_retention=(
+                str(values["prompt_cache_retention"]) if values.get("prompt_cache_retention") else None
+            ),
         )
 
 
@@ -93,6 +101,7 @@ class AgentRun:
 
     turn: DiagnosticTurn
     evidence: list[EvidenceContext]
+
 
 _DIAGNOSTIC_TURN_SCHEMA: dict[str, object] = {
     "type": "object",
@@ -120,7 +129,11 @@ _DIAGNOSTIC_TURN_SCHEMA: dict[str, object] = {
                     "items": {
                         "type": "object",
                         "additionalProperties": False,
-                        "properties": {"id": {"type": "string"}, "label": {"type": "string"}, "value": {"type": "string"}},
+                        "properties": {
+                            "id": {"type": "string"},
+                            "label": {"type": "string"},
+                            "value": {"type": "string"},
+                        },
                         "required": ["id", "label", "value"],
                     },
                 },
@@ -150,7 +163,10 @@ _DIAGNOSTIC_TURN_SCHEMA: dict[str, object] = {
                 "type": "object",
                 "additionalProperties": False,
                 "properties": {
-                    "key": {"type": "string"}, "value": {"type": "string"}, "label": {"type": "string"}, "raw": {"type": "string"},
+                    "key": {"type": "string"},
+                    "value": {"type": "string"},
+                    "label": {"type": "string"},
+                    "raw": {"type": "string"},
                 },
                 "required": ["key", "value", "label", "raw"],
             },
@@ -165,8 +181,16 @@ _DIAGNOSTIC_TURN_SCHEMA: dict[str, object] = {
         },
     },
     "required": [
-        "mode", "response", "interpretation", "next_action", "observation_request", "decision_basis", "facts_learned",
-        "candidate_causes", "ruled_out_causes", "source_ids",
+        "mode",
+        "response",
+        "interpretation",
+        "next_action",
+        "observation_request",
+        "decision_basis",
+        "facts_learned",
+        "candidate_causes",
+        "ruled_out_causes",
+        "source_ids",
     ],
 }
 
@@ -251,7 +275,16 @@ class LiteLLMAnswerGenerator:
     ) -> AgentRun:
 
         messages: list[dict[str, Any]] = build_messages(query, evidence, state)
-        response = await self._complete_messages(messages, structured=True)
+        # A diagnostic turn contains several required fields, including the
+        # evidence IDs. Keep conversational streaming concise, but do not let
+        # the shared short voice budget truncate the agent JSON mid-document.
+        # GPT-OSS may spend part of this budget on its internal reasoning even
+        # with low reasoning effort, so the structured path needs headroom.
+        response = await self._complete_messages(
+            messages,
+            structured=True,
+            max_tokens=max(self.settings.max_tokens, 1200),
+        )
         answer = _response_text(response).strip()
         if answer.upper() == _UNSUPPORTED:
             raise UnsupportedAnswerError("the model could not answer from the supplied evidence")
@@ -262,7 +295,11 @@ class LiteLLMAnswerGenerator:
             turn = _diagnostic_turn(payload)
         except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
             raise InvalidAnswerError("LLM response was not a valid diagnostic turn") from error
-        _validate_turn(turn, evidence, state)
+        try:
+            _validate_turn(turn, evidence, state)
+        except InvalidAnswerError as error:
+            logger.warning("LLM diagnostic turn failed validation reason=%s", str(error)[:200])
+            raise
         return AgentRun(turn=turn, evidence=list(evidence))
 
     async def stream_generate_turn(
@@ -336,15 +373,24 @@ class LiteLLMAnswerGenerator:
                 raise AnswerProviderUnavailable("LiteLLM is not installed") from error
             completion = acompletion
 
+        cache_mode = _prompt_cache_mode(self.settings)
+        request_messages: Sequence[dict[str, Any]] = messages
+        if cache_mode == "content":
+            request_messages = _mark_cacheable_prefix(messages)
+
         request: dict[str, Any] = {
             "model": self.settings.model,
-            "messages": list(messages),
+            "messages": list(request_messages),
             "temperature": self.settings.temperature,
             "max_tokens": max_tokens or self.settings.max_tokens,
             "timeout": self.settings.timeout_seconds,
             "num_retries": self.settings.max_retries,
             "stream": stream,
         }
+        if cache_mode in {"openai", "deepseek"} and self.settings.prompt_cache_key:
+            request["prompt_cache_key"] = self.settings.prompt_cache_key
+        if cache_mode == "openai" and self.settings.prompt_cache_retention:
+            request["prompt_cache_retention"] = self.settings.prompt_cache_retention
         if self.settings.api_base:
             request["api_base"] = self.settings.api_base
         api_key_env = self.settings.api_key_env
@@ -372,12 +418,16 @@ class LiteLLMAnswerGenerator:
         try:
             result = await completion(**request)
             logger.info(
-                "llm_completion_complete stream=%s structured=%s max_tokens=%s latency_ms=%.1f",
+                "llm_completion_complete stream=%s structured=%s max_tokens=%s prompt_cache=%s latency_ms=%.1f",
                 stream,
                 structured,
                 request["max_tokens"],
+                cache_mode or "unsupported",
                 (perf_counter() - started) * 1000,
             )
+            cached_tokens = _cached_input_tokens(result)
+            if cached_tokens is not None:
+                logger.info("llm_prompt_cache_usage mode=%s cached_tokens=%d", cache_mode, cached_tokens)
             return result
         except Exception as error:  # LiteLLM maps provider failures to its own exception hierarchy.
             api_key = os.getenv(api_key_env) if api_key_env else None
@@ -704,6 +754,62 @@ def _expand_citations(answer: str, evidence: Sequence[EvidenceContext]) -> str:
         return f"[{citation.document_title} · p. {citation.page} · {citation.section}]"
 
     return _SOURCE_MARKER.sub(replace, answer)
+
+
+def _prompt_cache_mode(settings: LiteLLMSettings) -> Literal["openai", "deepseek", "content"] | None:
+    """Select only cache controls documented for the configured provider."""
+
+    if not settings.prompt_cache_enabled:
+        return None
+    model = settings.model.casefold()
+    api_base = (settings.api_base or "").casefold()
+    if "sarvam.ai" in api_base:
+        return None
+    if model.startswith("openai/"):
+        return "openai"
+    if model.startswith("deepseek/"):
+        return "deepseek"
+    if model.startswith(("anthropic/", "bedrock/", "gemini/", "vertex_ai/", "vertex_ai_beta/")):
+        return "content"
+    return None
+
+
+def _mark_cacheable_prefix(messages: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Mark the stable system prompt for Anthropic/Gemini-style caching."""
+
+    copied = [dict(message) for message in messages]
+    for message in copied:
+        if message.get("role") != "system" or not isinstance(message.get("content"), str):
+            continue
+        message["content"] = [
+            {
+                "type": "text",
+                "text": message["content"],
+                "cache_control": {"type": "ephemeral"},
+            }
+        ]
+        break
+    return copied
+
+
+def _cached_input_tokens(response: Any) -> int | None:
+    """Read provider cache usage without depending on a response class."""
+
+    usage = response.get("usage") if isinstance(response, dict) else getattr(response, "usage", None)
+    if usage is None:
+        return None
+    details = (
+        usage.get("prompt_tokens_details") if isinstance(usage, dict) else getattr(usage, "prompt_tokens_details", None)
+    )
+    cached = details.get("cached_tokens") if isinstance(details, dict) else getattr(details, "cached_tokens", None)
+    if cached is not None:
+        return int(cached)
+    direct = (
+        usage.get("cache_read_input_tokens")
+        if isinstance(usage, dict)
+        else getattr(usage, "cache_read_input_tokens", None)
+    )
+    return int(direct) if direct is not None else None
 
 
 def _env_bool(name: str, *, default: bool) -> bool:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from time import perf_counter
@@ -46,6 +47,8 @@ class SarvamVoiceBridge:
         self._turn_task: asyncio.Task[None] | None = None
         self._active_turn_id: str | None = None
         self._tts: ClientConnection | None = None
+        self._tts_lock = asyncio.Lock()
+        self._tts_warm_task: asyncio.Task[None] | None = None
         self._send_lock = asyncio.Lock()
 
     async def serve(self, client: WebSocket, *, accepted: bool = False) -> None:
@@ -72,6 +75,8 @@ class SarvamVoiceBridge:
                         if event_type == "session.start":
                             context = _voice_context(message)
                             await self._send(client, {"type": "session.ready", "session_id": context.session_id})
+                            if self._tts_warm_task is None:
+                                self._tts_warm_task = asyncio.create_task(self._warm_tts())
                         elif event_type == "audio":
                             if context is not None:
                                 await stt.send(
@@ -90,6 +95,10 @@ class SarvamVoiceBridge:
             logger.warning("Voice session unavailable (%s)", type(error).__name__)
             await self._send(client, {"type": "voice.error", "message": "Voice service is temporarily unavailable."})
         finally:
+            if self._tts_warm_task is not None:
+                self._tts_warm_task.cancel()
+                await asyncio.gather(self._tts_warm_task, return_exceptions=True)
+                self._tts_warm_task = None
             await self._cancel_active_turn(client, notify=False)
             if self._tts is not None:
                 await self._tts.close()
@@ -102,6 +111,8 @@ class SarvamVoiceBridge:
     ) -> None:
         speech_active = False
         speech_confirmed = False
+        speech_started_at: float | None = None
+        first_partial_at: float | None = None
 
         async for raw_message in stt:
             if not isinstance(raw_message, str):
@@ -120,12 +131,25 @@ class SarvamVoiceBridge:
                 # there is actual transcript evidence of a user utterance.
                 speech_active = True
                 speech_confirmed = False
+                speech_started_at = perf_counter()
+                first_partial_at = None
+                logger.info("voice_stt_speech_start")
             elif event_name == "vad.speech_end":
                 if speech_active:
+                    logger.info(
+                        "voice_stt_speech_end duration_ms=%.1f",
+                        (perf_counter() - speech_started_at) * 1000 if speech_started_at else 0,
+                    )
                     await self._send(client, {"type": "speech.end"})
             elif event_name == "transcript.partial" and _meaningful_transcript(transcript):
                 if not speech_confirmed:
                     speech_confirmed = True
+                    first_partial_at = perf_counter()
+                    logger.info(
+                        "voice_stt_first_partial chars=%d latency_ms=%.1f",
+                        len(transcript),
+                        (first_partial_at - speech_started_at) * 1000 if speech_started_at else 0,
+                    )
                     await self._cancel_active_turn(client)
                     await self._send(client, {"type": "speech.start"})
                 await self._send(client, {"type": "transcript.partial", "text": transcript})
@@ -139,6 +163,12 @@ class SarvamVoiceBridge:
                 if active_context is not None:
                     speech_active = False
                     speech_confirmed = False
+                    logger.info(
+                        "voice_stt_final chars=%d speech_to_final_ms=%.1f partial_to_final_ms=%.1f",
+                        len(transcript),
+                        (perf_counter() - speech_started_at) * 1000 if speech_started_at else 0,
+                        (perf_counter() - first_partial_at) * 1000 if first_partial_at else 0,
+                    )
                     await self._cancel_active_turn(client, notify=False)
                     turn_id = uuid4().hex
                     self._active_turn_id = turn_id
@@ -154,10 +184,13 @@ class SarvamVoiceBridge:
                 )
                 await self._send(client, {"type": "voice.error", "message": _error_message(payload)})
 
-    async def _answer_turn(
-        self, client: WebSocket, context: VoiceTurnContext, transcript: str, turn_id: str
-    ) -> None:
+    async def _answer_turn(self, client: WebSocket, context: VoiceTurnContext, transcript: str, turn_id: str) -> None:
         started = perf_counter()
+        first_token = True
+        speech_buffer = ""
+        spoken_text = ""
+        tts_queue: asyncio.Queue[str | None] | None = None
+        tts_task: asyncio.Task[None] | None = None
         request = TroubleshootingRequest(
             query=transcript,
             observation=transcript,
@@ -169,10 +202,26 @@ class SarvamVoiceBridge:
             async for event in self.service.stream_answer(request):
                 event_type = str(event.get("type", ""))
                 if event_type == "token":
+                    piece = str(event.get("text", ""))
+                    if first_token:
+                        first_token = False
+                        logger.info(
+                            "voice_llm_first_token turn_id=%s latency_ms=%.1f",
+                            turn_id,
+                            (perf_counter() - started) * 1000,
+                        )
                     await self._send(
                         client,
-                        {"type": "assistant.token", "text": str(event.get("text", "")), "turn_id": turn_id},
+                        {"type": "assistant.token", "text": piece, "turn_id": turn_id},
                     )
+                    spoken_text += piece
+                    speech_buffer += piece
+                    sentences, speech_buffer = _take_tts_sentences(speech_buffer)
+                    for sentence in sentences:
+                        if tts_queue is None:
+                            tts_queue = asyncio.Queue()
+                            tts_task = asyncio.create_task(self._run_tts_stream(client, turn_id, tts_queue))
+                        await tts_queue.put(sentence)
                 elif event_type == "retrieval":
                     retrieval = event.get("retrieval", {})
                     timings = retrieval.get("timings_ms", {}) if isinstance(retrieval, dict) else {}
@@ -198,12 +247,26 @@ class SarvamVoiceBridge:
                         {"type": "assistant.complete", "response": response, "turn_id": turn_id},
                     )
                     if isinstance(response, dict) and response.get("status") == "ready":
-                        await self._speak_step(client, response, turn_id)
+                        if tts_queue is None and speech_buffer.strip():
+                            tts_queue = asyncio.Queue()
+                            tts_task = asyncio.create_task(self._run_tts_stream(client, turn_id, tts_queue))
+                            await tts_queue.put(speech_buffer.strip())
+                        elif tts_queue is not None and speech_buffer.strip():
+                            await tts_queue.put(speech_buffer.strip())
+                        if tts_queue is not None and tts_task is not None:
+                            await tts_queue.put(None)
+                            await tts_task
+                        elif not spoken_text.strip():
+                            await self._speak_step(client, response, turn_id)
         except asyncio.CancelledError:
             raise
         except Exception as error:
             logger.warning("Voice answer turn failed (%s)", type(error).__name__)
             await self._send(client, {"type": "voice.error", "message": "Friday could not complete that check."})
+        finally:
+            if tts_task is not None and not tts_task.done():
+                tts_task.cancel()
+                await asyncio.gather(tts_task, return_exceptions=True)
 
     async def _speak_step(self, client: WebSocket, response: dict[str, object], turn_id: str) -> None:
         turn = response.get("turn")
@@ -224,11 +287,50 @@ class SarvamVoiceBridge:
                 text = str(response.get("answer", "")).strip()
         if not text:
             return
+        queue: asyncio.Queue[str | None] = asyncio.Queue()
+        task = asyncio.create_task(self._run_tts_stream(client, turn_id, queue))
+        await queue.put(text)
+        await queue.put(None)
+        await task
+
+    async def _run_tts_stream(
+        self,
+        client: WebSocket,
+        turn_id: str,
+        queue: asyncio.Queue[str | None],
+    ) -> None:
         started = perf_counter()
-        logger.info("voice_tts_start turn_id=%s chars=%d", turn_id, len(text))
+        logger.info("voice_tts_start turn_id=%s", turn_id)
+        connect_started = perf_counter()
+        had_open_tts = self._tts is not None and self._tts.state.name == "OPEN"
         tts = await self._ensure_tts()
-        await tts.send(json.dumps({"type": "text", "data": {"text": text}}))
-        await tts.send(json.dumps({"type": "flush"}))
+        logger.info(
+            "voice_tts_connection_ready turn_id=%s latency_ms=%.1f reused=%s",
+            turn_id,
+            (perf_counter() - connect_started) * 1000,
+            had_open_tts,
+        )
+        reader = asyncio.create_task(self._read_tts_audio(client, tts, turn_id, started))
+        try:
+            while True:
+                text = await queue.get()
+                if text is None:
+                    await tts.send(json.dumps({"type": "flush"}))
+                    break
+                await tts.send(json.dumps({"type": "text", "data": {"text": text}}))
+            await reader
+        except asyncio.CancelledError:
+            reader.cancel()
+            await asyncio.gather(reader, return_exceptions=True)
+            raise
+
+    async def _read_tts_audio(
+        self,
+        client: WebSocket,
+        tts: ClientConnection,
+        turn_id: str,
+        started: float,
+    ) -> None:
         first_audio = True
         async for raw_message in tts:
             if not isinstance(raw_message, str):
@@ -271,22 +373,37 @@ class SarvamVoiceBridge:
                 return
 
     async def _ensure_tts(self) -> ClientConnection:
-        if self._tts is None or self._tts.state.name != "OPEN":
-            self._tts = await connect(
-                _tts_url(self.tts_settings),
-                additional_headers={"api-subscription-key": self.tts_settings.api_key or ""},
-                open_timeout=15,
-                close_timeout=5,
-            )
-            await self._tts.send(
-                json.dumps(
-                    {
-                        "type": "config",
-                        "data": _tts_config(self.tts_settings),
-                    }
+        async with self._tts_lock:
+            if self._tts is None or self._tts.state.name != "OPEN":
+                self._tts = await connect(
+                    _tts_url(self.tts_settings),
+                    additional_headers={"api-subscription-key": self.tts_settings.api_key or ""},
+                    open_timeout=15,
+                    close_timeout=5,
                 )
-            )
+                await self._tts.send(
+                    json.dumps(
+                        {
+                            "type": "config",
+                            "data": _tts_config(self.tts_settings),
+                        }
+                    )
+                )
         return self._tts
+
+    async def _warm_tts(self) -> None:
+        """Open Bulbul while the user is speaking so the first turn is not cold."""
+
+        started = perf_counter()
+        try:
+            await self._ensure_tts()
+            logger.info("voice_tts_warm_complete latency_ms=%.1f", (perf_counter() - started) * 1000)
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:
+            # The actual turn still owns the retry path; warming is best effort
+            # and must never prevent the voice session from listening.
+            logger.info("voice_tts_warm_failed type=%s", type(error).__name__)
 
     async def _cancel_active_turn(self, client: WebSocket, *, notify: bool = True) -> None:
         task = self._turn_task
@@ -341,9 +458,34 @@ def _tts_config(settings: SarvamTTSSettings) -> dict[str, object]:
         "pace": settings.pace,
         "speech_sample_rate": settings.sample_rate,
         "output_audio_codec": settings.codec,
-        "min_buffer_size": 50,
+        "min_buffer_size": 30,
         "max_chunk_length": 200,
     }
+
+
+def _take_tts_sentences(buffer: str, *, final: bool = False) -> tuple[list[str], str]:
+    """Release complete speech units without waiting for the whole answer."""
+
+    sentences: list[str] = []
+    remaining = buffer
+    while remaining:
+        match = re.search(r"[.!?](?:\s+|$)|\n+", remaining)
+        if match is None:
+            break
+        candidate = remaining[: match.end()].strip()
+        if candidate:
+            sentences.append(candidate)
+        remaining = remaining[match.end() :].lstrip()
+
+    if not final and len(remaining) > 140:
+        split_at = remaining.rfind(" ", 0, 140)
+        if split_at > 30:
+            sentences.append(remaining[:split_at].strip())
+            remaining = remaining[split_at + 1 :].lstrip()
+    elif final and remaining.strip():
+        sentences.append(remaining.strip())
+        remaining = ""
+    return sentences, remaining
 
 
 def _voice_context(message: dict[str, object]) -> VoiceTurnContext:

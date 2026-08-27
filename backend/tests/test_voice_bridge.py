@@ -11,6 +11,7 @@ from copilot.voice.bridge import (
     _audio,
     _event_name,
     _stt_url,
+    _take_tts_sentences,
     _transcript,
     _tts_config,
     _tts_url,
@@ -65,6 +66,17 @@ def test_voice_context_requires_session_id() -> None:
     assert context.model == "M404"
     with pytest.raises(ValueError, match="session_id"):
         _voice_context({"type": "session.start"})
+
+
+def test_tts_sentence_splitter_releases_complete_units_and_flushes_tail() -> None:
+    sentences, remaining = _take_tts_sentences("Check the light. Then check the cable")
+
+    assert sentences == ["Check the light."]
+    assert remaining == "Then check the cable"
+
+    final_sentences, final_remaining = _take_tts_sentences(remaining, final=True)
+    assert final_sentences == ["Then check the cable"]
+    assert final_remaining == ""
 
 
 class _VoiceClient:

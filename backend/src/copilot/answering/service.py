@@ -8,7 +8,7 @@ from ..ingestion.models import DocumentChunk
 from ..retrieval.cache import RetrievalSessionCache
 from ..retrieval.contracts import EmbeddingProvider, MetadataFilter, VectorHit, VectorIndex
 from ..retrieval.hybrid import LexicalRetriever
-from .litellm import AgentRun, InvalidAnswerError, UnsupportedAnswerError
+from .litellm import AgentRun, AnswerGenerationError, InvalidAnswerError, UnsupportedAnswerError
 from .models import (
     Citation,
     DiagnosticAction,
@@ -250,6 +250,37 @@ class TroubleshootingService:
                 ),
             )
         except InvalidAnswerError:
+            # GPT-OSS can occasionally produce syntactically valid JSON that
+            # violates the semantic turn contract (for example, an `advance`
+            # decision without its required action). Do not expose that broken
+            # object, but preserve a useful grounded reply through the same
+            # conversational stream used by voice. The fallback remains bound
+            # to the retrieved evidence and still abstains on UNSUPPORTED.
+            stream_conversation = getattr(self.answer_generator, "stream_conversation", None)
+            if callable(stream_conversation):
+                conversation_evidence = [
+                    item.model_copy(update={"content": item.content[:2200]}) for item in evidence[:3]
+                ]
+                pieces: list[str] = []
+                try:
+                    async for piece in stream_conversation(request.query, conversation_evidence, state):
+                        pieces.append(piece)
+                except AnswerGenerationError:
+                    pieces = []
+                fallback_answer = "".join(pieces).strip()
+                if fallback_answer and fallback_answer.upper() != "UNSUPPORTED":
+                    response = TroubleshootingResponse(
+                        status="ready",
+                        session_id=request.session_id,
+                        answer=fallback_answer,
+                        observations=_confirmed_observations(state),
+                        missing_observations=[],
+                        retrieval=retrieval,
+                        evidence=conversation_evidence,
+                        citations=[item.citation for item in conversation_evidence],
+                    )
+                    self.session_store.save(state)
+                    return response
             missing = _missing_observations(request)
             return TroubleshootingResponse(
                 status="abstained",
@@ -339,9 +370,7 @@ class TroubleshootingService:
             return
         stream_conversation = getattr(self.answer_generator, "stream_conversation", None)
         if callable(stream_conversation):
-            conversation_evidence = [
-                item.model_copy(update={"content": item.content[:2200]}) for item in evidence[:3]
-            ]
+            conversation_evidence = [item.model_copy(update={"content": item.content[:2200]}) for item in evidence[:3]]
             pieces: list[str] = []
             try:
                 async for piece in stream_conversation(request.query, conversation_evidence, state):
@@ -443,7 +472,9 @@ async def _generate_turn(
     generate_turn = getattr(generator, "generate_turn", None)
     if callable(generate_turn):
         return AgentRun(turn=await generate_turn(query, evidence, state), evidence=list(evidence))
-    return AgentRun(turn=_turn_from_step(await generator.generate_step(query, evidence, state)), evidence=list(evidence))
+    return AgentRun(
+        turn=_turn_from_step(await generator.generate_step(query, evidence, state)), evidence=list(evidence)
+    )
 
 
 def _turn_from_step(step: DiagnosticStep) -> DiagnosticTurn:

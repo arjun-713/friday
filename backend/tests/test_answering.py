@@ -12,6 +12,8 @@ from copilot.answering.litellm import (
     LiteLLMAnswerGenerator,
     LiteLLMSettings,
     _expand_step_citations,
+    _mark_cacheable_prefix,
+    _prompt_cache_mode,
 )
 from copilot.answering.models import DiagnosticSessionState, DiagnosticStep, TroubleshootingRequest
 from copilot.answering.service import TroubleshootingService, _assemble_evidence, _relevant_evidence
@@ -257,6 +259,27 @@ def test_litellm_refuses_to_send_a_request_without_the_configured_key(monkeypatc
                 DiagnosticSessionState(session_id="key-check"),
             )
         )
+
+
+def test_prompt_cache_controls_are_scoped_to_documented_providers() -> None:
+    assert _prompt_cache_mode(LiteLLMSettings(model="openai/gpt-4o")) == "openai"
+    assert _prompt_cache_mode(LiteLLMSettings(model="deepseek/deepseek-chat")) == "deepseek"
+    assert _prompt_cache_mode(LiteLLMSettings(model="groq/openai/gpt-oss-120b")) is None
+    assert (
+        _prompt_cache_mode(
+            LiteLLMSettings(model="openai/sarvam-105b-conversations", api_base="https://api.sarvam.ai/v1")
+        )
+        is None
+    )
+
+
+def test_prompt_cache_content_marker_only_changes_a_copy_of_the_system_message() -> None:
+    messages = [{"role": "system", "content": "Stable policy"}, {"role": "user", "content": "Question"}]
+
+    cached = _mark_cacheable_prefix(messages)
+
+    assert messages[0]["content"] == "Stable policy"
+    assert cached[0]["content"] == [{"type": "text", "text": "Stable policy", "cache_control": {"type": "ephemeral"}}]
 
 
 def test_health_reports_configuration_state_without_contacting_providers() -> None:
