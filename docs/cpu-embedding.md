@@ -25,6 +25,6 @@ The proxy Recall@5/MRR labels generated from chunk prefixes are smoke checks, no
 
 ## Deferred end-to-end optimization
 
-The demo deployment runs Granite embeddings, BM25, and Qdrant locally on the ThinkPad T480. DeepSeek provides the LLM and ElevenLabs provides the voice APIs. The current local retrieval baseline is sufficient to continue building the product; do not optimize individual stages further before the complete pipeline can be measured.
+The demo deployment runs Granite embeddings, BM25, and Qdrant locally on the ThinkPad T480. Groq provides the LLM and Sarvam provides Saaras STT plus Bulbul TTS. The current local retrieval baseline is sufficient to continue building the product; do not optimize individual stages further before the complete pipeline can be measured.
 
-After DeepSeek and ElevenLabs are integrated, capture timestamps for speech end, final transcript, retrieval start and end, first DeepSeek token, first ElevenLabs audio byte, and playback start. Then optimize the measured bottleneck and overlap stable-partial-transcript retrieval, streamed LLM output, and sentence-level TTS where appropriate. The product latency target is speech-end to first playable audio, not model latency in isolation.
+After provider validation, capture timestamps for speech end, final transcript, retrieval start and end, first LLM token, first TTS audio byte, and playback start. Then optimize the measured bottleneck and overlap stable-partial-transcript retrieval, streamed LLM output, and sentence-level TTS where appropriate. The product latency target is speech-end to first playable audio, not model latency in isolation.

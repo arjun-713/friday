@@ -25,8 +25,8 @@ describe the symptom → find the matching evidence → take one safe check → 
 
 ## What is implemented
 
-- Official-manual corpus covering 24 public manufacturer documents across
-  computers, routers, and printers.
+- Official-manual corpus covering 21 public manufacturer documents across
+  computers, routers, and printers (see `config/source_registry.json`).
 - PDF inspection and native text parsing with page-aware source metadata.
 - Deterministic cleanup for repeated headers, footers, broken lines, and layout
   noise while retaining citation coordinates in the raw representation.

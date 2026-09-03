@@ -4,10 +4,10 @@ Friday's current runtime is intentionally narrower than the final research
 roadmap:
 
 - The active query path is hybrid retrieval (Qdrant dense search plus BM25)
-  followed by one structured diagnostic agent.
+  followed by one structured diagnostic turn via LiteLLM/Groq (`groq/openai/gpt-oss-120b`).
 - The agent chooses `solve`, `advance`, `clarify`, or `abstain` from the
   retrieved manufacturer evidence and persisted session state.
-- Sarvam conversation, Saaras realtime STT, and Bulbul streaming TTS are
+- Sarvam Saaras realtime STT and Bulbul streaming TTS are
   optional provider integrations. Text mode remains usable without voice.
 - OCR is an optional ingestion extra and is disabled for the current corpus.
   Native text parsing is the default, and OCR pages retain routing metadata

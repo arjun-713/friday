@@ -30,7 +30,7 @@ Friday combines hybrid retrieval, exact technical-identifier lookup, structured 
 
 The user may be troubleshooting a device hands-on and may interrupt or correct the assistant. The interface must support both typed text and voice interaction, show the live conversation and citations, and preserve diagnostic state across turns.
 
-The current text workflow retrieves from locally indexed manuals through FastAPI, Qdrant, BM25, and a local Granite embedding model. A DeepSeek answer generator is planned but is not connected yet.
+The current text workflow retrieves from locally indexed manuals through FastAPI, Qdrant, BM25, and a local Granite embedding model. The LiteLLM answer layer targets `groq/openai/gpt-oss-120b` via `GROQ_API_KEY` (see `backend/config.yml` and `backend/.env.example`). Provider switching is config-only through `backend/config.yml`.
 
 ## Capabilities and Constraints
 
@@ -46,10 +46,10 @@ The current text workflow retrieves from locally indexed manuals through FastAPI
 
 ## Evidence on Hand
 
-- Official manuals are organized under `data/manuals` and parsed, cleaned, chunked, and indexed locally.
-- The hybrid retriever currently achieves 98.8% Recall@5 and zero failures on the current supported benchmark.
-- The text-only backend contract is documented in `docs/text-answering.md`.
-- The current frontend is an unstyled Next.js scaffold in `frontend/app`.
+- Official manuals are organized under `data/manuals` and parsed, cleaned, chunked, and indexed locally. `config/source_registry.json` currently lists 21 manuals.
+- The hybrid retriever benchmark is rerun via `make eval-retrieval`; treat checked-in Recall@5 claims as stale until rerun on current `main`.
+- The text backend contract is documented in `docs/text-answering.md`.
+- The frontend serves a public landing at `/` and the troubleshooting casebook at `/app`.
 - No product logo, visual identity, testimonials, commercial claims, or user-provided imagery has been established. Future UI work must not fabricate them.
 
 ## Product Principles
