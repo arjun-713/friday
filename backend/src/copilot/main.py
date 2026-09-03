@@ -39,9 +39,26 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title="Troubleshooting Copilot", version="0.1.0", lifespan=lifespan)
+
+
+def _allowed_origins() -> list[str]:
+    """Allow deployment CORS override without code changes."""
+
+    configured = os.getenv("FRIDAY_ALLOWED_ORIGINS", "")
+    extra = [origin.strip() for origin in configured.split(",") if origin.strip()]
+    base = ["http://localhost:3000", "http://127.0.0.1:3000"]
+    seen: set[str] = set()
+    origins: list[str] = []
+    for origin in [*base, *extra]:
+        if origin not in seen:
+            seen.add(origin)
+            origins.append(origin)
+    return origins
+
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=_allowed_origins(),
     allow_credentials=True,
     allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "Accept", "Authorization"],
@@ -49,6 +66,12 @@ app.add_middleware(
 _service: TroubleshootingService | None = None
 _service_lock = asyncio.Lock()
 _image_manifest: dict[str, object] = {"assets": {}}
+
+
+def _allowed_browser_origins() -> set[str]:
+    return set(_allowed_origins())
+
+
 _browser_origins = {"http://localhost:3000", "http://127.0.0.1:3000"}
 _PROJECT_ROOT = Path(os.getenv("FRIDAY_ROOT", str(Path(__file__).resolve().parents[3])))
 
@@ -210,7 +233,7 @@ async def voice(websocket: WebSocket) -> None:
     """Keep Sarvam credentials server-side while supporting browser duplex audio."""
 
     origin = websocket.headers.get("origin")
-    if origin is not None and origin not in _browser_origins:
+    if origin is not None and origin not in _allowed_browser_origins():
         await websocket.close(code=1008)
         return
     await websocket.accept()
@@ -223,7 +246,14 @@ def _build_service() -> TroubleshootingService:
     global _image_manifest
     chunks_root = _runtime_path("CHUNKS_ROOT", "data/chunks")
     _image_manifest = _load_image_manifest()
-    chunks = load_vector_chunks(chunks_root)
+    try:
+        chunks = load_vector_chunks(chunks_root)
+    except FileNotFoundError as error:
+        raise RuntimeError(
+            f"chunk directory is missing at {chunks_root}; run `make ingest` then `make index-vectors`"
+        ) from error
+    if not chunks:
+        raise RuntimeError(f"no vector chunks found under {chunks_root}; run `make chunk` before starting the API")
     lexical = CombinedLexicalRetriever(
         InMemoryBM25Retriever.from_directory(chunks_root),
         InMemoryExactIdentifierRetriever(chunks),
