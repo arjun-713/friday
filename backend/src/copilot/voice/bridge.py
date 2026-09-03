@@ -8,6 +8,7 @@ import logging
 import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from enum import StrEnum
 from time import perf_counter
 from urllib.parse import urlencode
 from uuid import uuid4
@@ -32,6 +33,43 @@ class VoiceTurnContext:
     model: str | None = None
 
 
+class VoiceSessionState(StrEnum):
+    """Explicit full-duplex states shared with the frontend voice console."""
+
+    IDLE = "idle"
+    LISTENING = "listening"
+    THINKING = "thinking"
+    SPEAKING = "speaking"
+    INTERRUPTING = "interrupting"
+    RECOVERING = "recovering"
+    ERROR = "error"
+
+
+def classify_interruption(text: str) -> str:
+    """Deterministically classify a barge-in without an LLM call."""
+
+    normalized = re.sub(r"[^a-z0-9\s]", " ", text.casefold())
+    normalized = " ".join(normalized.split())
+    if not normalized:
+        return "acknowledgement"
+    if any(word in normalized.split() for word in ("stop", "quiet", "halt", "cancel")):
+        return "stop"
+    if normalized.startswith(("actually ", "no ", "correction", "i meant", "wrong")) or "actually" in normalized:
+        return "correction"
+    if normalized.startswith(("repeat", "say again", "pardon", "what did")) or "repeat" in normalized:
+        return "repeat"
+    if (
+        any(token in normalized for token in ("got it", "thanks", "thank you", "okay", "ok", "understood", "yes"))
+        and len(normalized.split()) <= 4
+    ):
+        return "acknowledgement"
+    if normalized.endswith("?") or normalized.startswith(
+        ("what", "why", "how", "which", "where", "when", "can you", "could you")
+    ):
+        return "clarification"
+    return "new_information"
+
+
 class SarvamVoiceBridge:
     """Proxy microphone, transcript, answer, and PCM audio without exposing keys."""
 
@@ -50,6 +88,7 @@ class SarvamVoiceBridge:
         self._tts_lock = asyncio.Lock()
         self._tts_warm_task: asyncio.Task[None] | None = None
         self._send_lock = asyncio.Lock()
+        self._state: VoiceSessionState = VoiceSessionState.IDLE
 
     async def serve(self, client: WebSocket, *, accepted: bool = False) -> None:
         """Serve one browser voice socket until it closes; audio is never stored."""
@@ -145,12 +184,18 @@ class SarvamVoiceBridge:
                 if not speech_confirmed:
                     speech_confirmed = True
                     first_partial_at = perf_counter()
+                    interruption = (
+                        classify_interruption(transcript) if self._active_turn_id is not None else "new_information"
+                    )
                     logger.info(
-                        "voice_stt_first_partial chars=%d latency_ms=%.1f",
+                        "voice_stt_first_partial chars=%d latency_ms=%.1f interruption=%s",
                         len(transcript),
                         (first_partial_at - speech_started_at) * 1000 if speech_started_at else 0,
+                        interruption,
                     )
+                    self._state = VoiceSessionState.INTERRUPTING
                     await self._cancel_active_turn(client)
+                    self._state = VoiceSessionState.LISTENING
                     await self._send(client, {"type": "speech.start"})
                 await self._send(client, {"type": "transcript.partial", "text": transcript})
             elif event_name == "transcript.final" and _meaningful_transcript(transcript):
@@ -186,6 +231,7 @@ class SarvamVoiceBridge:
 
     async def _answer_turn(self, client: WebSocket, context: VoiceTurnContext, transcript: str, turn_id: str) -> None:
         started = perf_counter()
+        self._state = VoiceSessionState.THINKING
         first_token = True
         speech_buffer = ""
         spoken_text = ""
@@ -205,6 +251,7 @@ class SarvamVoiceBridge:
                     piece = str(event.get("text", ""))
                     if first_token:
                         first_token = False
+                        self._state = VoiceSessionState.SPEAKING
                         logger.info(
                             "voice_llm_first_token turn_id=%s latency_ms=%.1f",
                             turn_id,

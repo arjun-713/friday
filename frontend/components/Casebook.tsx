@@ -30,7 +30,9 @@ import {
 import { FridayVoiceClient, type VoiceEvent } from "../lib/voice";
 
 type Message = { id: string; role: "user" | "assistant"; text: string; meta?: string; response?: TroubleshootingResponse };
-type SessionState = "ready" | "connecting" | "listening" | "thinking" | "speaking" | "interrupted";
+// Full-duplex voice states: IDLE (ready), LISTENING, THINKING, SPEAKING,
+// INTERRUPTING, RECOVERING, plus connecting/transient UI states.
+type SessionState = "ready" | "connecting" | "listening" | "thinking" | "speaking" | "interrupting" | "recovering" | "interrupted" | "error";
 type DeviceCategory = "laptop" | "router" | "printer";
 type SessionStatus = "active" | "open" | "resolved";
 type DiagnosticMode = "advance" | "clarify" | "solve" | "abstain";
@@ -406,7 +408,10 @@ export default function Casebook() {
     }
     if (event.type === "speech.start") {
       requestController.current?.abort();
-      setState("listening");
+      // If Friday was speaking, this partial is an explicit interruption.
+      setState((current) => (current === "speaking" ? "interrupting" : "listening"));
+      // Fall through to listening on next partial; interrupting is transient.
+      window.setTimeout(() => setState("listening"), 300);
       return;
     }
     if (event.type === "speech.end") {
@@ -466,14 +471,14 @@ export default function Casebook() {
       setVoiceConnected(false);
       voiceClient.current = null;
       setApiError(event.message);
-      setState("interrupted");
+      setState("error");
       return;
     }
     if (event.type === "voice.closed") {
       voiceClient.current = null;
       setVoiceConnected(false);
       setApiError(event.message);
-      setState("interrupted");
+      setState("recovering");
     }
   }
 
