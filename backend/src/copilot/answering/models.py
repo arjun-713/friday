@@ -6,11 +6,11 @@ from pydantic import BaseModel, Field
 
 
 class TroubleshootingRequest(BaseModel):
-    query: str = Field(min_length=1)
-    manufacturer: str | None = None
-    model: str | None = None
+    query: str = Field(min_length=1, max_length=2000)
+    manufacturer: str | None = Field(default=None, max_length=120)
+    model: str | None = Field(default=None, max_length=160)
     session_id: str = Field(default="default", min_length=1, max_length=128)
-    observation: str | None = Field(default=None, min_length=1)
+    observation: str | None = Field(default=None, min_length=1, max_length=2000)
     selected_option: str | None = Field(default=None, min_length=1, max_length=64)
     regenerate: bool = False
 

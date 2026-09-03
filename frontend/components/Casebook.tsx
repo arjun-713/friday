@@ -136,13 +136,15 @@ function responseText(response: TroubleshootingResponse): string {
       : response.answer ?? "I could not verify a safe next step from the available manuals.");
   // Citations are rendered in the evidence row. Remove citation markers that
   // older/provider-specific response formats may have embedded in prose.
+  // This also strips raw [source:...] markers so they never leak into chat or TTS.
+  const withoutSourceMarkers = raw.replace(/\[source:[^\]]+\]/g, "");
   const withoutInlineCitations = response.citations.reduce((text, citation) => {
     const labels = [
       `[${citation.document_title} · p. ${citation.page} · ${citation.section}]`,
       `[${citation.document_title}, page ${citation.page}]`,
     ];
     return labels.reduce((value, label) => value.replaceAll(label, ""), text);
-  }, raw);
+  }, withoutSourceMarkers);
   return withoutInlineCitations.replace(/[ \t]{2,}/g, " ").trim();
 }
 
@@ -180,6 +182,7 @@ export default function Casebook() {
   const [evidenceOpen, setEvidenceOpen] = useState(false);
   const [navigationOpen, setNavigationOpen] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
   const requestController = useRef<AbortController | null>(null);
   const messageSequence = useRef(0);
   const voiceClient = useRef<FridayVoiceClient | null>(null);
@@ -366,6 +369,23 @@ export default function Casebook() {
     if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
     event.preventDefault();
     event.currentTarget.form?.requestSubmit();
+  }
+
+  async function copyMessage(id: string, text: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedId(id);
+      window.setTimeout(() => setCopiedId((current) => (current === id ? null : current)), 1600);
+    } catch {
+      setApiError("Copy is not available in this browser context.");
+    }
+  }
+
+  function regenerateLatest() {
+    const latestUserMessage = [...messages].reverse().find((message) => message.role === "user");
+    if (!latestUserMessage || state === "thinking") return;
+    // Regenerate reuses the same session without recording a duplicate user turn.
+    void runTroubleshoot(latestUserMessage.text, "", false, { regenerate: true });
   }
 
   function completeAssistant(id: string, response: TroubleshootingResponse) {
@@ -679,6 +699,25 @@ export default function Casebook() {
                         })}</div>}
                         {response.images.length > 0 && <div className="manual-images" aria-label="Figures from the manufacturer manual">{response.images.map((image) => <figure key={image.asset_id}><img src={`${API_BASE_URL}${image.url}`} alt={`${image.document_title}, page ${image.page}`} /><figcaption>{image.document_title} · p. {image.page}</figcaption></figure>)}</div>}
                         {response.citations[0] && <div className="source-line"><Icon name="manual" /><a href={response.citations[0].source_url || "#source"} target="_blank" rel="noreferrer">{response.citations[0].document_title} · p. {response.citations[0].page} · {response.citations[0].section}</a><Icon name="external" /></div>}
+                        {isLatestResponse && (
+                          <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+                            <button
+                              type="button"
+                              onClick={() => void copyMessage(message.id, message.text)}
+                              style={{ fontSize: 11, fontWeight: 700, border: "1px solid var(--border)", borderRadius: 6, background: "var(--surface)", padding: "6px 10px" }}
+                            >
+                              {copiedId === message.id ? "Copied" : "Copy"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={regenerateLatest}
+                              disabled={state === "thinking"}
+                              style={{ fontSize: 11, fontWeight: 700, border: "1px solid var(--border)", borderRadius: 6, background: "var(--surface)", padding: "6px 10px" }}
+                            >
+                              Regenerate
+                            </button>
+                          </div>
+                        )}
                         </div>
                       </div>
                     )}
