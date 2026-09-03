@@ -202,7 +202,7 @@ def test_session_cache_singleflights_concurrent_identical_queries() -> None:
 
 def test_latency_summary_reports_requested_percentiles() -> None:
     summary = latency_summary([1.0, 2.0, 3.0, 4.0, 5.0])
-    assert set(summary) == {"p50_ms", "p70_ms", "p99_ms", "p100_ms", "max_ms"}
+    assert set(summary) == {"p50_ms", "p70_ms", "p95_ms", "p99_ms", "p100_ms", "max_ms"}
     assert summary["max_ms"] == 5.0
 
 

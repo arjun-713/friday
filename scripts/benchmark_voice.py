@@ -265,6 +265,7 @@ def summarize(samples: list[Trial]) -> dict[str, dict[str, float] | int]:
         report[stage] = {
             "count": len(values),
             "p50_ms": round(percentile(values, 50), 3),
+            "p70_ms": round(percentile(values, 70), 3),
             "p95_ms": round(percentile(values, 95), 3),
             "p99_ms": round(percentile(values, 99), 3),
             "p100_ms": round(percentile(values, 100), 3),
