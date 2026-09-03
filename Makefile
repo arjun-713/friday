@@ -2,7 +2,7 @@ PYTHON ?= python
 BACKEND_PYTHONPATH := backend/src
 MODULE := PYTHONPATH=$(BACKEND_PYTHONPATH) $(PYTHON) -m
 
-.PHONY: prepare chunk assets ingest qdrant-up qdrant-down compose-up compose-down index-vectors benchmark-retrieval benchmark-retrieval-optimized benchmark-embedding benchmark-voice export-embedding eval-retrieval eval-retrieval-optimized eval-conversation-policy smoke-text smoke-voice backend-venv
+.PHONY: prepare chunk assets ingest ingest-summary bootstrap qdrant-up qdrant-down compose-up compose-down index-vectors benchmark-retrieval benchmark-retrieval-optimized benchmark-embedding benchmark-voice export-embedding eval-retrieval eval-retrieval-optimized eval-conversation-policy smoke-text smoke-voice backend-venv
 
 # Run after adding or replacing manuals in data/manuals.
 prepare:
@@ -20,6 +20,13 @@ assets:
 
 # Complete RAG ingestion workflow for the current manual corpus.
 ingest: prepare chunk assets
+
+# Verify generated-data state from a clean clone.
+ingest-summary:
+	$(PYTHON) scripts/ingest_summary.py
+
+# Clean bootstrap for new contributors: ingest, verify, then index once Qdrant is up.
+bootstrap: qdrant-up ingest ingest-summary index-vectors
 
 qdrant-up:
 	docker compose -f docker-compose.qdrant.yml up -d qdrant
