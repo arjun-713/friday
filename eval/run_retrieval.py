@@ -142,6 +142,9 @@ async def run(
                     "recall_at_5": len(relevant_hits) / len(case.acceptable_chunk_ids)
                     if case.acceptable_chunk_ids
                     else None,
+                    "precision_at_5": len(relevant_hits) / len(retrieved_ids)
+                    if retrieved_ids
+                    else 0.0,
                     "reciprocal_rank": 1 / first_relevant_rank
                     if first_relevant_rank
                     else 0.0,
@@ -150,6 +153,25 @@ async def run(
                     "citation_ready_hit_rate": len(citation_ready) / len(result.hits)
                     if result.hits
                     else 0.0,
+                    "citation_precision_at_5": len(
+                        [
+                            hit
+                            for hit in result.hits
+                            if hit.id in relevant_hits and hit in citation_ready
+                        ]
+                    )
+                    / len(citation_ready)
+                    if citation_ready
+                    else 0.0,
+                    "citation_completeness": 1.0
+                    if (
+                        not case.acceptable_chunk_ids
+                        or relevant_hits & {hit.id for hit in citation_ready}
+                    )
+                    else 0.0,
+                    "procedure_order_correct": _procedure_order_correct(
+                        case, result.hits
+                    ),
                     "timings_ms": {**result.timings_ms, "wall_clock_ms": wall_clock_ms},
                     "diagnostics": result.diagnostics,
                     "failure_reason": _failure_reason(
@@ -229,6 +251,23 @@ def _failure_reason(
     return None
 
 
+def _procedure_order_correct(case: RetrievalCase, hits: list[Any]) -> float | None:
+    """Check page-order preservation for procedure questions (deterministic proxy)."""
+
+    if case.question_type != "procedure" or not case.expected_pages:
+        return None
+    retrieved_pages = [
+        hit.payload.get("page")
+        for hit in hits
+        if isinstance(hit.payload.get("page"), int)
+    ]
+    if not retrieved_pages:
+        return 0.0
+    # Procedure evidence should appear in ascending page order when multiple
+    # pages are retrieved; single-page hits trivially preserve order.
+    return 1.0 if retrieved_pages == sorted(retrieved_pages) else 0.0
+
+
 def _report(
     cases: list[RetrievalCase],
     rows: list[dict[str, Any]],
@@ -294,12 +333,34 @@ def _report(
         },
         "metrics": {
             "recall_at_5": _mean(row["recall_at_5"] for row in labeled),
+            "precision_at_5": _mean(
+                row["precision_at_5"] for row in rows if not row["should_abstain"]
+            ),
             "mrr": _mean(row["reciprocal_rank"] for row in labeled),
             "abstention_accuracy": _mean(
                 float(row["abstention_correct"]) for row in rows
             ),
+            "unsupported_claim_rate": 1.0
+            - _mean(
+                float(row["abstention_correct"])
+                for row in rows
+                if row["should_abstain"]
+            )
+            if any(row["should_abstain"] for row in rows)
+            else 0.0,
             "citation_ready_hit_rate": _mean(
                 row["citation_ready_hit_rate"] for row in supported
+            ),
+            "citation_precision_at_5": _mean(
+                row["citation_precision_at_5"] for row in supported
+            ),
+            "citation_completeness": _mean(
+                row["citation_completeness"] for row in supported
+            ),
+            "procedure_order_accuracy": _mean(
+                row["procedure_order_correct"]
+                for row in rows
+                if row["procedure_order_correct"] is not None
             ),
             "latency_ms": latency_summary(timings),
             "component_latency_ms": component_latency,
