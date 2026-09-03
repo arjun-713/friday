@@ -8,7 +8,29 @@ __pycache__/
 .ruff_cache/
 node_modules/
 .next/
+.turbo/
+.npm/
 .env
+*.env
+!.env.example
+
+# Local design-tool state and generated visual-audit output.
+.impeccable/
+
+# Test, benchmark, coverage, and runtime output.
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+*.log
+data/benchmarks/
+data/reports/
+data/voice_benchmark/*.json
+
+# Local model and framework caches.
+.cache/
+hf_cache/
+models--*/
 data/raw/
 data/cleaned/
 data/index/

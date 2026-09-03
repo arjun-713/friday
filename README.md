@@ -1,130 +1,229 @@
-# Full-Duplex Troubleshooting Copilot
+# Friday
 
-Evidence-grounded troubleshooting for the manuals in `data/manuals`. Friday keeps
-each troubleshooting session scoped to a supported device, retrieves manufacturer
-evidence, gives one verified diagnostic check at a time, and retains confirmed
-results for the next turn.
+Friday is an evidence-grounded troubleshooting copilot for laptops, desktops,
+Wi-Fi routers, and printers. A user describes what stopped working in natural
+language; Friday searches the relevant manufacturer manuals, preserves the
+diagnostic context, and returns the safest useful next check with a document,
+page, and section citation.
 
-## Layout
+It is designed for two people: an everyday device owner who needs clear,
+practical guidance, and a new support technician who wants to learn a reliable,
+source-backed troubleshooting process.
+
+## Why this project exists
+
+Troubleshooting advice is often either too generic or impossible to verify.
+Friday treats the manual as the source of truth and makes the evidence visible
+alongside the conversation. If the local corpus cannot support a safe answer,
+the system abstains instead of inventing a repair step.
+
+The core interaction is deliberately small:
 
 ```text
-backend/       FastAPI service and ingestion domain
-frontend/      Next.js conversational troubleshooting interface
-data/          local runtime directories; source files are ignored
-docs/          phase boundaries and ingestion contract
-tests/         backend unit tests
+describe the symptom → find the matching evidence → take one safe check → report the result
 ```
+
+## What is implemented
+
+- Official-manual corpus covering 24 public manufacturer documents across
+  computers, routers, and printers.
+- PDF inspection and native text parsing with page-aware source metadata.
+- Deterministic cleanup for repeated headers, footers, broken lines, and layout
+  noise while retaining citation coordinates in the raw representation.
+- Structure-aware chunk generation for sections, procedures, parent/child
+  context, troubleshooting tables, and exact identifiers such as error codes.
+- Hybrid retrieval combining Qdrant vector search, local Granite embeddings,
+  BM25 lexical search, exact-identifier lookup, metadata filters, rank fusion,
+  and parent-context expansion.
+- Local persistent Qdrant storage behind a small vector-index abstraction.
+- LiteLLM answer layer with provider-selectable streaming chat completions.
+- Structured troubleshooting state that carries the selected device,
+  observations, completed checks, and current diagnostic step across turns.
+- Citation-aware answers and explicit unsupported-question handling.
+- Next.js landing page and troubleshooting casebook interface.
+- Sarvam Saaras realtime STT and Bulbul streaming TTS integration for the voice
+  path, including cancellation hooks for interruption handling.
+- Retrieval and conversation-policy evaluation suites with Recall@5, MRR,
+  citation coverage, abstention accuracy, latency percentiles, and diagnostic
+  interaction checks.
+
+## Architecture
+
+```text
+                    public manufacturer manuals
+                                  │
+             inspect → parse → clean → structure-aware chunks
+                                  │
+                 ┌────────────────┴────────────────┐
+                 │                                 │
+          BM25 / exact IDs                  Granite embeddings
+                 │                                 │
+                 └──────────────┬──────────────────┘
+                                │
+                 Qdrant + rank fusion + parent context
+                                │
+                    cited evidence or abstention
+                                │
+                    LiteLLM streaming answer layer
+                                │
+               Next.js text UI / Sarvam voice interface
+```
+
+The service boundaries are intentionally independent:
+
+- `backend/src/copilot/ingestion` owns parsing, metadata, cleaning, assets, and
+  chunk generation.
+- `backend/src/copilot/retrieval` owns lexical search, embeddings, Qdrant,
+  caching, indexing, and retrieval metrics.
+- `backend/src/copilot/answering` owns provider calls, prompts, diagnostic
+  state, tools, and citations.
+- `backend/src/copilot/voice` owns the Sarvam STT/TTS bridge and timing hooks.
+- `frontend/app` contains the public landing page and the interactive casebook.
+
+## Technology
+
+| Area | Implementation |
+| --- | --- |
+| Frontend | Next.js, React, TypeScript |
+| API | FastAPI, Pydantic |
+| Retrieval store | Qdrant with persistent local storage |
+| Dense retrieval | Granite embedding model with optional AVX2 INT8 ONNX runtime |
+| Lexical retrieval | BM25 and exact identifier matching |
+| LLM gateway | LiteLLM with provider configuration in YAML |
+| Voice | Sarvam Saaras realtime STT and Bulbul streaming TTS |
+| Documents | Firecrawl `pdf-inspector`, native page-aware parsing |
+| Runtime | Docker Compose or local Python/Node processes |
+| Quality | pytest, mypy, Ruff, GitHub Actions, deterministic evals |
 
 ## Run locally
 
+The repository keeps secrets in `backend/.env`; non-secret runtime settings are
+in `backend/config.yml`.
+
 ```bash
+cp backend/.env.example backend/.env
+# Add the provider keys you want to use to backend/.env.
+
 make qdrant-up
 make backend-venv
-
-cp backend/.env.example backend/.env
-# Add SARVAM_API_KEY to backend/.env when using Sarvam conversation or voice.
-
-PYTHONPATH=backend/src backend/.venv/bin/uvicorn copilot.main:app --reload --port 8000
-# In a second terminal:
-cd frontend && npm install && npm run dev
 ```
 
-The frontend is served on `http://localhost:3000`; the FastAPI service is served
-on `http://localhost:8000`. `/health` and `/v1/devices` do not require an LLM
-call. The latter is the authoritative supported-device catalog generated from
-the source registry, so the interface cannot select a made-up model.
+Start the API in one terminal:
 
-## Run the full stack with Docker Compose
+```bash
+PYTHONPATH=backend/src backend/.venv/bin/uvicorn copilot.main:app --reload --port 8000
+```
 
-Docker Compose starts the Next.js frontend, FastAPI backend, and persistent
-Qdrant instance together. Secrets remain only in `backend/.env`.
+Start the frontend in another:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000). The casebook is available
+at [http://localhost:3000/app](http://localhost:3000/app), the API health check
+is at [http://localhost:8000/health](http://localhost:8000/health), and Qdrant
+runs at `http://localhost:6333`.
+
+### Docker Compose
 
 ```bash
 cp backend/.env.example backend/.env
-# Add SARVAM_API_KEY only when you want Sarvam conversation or voice.
+# Add API keys to backend/.env when using a hosted LLM or Sarvam voice.
 
-docker compose up --build
+docker compose up -d
 ```
 
-Open `http://localhost:3000`. The API is available at `http://localhost:8000`
-and Qdrant is available at `http://localhost:6333`. Use `docker compose down`
-to stop the stack; Qdrant data remains in the named `qdrant_storage` volume.
+This starts the frontend, FastAPI backend, and persistent Qdrant service on
+ports `3000`, `8000`, and `6333`. The existing index is not rebuilt on startup.
+To stop the stack:
 
-The stack deliberately does not re-embed or overwrite an existing index at
-startup. After a fresh Qdrant volume or regenerated chunks, run this once in a
-second terminal:
+```bash
+docker compose down
+```
+
+After creating a new Qdrant volume or regenerating chunks, index the current
+vector-retrieval chunks once:
 
 ```bash
 docker compose run --rm backend python -m copilot.retrieval.indexer
 ```
 
-The backend receives `QDRANT_URL=http://qdrant:6333` only inside Compose. Local
-commands retain the default `http://localhost:6333` endpoint.
+## Rebuild the document pipeline
 
-The ingestion adapter uses Firecrawl's local `pdf-inspector` bindings for PDF
-classification, per-page Markdown, and positioned text. It records OCR-required
-pages but does not run OCR yet. Native parsing, deterministic text cleanup,
-structure-aware chunking, BM25, vector search, and raw-page rendering are in
-place.
-
-Parsed outputs mirror the source taxonomy under `data/raw/{computers,routers,printers}`. Re-run the text-only parser with:
+After adding or replacing PDFs under `data/manuals`, run:
 
 ```bash
-PYTHONPATH=backend/src python -m copilot.ingestion.parsing.text_only
+make prepare   # native parse, metadata registry, deterministic cleanup
+make chunk     # structure-aware retrieval chunks
+make assets    # optional content-addressed manual figures
+make index-vectors
 ```
 
-The active corpus path is native-only parsing for all PDFs, including mixed PDFs. It does not run OCR:
+Or run the complete workflow:
 
 ```bash
-PYTHONPATH=backend/src python -m copilot.ingestion.parsing.native
+make ingest
 ```
 
-## LiteLLM answer layer
+The active path is text-only native parsing. Mixed PDFs are classified and
+their OCR-required pages are recorded, but OCR is intentionally deferred so
+the default workflow remains reliable on a CPU-only development laptop.
 
-The text endpoint uses the non-secret settings in `backend/config.yml` and reads API keys only from the ignored `backend/.env` file. Keep secrets out of YAML and Git. The default configuration targets Sarvam's OpenAI-compatible Conversations endpoint:
+## Evaluation
+
+Retrieval evaluation is deterministic and kept separate from application code:
 
 ```bash
-cp backend/.env.example backend/.env
-# Edit backend/.env and add SARVAM_API_KEY.
+make eval-retrieval
+make eval-retrieval-optimized
+make eval-conversation-policy
 ```
 
-The backend sends only retrieved evidence to the model. Responses must cite a retrieved chunk; the server expands that marker into the document title, page, and section, and abstains when the model returns `UNSUPPORTED` or an unknown citation. Provider failures are returned as service-unavailable errors without logging credentials or prompt contents.
+The retrieval benchmark reports Recall@5, MRR, citation-ready hit rate,
+abstention accuracy, and P50/P70/P99/max retrieval latency. The conversation
+policy benchmark checks that the assistant preserves durable observations,
+avoids needless repeated checks, gives a concrete next action, explains why it
+matters, and abstains when the corpus cannot support a safe answer.
 
-## Voice interaction
-
-Voice is a persistent browser-to-backend WebSocket at `/v1/voice`. One click
-opens microphone capture and keeps the session listening: Saaras v3 Realtime
-returns partial and final transcripts, each final transcript starts the same
-retrieval-and-answer turn used by typed chat, and Bulbul v3 streams the approved
-diagnostic instruction as PCM audio. The transcript remains in the conversation
-after playback. On `vad.speech_start`, Friday cancels the active answer/TTS and
-clears queued browser audio before listening to the new turn.
-
-The configured formats are 16 kHz PCM16 for microphone input and 24 kHz PCM16
-for playback. API credentials remain backend-only in `backend/.env`; raw user
-audio is forwarded for the live turn and is not stored by Friday.
-
-### Manual voice check
-
-With Qdrant, the API, and the frontend running on their fixed local ports, select
-a supported device, start voice once, and describe a symptom. Friday should show
-partial text while listening, add the final transcript as your message, return one
-cited diagnostic choice, and begin speaking it. Start talking while playback is
-active: audio should stop and the new final transcript should begin the next turn.
-Stopping voice preserves any partial transcript in the composer for typed review.
-
-Create auditable cleaned output without changing the raw JSON:
+Run the automated checks with:
 
 ```bash
-PYTHONPATH=backend/src python -m copilot.ingestion.cleaning.runner
+pytest
+mypy backend/src
+ruff check .
+ruff format --check .
 ```
 
-Extract manual figures and build the local content-addressed image registry after chunking:
+## Design constraints
 
-```bash
-make assets
-```
+Friday follows a few non-negotiable rules:
 
-The registry is written to `data/assets/image_manifest.json` and the binaries to `data/assets/images/`. Each image is stored once by SHA-256 and records document, page, and matching chunk IDs. These generated assets are intentionally ignored by Git and can be recreated from the source PDFs.
+1. Every technical instruction must be traceable to a document, page, and
+   section.
+2. The assistant asks for missing observations instead of silently assuming
+   them.
+3. It gives one safe, useful diagnostic move at a time, while allowing the
+   model to decide whether the next turn should solve, advance, clarify, or
+   abstain.
+4. Warnings, prerequisites, and procedure order remain part of the evidence.
+5. Direct lookups stay on hybrid retrieval; graph traversal is reserved for
+   genuinely relational, multi-hop diagnosis.
+6. Raw user audio is not stored by default.
 
-Cleaned JSON is retrieval-oriented. It removes layout-only formatting and boilerplate, excludes contents/empty/duplicate pages from future chunking without renumbering them, and records every removal. Positioned spans remain in `data/raw` and are referenced by source file plus page number instead of being duplicated in `data/cleaned`.
+Medical, automotive, aviation, high-voltage equipment, autonomous repair, and
+unverified community advice are outside the project scope.
+
+## Current status
+
+The local ingestion, chunking, vector indexing, hybrid retrieval, cited text
+answering, evaluation harness, Docker runtime, and frontend casebook are in
+place. Voice transport and provider response quality still depend on the
+configured external API keys and require representative end-to-end latency
+measurement before production claims are made.
+
+The next engineering focus is hardening the end-to-end conversation and voice
+experience while keeping retrieval local, observable, and independently
+benchmarkable.
