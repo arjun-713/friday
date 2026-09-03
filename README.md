@@ -219,10 +219,13 @@ unverified community advice are outside the project scope.
 ## Current status
 
 The local ingestion, chunking, vector indexing, hybrid retrieval, cited text
-answering, evaluation harness, Docker runtime, and frontend casebook are in
+answering, evaluation harness, Docker runtime, and frontend landing plus casebook are in
 place. Voice transport and provider response quality still depend on the
 configured external API keys and require representative end-to-end latency
 measurement before production claims are made.
+
+Deferred by design: OCR on mixed-PDF pages, production image filtering, speculative
+retrieval on partial transcripts, and GraphRAG. See `docs/runtime-boundaries.md`.
 
 The next engineering focus is hardening the end-to-end conversation and voice
 experience while keeping retrieval local, observable, and independently

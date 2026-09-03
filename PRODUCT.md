@@ -8,7 +8,7 @@ web
 
 ## Stack
 
-Next.js frontend with a FastAPI backend. The frontend must support text and voice interaction equally; the backend currently exposes the text-only troubleshooting endpoint at `/v1/troubleshoot`.
+Next.js frontend with a FastAPI backend. The frontend serves a landing page at `/` and the casebook at `/app`; both text and voice use the same troubleshooting pipeline. The backend exposes `/v1/troubleshoot` and `/v1/troubleshoot/stream`.
 
 ## Users
 
