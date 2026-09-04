@@ -1,10 +1,13 @@
 """Safe text-only answer orchestration over the hybrid retriever."""
 
+import logging
 from collections.abc import AsyncIterator, Sequence
+from time import perf_counter
 from typing import Protocol
 
 from ..ingestion.assets.images import images_for_chunks
 from ..ingestion.models import DocumentChunk
+from ..observability import trace_event
 from ..retrieval.cache import RetrievalSessionCache
 from ..retrieval.contracts import EmbeddingProvider, MetadataFilter, VectorHit, VectorIndex
 from ..retrieval.hybrid import LexicalRetriever
@@ -24,6 +27,8 @@ from .models import (
 )
 from .session import DiagnosticSessionStore
 from .tools import AgentToolExecutor, AgentToolResult
+
+logger = logging.getLogger(__name__)
 
 
 class AnswerGenerator(Protocol):
@@ -311,6 +316,15 @@ class TroubleshootingService:
     async def stream_answer(self, request: TroubleshootingRequest) -> AsyncIterator[dict[str, object]]:
         """Stream provider tokens while keeping the final response contract strict."""
 
+        turn_started = perf_counter()
+        trace_event(
+            logger,
+            "turn_started",
+            turn_id=request.session_id,
+            started=turn_started,
+            query_chars=len(request.query),
+        )
+
         state = (
             self.session_store.get(request.session_id)
             if request.regenerate
@@ -331,6 +345,15 @@ class TroubleshootingService:
             diversify=True,
             include_diagnostics=True,
             abstention_dense_threshold=None,
+        )
+        trace_event(
+            logger,
+            "retrieval_complete",
+            turn_id=request.session_id,
+            started=turn_started,
+            hit_count=len(result.hits),
+            abstained=result.abstained,
+            timings_ms=result.timings_ms,
         )
         retrieval = RetrievalSummary(abstained=result.abstained, reason=result.reason, timings_ms=result.timings_ms)
         yield {"type": "retrieval", "retrieval": retrieval.model_dump()}
@@ -373,8 +396,18 @@ class TroubleshootingService:
             conversation_evidence = [item.model_copy(update={"content": item.content[:2200]}) for item in evidence[:3]]
             pieces: list[str] = []
             try:
+                token_sequence = 0
                 async for piece in stream_conversation(request.query, conversation_evidence, state):
+                    token_sequence += 1
                     pieces.append(piece)
+                    trace_event(
+                        logger,
+                        "llm_stream_piece",
+                        turn_id=request.session_id,
+                        started=turn_started,
+                        sequence=token_sequence,
+                        chars=len(piece),
+                    )
                     yield {"type": "token", "text": piece}
             except (UnsupportedAnswerError, InvalidAnswerError):
                 pieces = []
@@ -408,6 +441,14 @@ class TroubleshootingService:
                 citations=[item.citation for item in conversation_evidence],
             )
             self.session_store.save(state)
+            trace_event(
+                logger,
+                "turn_complete",
+                turn_id=request.session_id,
+                started=turn_started,
+                response_chars=len(answer),
+                status=response.status,
+            )
             yield {"type": "complete", "response": response.model_dump()}
             return
         try:

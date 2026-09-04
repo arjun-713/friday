@@ -13,6 +13,7 @@ from time import perf_counter
 from typing import Any, Literal, cast
 
 from ..config import config_section, load_runtime_config
+from ..observability import trace_event
 from ..prompts import build_conversation_messages, build_messages
 from .models import (
     DecisionBasis,
@@ -257,15 +258,27 @@ class LiteLLMAnswerGenerator:
     ) -> AsyncIterator[str]:
         """Stream one grounded natural-language reply without planner JSON."""
 
+        started = perf_counter()
+        trace_event(logger, "llm_stream_started", started=started, query_chars=len(query), evidence_count=len(evidence))
         response = await self._complete_messages(
             build_conversation_messages(query, evidence, state),
             stream=True,
             structured=False,
         )
+        sequence = 0
         async for chunk in response:
             text = _stream_text(chunk)
             if text:
+                sequence += 1
+                trace_event(
+                    logger,
+                    "llm_provider_piece",
+                    started=started,
+                    sequence=sequence,
+                    chars=len(text),
+                )
                 yield text
+        trace_event(logger, "llm_stream_complete", started=started, pieces=sequence)
 
     async def _generate_agent_turn(
         self,
@@ -401,7 +414,8 @@ class LiteLLMAnswerGenerator:
             if not api_key:
                 raise AnswerProviderUnavailable("configured LLM provider has no API key")
             request["api_key"] = api_key
-            request["extra_headers"] = {"api-subscription-key": api_key}
+            if "sarvam" in self.settings.model.casefold():
+                request["extra_headers"] = {"api-subscription-key": api_key}
         if structured and self.settings.response_format:
             request["response_format"] = _response_format(self.settings.response_format)
         if tools:

@@ -52,10 +52,10 @@ def test_runtime_yaml_contains_non_secret_provider_settings() -> None:
     stt = SarvamRealtimeSettings.from_env()
     tts = SarvamTTSSettings.from_env()
 
-    assert llm.model == "groq/openai/gpt-oss-120b"
-    assert llm.api_base == "https://api.groq.com/openai/v1"
-    assert llm.api_key_env == "GROQ_API_KEY"
-    assert llm.reasoning_effort == "low"
+    assert llm.model == "openai/gpt-5.6-luna"
+    assert llm.api_base is None
+    assert llm.api_key_env == "OPENAI_API_KEY"
+    assert llm.reasoning_effort == "none"
     assert llm.response_format == "json_object"
     assert stt.model == "saaras:v3-realtime"
     assert tts.model == "bulbul:v3"

@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -26,6 +27,12 @@ from .retrieval.granite import GraniteEmbeddingProvider
 from .retrieval.indexer import load_vector_chunks
 from .retrieval.qdrant import QdrantSettings, QdrantVectorIndex
 from .voice.bridge import SarvamVoiceBridge
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    datefmt="%Y-%m-%dT%H:%M:%S%z",
+)
 
 
 @asynccontextmanager

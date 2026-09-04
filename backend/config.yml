@@ -3,9 +3,8 @@
 
 llm:
   enabled: true
-  model: groq/openai/gpt-oss-120b
-  api_base: https://api.groq.com/openai/v1
-  api_key_env: GROQ_API_KEY
+  model: openai/gpt-5.6-luna
+  api_key_env: OPENAI_API_KEY
   temperature: 0.2
   # Diagnostic turns are intentionally concise: the UI renders the action and
   # evidence separately, so a large completion budget only increases latency.
@@ -22,9 +21,9 @@ llm:
   prompt_cache_enabled: true
   prompt_cache_key: friday-grounded-conversation
   prompt_cache_retention: in_memory
-  # GPT-OSS supports low as its minimum reasoning mode. This avoids the
-  # default medium reasoning pass on short conversational troubleshooting turns.
-  reasoning_effort: low
+  # Luna supports explicit reasoning control. Keep it off for the interactive
+  # troubleshooting path so visible output can start as soon as possible.
+  reasoning_effort: none
 
 voice:
   stt:
