@@ -10,7 +10,11 @@ from friday.answering.models import (
     ObservationRequest,
     TroubleshootingRequest,
 )
-from friday.answering.session import DiagnosticSessionStore, SqliteDiagnosticSessionStore
+from friday.answering.session import (
+    DiagnosticSessionStore,
+    SqliteDiagnosticSessionStore,
+    repeated_actions_in_response,
+)
 
 
 def test_sqlite_session_store_survives_reopen(tmp_path: Path) -> None:
@@ -106,3 +110,97 @@ def test_session_store_preserves_fact_transition_after_recheck_action() -> None:
     assert [event.value for event in history] == ["blinking amber", "white"]
     assert history[-1].previous_value == "blinking amber"
     assert history[-1].observed_after_action_id == "turn-before-reconnect:action"
+
+
+def test_session_store_records_completed_action_when_observation_arrives() -> None:
+    store = DiagnosticSessionStore()
+    state = DiagnosticSessionState(session_id="router-actions")
+    store.apply_turn(
+        state,
+        DiagnosticTurn(
+            turn_id="turn-power-cycle",
+            mode="advance",
+            response="Restart the modem and router in order.",
+            next_action=DiagnosticAction(
+                instruction="Power off the modem and router, then power on the modem first.",
+                why="This checks whether the upstream connection is restored before the router starts.",
+            ),
+            observation_request=ObservationRequest(
+                request_id="wan-light-after-restart",
+                fact_key="wan_light",
+                question="What does the WAN light show after the restart?",
+            ),
+            decision_basis=DecisionBasis(
+                why_not_solved="The router has power, but upstream connectivity is still unknown.",
+                discriminates_between=["upstream outage", "router WAN issue"],
+                expected_discrimination="A restored WAN light indicates the upstream connection returned.",
+            ),
+            source_ids=["manual-1"],
+        ),
+    )
+    store.save(state)
+
+    state = store.record_turn(
+        TroubleshootingRequest(
+            query="The router is back on and the WAN light is still off.",
+            observation="WAN light still off",
+            session_id="router-actions",
+        )
+    )
+
+    assert state.completed_actions == ["POWER_CYCLE_MODEM_ROUTER"]
+    assert state.completed_steps == ["wan-light-after-restart"]
+
+
+def test_session_store_retains_initial_user_report_for_conversational_turns() -> None:
+    store = DiagnosticSessionStore()
+    state = store.record_turn(
+        TroubleshootingRequest(
+            query="My router has Wi-Fi but no internet.",
+            session_id="router-report",
+        )
+    )
+
+    assert state.user_reports == ["My router has Wi-Fi but no internet."]
+
+    next_state = store.record_turn(
+        TroubleshootingRequest(
+            query="The WAN light is off.",
+            session_id="router-report",
+        )
+    )
+    assert next_state.user_reports == [
+        "My router has Wi-Fi but no internet.",
+        "The WAN light is off.",
+    ]
+
+
+def test_session_store_normalizes_explicit_completed_operations_from_reports() -> None:
+    store = DiagnosticSessionStore()
+    state = store.record_turn(
+        TroubleshootingRequest(
+            query="The Ethernet cable is firmly connected between the modem and the router WAN port.",
+            session_id="router-normalization",
+        )
+    )
+    state = store.record_turn(
+        TroubleshootingRequest(
+            query="I power-cycled the modem and the router is powered back on.",
+            session_id="router-normalization",
+        )
+    )
+
+    assert set(state.completed_actions) == {
+        "CHECK_WAN_CABLE",
+        "POWER_CYCLE_MODEM",
+        "POWER_CYCLE_ROUTER",
+    }
+
+
+def test_repeated_actions_are_reported_for_conversational_quality_metrics() -> None:
+    repeated = repeated_actions_in_response(
+        "Power off the modem and router again, then power on the modem first.",
+        ["POWER_CYCLE_MODEM", "POWER_CYCLE_ROUTER", "CHECK_WAN_CABLE"],
+    )
+
+    assert repeated == ["POWER_CYCLE_MODEM", "POWER_CYCLE_ROUTER"]

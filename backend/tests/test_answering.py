@@ -15,8 +15,13 @@ from friday.answering.litellm import (
     _mark_cacheable_prefix,
     _prompt_cache_mode,
 )
-from friday.answering.models import DiagnosticSessionState, DiagnosticStep, TroubleshootingRequest
-from friday.answering.service import TroubleshootingService, _assemble_evidence, _relevant_evidence
+from friday.answering.models import DiagnosticFact, DiagnosticSessionState, DiagnosticStep, TroubleshootingRequest
+from friday.answering.service import (
+    TroubleshootingService,
+    _assemble_evidence,
+    _relevant_evidence,
+    _retrieval_query,
+)
 from friday.ingestion.models import ChunkKind, DocumentChunk, Evidence, RetrievalProfile, SourceDocument
 from friday.main import _runtime_path, app, get_troubleshooting_service
 from friday.retrieval.contracts import MetadataFilter, VectorHit
@@ -1043,3 +1048,29 @@ def test_step_citation_display_deduplicates_identical_manual_locations() -> None
 
     assert expanded.instruction == "Check the connection."
     assert expanded.source_ids == ["child-1", "child-duplicate"]
+
+
+def test_retrieval_query_carries_state_constraints_into_next_branch() -> None:
+    state = DiagnosticSessionState(session_id="router-query")
+    state.facts["wan_light"] = DiagnosticFact(
+        key="wan_light",
+        value="off",
+        label="WAN light",
+        raw="The WAN light is off.",
+    )
+    state.completed_actions = ["POWER_CYCLE_MODEM_ROUTER", "CHECK_WAN_CABLE"]
+    state.ruled_out_causes = ["modem connectivity"]
+
+    query = _retrieval_query(
+        TroubleshootingRequest(
+            query="What should I try next?",
+            manufacturer="TP-Link",
+            model="Archer C6",
+        ),
+        state,
+    )
+
+    assert "WAN light: off" in query
+    assert "POWER_CYCLE_MODEM_ROUTER" in query
+    assert "CHECK_WAN_CABLE" in query
+    assert "modem connectivity" in query

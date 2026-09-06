@@ -46,6 +46,7 @@ class DiagnosticSessionStore:
         # interpret a result.  The store only retains the raw report and the
         # current question it belongs to so it cannot be forgotten.
         observation = _submitted_observation(state, request)
+        prior_action = state.current_turn.next_action if state.current_turn else None
         has_explicit_option = request.selected_option is not None
         state.last_turn_was_acknowledgement = bool(
             observation
@@ -56,6 +57,10 @@ class DiagnosticSessionStore:
         state.pending_observation = None if state.last_turn_was_acknowledgement else observation or None
         state.pending_option_id = request.selected_option
         if observation and state.current_request is not None and not state.last_turn_was_acknowledgement:
+            if prior_action is not None:
+                action_key = _normalize_action(prior_action.instruction)
+                if action_key and action_key not in state.completed_actions:
+                    state.completed_actions.append(action_key)
             if state.current_request.request_id not in state.completed_steps:
                 state.completed_steps.append(state.current_request.request_id)
             # Preserve a human-readable audit trail while the LLM turns the
@@ -67,6 +72,17 @@ class DiagnosticSessionStore:
             state.observations[state.current_step_id] = observation
             if state.current_step_id not in state.completed_steps:
                 state.completed_steps.append(state.current_step_id)
+        if (
+            observation
+            and not state.last_turn_was_acknowledgement
+            and not state.current_request
+            and not state.current_step_id
+            and observation not in state.user_reports
+        ):
+            state.user_reports.append(observation)
+        for action_key in _completed_actions_from_report(observation or ""):
+            if action_key not in state.completed_actions:
+                state.completed_actions.append(action_key)
         return state
 
     def apply_turn(self, state: DiagnosticSessionState, turn: DiagnosticTurn) -> None:
@@ -101,6 +117,10 @@ class DiagnosticSessionStore:
             if cause not in state.ruled_out_causes:
                 state.ruled_out_causes.append(cause)
         state.current_turn = turn
+        if turn.next_action is not None:
+            state.current_next_branch = turn.next_action.instruction
+        else:
+            state.current_next_branch = None
         state.current_request = turn.observation_request
         state.current_step_id = turn.observation_request.request_id if turn.observation_request else None
         state.current_step = None
@@ -122,6 +142,67 @@ def _action_id(turn: DiagnosticTurn | None) -> str | None:
     if turn is None or turn.next_action is None:
         return None
     return f"{turn.turn_id}:action"
+
+
+def _normalize_action(instruction: str) -> str:
+    """Create a compact, stable action label for repeat suppression and logs."""
+
+    normalized = " ".join(instruction.lower().split())
+    patterns = (
+        ("POWER_CYCLE_MODEM_ROUTER", ("power off", "modem", "router")),
+        ("POWER_CYCLE_MODEM", ("power off", "modem")),
+        ("POWER_CYCLE_ROUTER", ("power off", "router")),
+        ("CHECK_WAN_CABLE", ("ethernet", "wan port")),
+        ("CHECK_WAN_STATUS", ("wan", "status")),
+        ("CHECK_WAN_TYPE", ("connection type",)),
+        ("RENEW_DHCP", ("renew", "connection")),
+        ("CHECK_MAC_CLONE", ("mac", "clone")),
+        ("TEST_MODEM_DIRECT", ("direct", "modem")),
+        ("CONTACT_ISP", ("contact", "internet provider")),
+    )
+    for action_id, terms in patterns:
+        if all(term in normalized for term in terms):
+            return action_id
+    return normalized[:160]
+
+
+def _completed_actions_from_report(report: str) -> set[str]:
+    """Recognize explicit completed operations without choosing next steps."""
+
+    normalized = " ".join(report.lower().split())
+    actions: set[str] = set()
+    if ("power-cycl" in normalized or "restarted" in normalized or "restart" in normalized) and "modem" in normalized:
+        actions.add("POWER_CYCLE_MODEM")
+    if (
+        ("power-cycl" in normalized or "restarted" in normalized or "restart" in normalized or "powered back on" in normalized)
+        and "router" in normalized
+    ):
+        actions.add("POWER_CYCLE_ROUTER")
+    if "ethernet" in normalized and "wan" in normalized and ("connected" in normalized or "firmly" in normalized):
+        actions.add("CHECK_WAN_CABLE")
+    if "direct" in normalized and "modem" in normalized and ("works" in normalized or "working" in normalized):
+        actions.add("TEST_MODEM_DIRECT")
+    if "renew" in normalized and ("connection" in normalized or "dhcp" in normalized):
+        actions.add("RENEW_DHCP")
+    return actions
+
+
+def repeated_actions_in_response(response: str, completed_actions: list[str]) -> list[str]:
+    """Find completed operations that a new assistant reply recommends again."""
+
+    normalized = " ".join(response.lower().split())
+    phrases = {
+        "POWER_CYCLE_MODEM": ("power off", "modem"),
+        "POWER_CYCLE_ROUTER": ("power off", "router"),
+        "CHECK_WAN_CABLE": ("ethernet", "wan"),
+        "TEST_MODEM_DIRECT": ("connect", "direct", "modem"),
+        "RENEW_DHCP": ("renew", "connection"),
+    }
+    return [
+        action_id
+        for action_id in completed_actions
+        if action_id in phrases and all(term in normalized for term in phrases[action_id])
+    ]
 
 
 def _submitted_observation(state: DiagnosticSessionState, request: TroubleshootingRequest) -> str:

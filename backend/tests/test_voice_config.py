@@ -56,6 +56,7 @@ def test_runtime_yaml_contains_non_secret_provider_settings() -> None:
     assert llm.api_base is None
     assert llm.api_key_env == "OPENAI_API_KEY"
     assert llm.reasoning_effort == "none"
+    assert llm.api_mode == "chat_completions"
     assert llm.response_format == "json_object"
     assert stt.model == "saaras:v3-realtime"
     assert tts.model == "bulbul:v3"

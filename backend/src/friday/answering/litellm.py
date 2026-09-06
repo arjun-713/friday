@@ -63,6 +63,10 @@ class LiteLLMSettings:
     prompt_cache_enabled: bool = True
     prompt_cache_key: str = "friday-grounded-conversation"
     prompt_cache_retention: str | None = None
+    prompt_cache_ttl: str | None = None
+    verbosity: str | None = None
+    service_tier: str | None = None
+    api_mode: str = "chat_completions"
 
     @classmethod
     def from_env(cls) -> LiteLLMSettings:
@@ -84,6 +88,10 @@ class LiteLLMSettings:
             prompt_cache_retention=(
                 str(values["prompt_cache_retention"]) if values.get("prompt_cache_retention") else None
             ),
+            prompt_cache_ttl=str(values["prompt_cache_ttl"]) if values.get("prompt_cache_ttl") else None,
+            verbosity=str(values["verbosity"]) if values.get("verbosity") else None,
+            service_tier=str(values["service_tier"]) if values.get("service_tier") else None,
+            api_mode=str(values.get("api_mode", "chat_completions")),
         )
 
 
@@ -381,29 +389,48 @@ class LiteLLMAnswerGenerator:
         completion = self._completion
         if completion is None:
             try:
-                from litellm import acompletion
+                from litellm import acompletion, aresponses
             except ImportError as error:  # pragma: no cover - dependency is installed in supported environments
                 raise AnswerProviderUnavailable("LiteLLM is not installed") from error
-            completion = acompletion
+            completion = aresponses if self.settings.api_mode == "responses" else acompletion
 
         cache_mode = _prompt_cache_mode(self.settings)
         request_messages: Sequence[dict[str, Any]] = messages
         if cache_mode == "content":
             request_messages = _mark_cacheable_prefix(messages)
 
-        request: dict[str, Any] = {
-            "model": self.settings.model,
-            "messages": list(request_messages),
-            "temperature": self.settings.temperature,
-            "max_tokens": max_tokens or self.settings.max_tokens,
-            "timeout": self.settings.timeout_seconds,
-            "num_retries": self.settings.max_retries,
-            "stream": stream,
-        }
+        if self.settings.api_mode == "responses" and self._completion is None:
+            request: dict[str, Any] = {
+                "model": self.settings.model.removeprefix("openai/"),
+                "input": list(request_messages),
+                "max_output_tokens": max_tokens or self.settings.max_tokens,
+                "timeout": self.settings.timeout_seconds,
+                "num_retries": self.settings.max_retries,
+                "stream": stream,
+            }
+        else:
+            request = {
+                "model": self.settings.model,
+                "messages": list(request_messages),
+                "temperature": self.settings.temperature,
+                "max_tokens": max_tokens or self.settings.max_tokens,
+                "timeout": self.settings.timeout_seconds,
+                "num_retries": self.settings.max_retries,
+                "stream": stream,
+            }
         if cache_mode in {"openai", "deepseek"} and self.settings.prompt_cache_key:
             request["prompt_cache_key"] = self.settings.prompt_cache_key
         if cache_mode == "openai" and self.settings.prompt_cache_retention:
             request["prompt_cache_retention"] = self.settings.prompt_cache_retention
+        if cache_mode == "openai" and self.settings.prompt_cache_ttl:
+            request["prompt_cache_options"] = {"ttl": self.settings.prompt_cache_ttl}
+        if self.settings.verbosity and self.settings.model.casefold().startswith("openai/"):
+            if self.settings.api_mode == "responses" and self._completion is None:
+                request["text"] = {"verbosity": self.settings.verbosity}
+            else:
+                request["verbosity"] = self.settings.verbosity
+        if self.settings.service_tier and self.settings.model.casefold().startswith("openai/"):
+            request["service_tier"] = self.settings.service_tier
         if self.settings.api_base:
             request["api_base"] = self.settings.api_base
         api_key_env = self.settings.api_key_env
@@ -417,17 +444,25 @@ class LiteLLMAnswerGenerator:
             if "sarvam" in self.settings.model.casefold():
                 request["extra_headers"] = {"api-subscription-key": api_key}
         if structured and self.settings.response_format:
-            request["response_format"] = _response_format(self.settings.response_format)
+            if self.settings.api_mode == "responses" and self._completion is None:
+                request["text"] = {"format": _response_format(self.settings.response_format)}
+            else:
+                request["response_format"] = _response_format(self.settings.response_format)
         if tools:
             request["tools"] = list(tools)
             request["tool_choice"] = "auto"
-        if self.settings.disable_reasoning:
+        if self.settings.disable_reasoning and self.settings.api_mode == "responses" and self._completion is None:
+            request["reasoning"] = {"effort": "none"}
+        elif self.settings.disable_reasoning:
             # Sarvam treats an omitted value as its default reasoning mode.
             # The explicit JSON null is therefore intentional, not a missing
             # setting: it removes hidden reasoning tokens from the latency path.
             request["reasoning_effort"] = None
         elif self.settings.reasoning_effort:
-            request["reasoning_effort"] = self.settings.reasoning_effort
+            if self.settings.api_mode == "responses" and self._completion is None:
+                request["reasoning"] = {"effort": self.settings.reasoning_effort}
+            else:
+                request["reasoning_effort"] = self.settings.reasoning_effort
         started = perf_counter()
         try:
             result = await completion(**request)
@@ -435,7 +470,7 @@ class LiteLLMAnswerGenerator:
                 "llm_completion_complete stream=%s structured=%s max_tokens=%s prompt_cache=%s latency_ms=%.1f",
                 stream,
                 structured,
-                request["max_tokens"],
+                request.get("max_tokens", request.get("max_output_tokens")),
                 cache_mode or "unsupported",
                 (perf_counter() - started) * 1000,
             )
@@ -455,6 +490,9 @@ class LiteLLMAnswerGenerator:
 
 
 def _response_text(response: Any) -> str:
+    output_text = getattr(response, "output_text", None)
+    if isinstance(output_text, str):
+        return output_text
     try:
         content = response.choices[0].message.content
     except (AttributeError, IndexError, KeyError, TypeError) as error:
@@ -468,6 +506,9 @@ def _response_text(response: Any) -> str:
 
 
 def _stream_text(chunk: Any) -> str:
+    if getattr(chunk, "type", None) == "response.output_text.delta":
+        delta = getattr(chunk, "delta", None)
+        return delta if isinstance(delta, str) else ""
     try:
         if not chunk.choices:
             return ""

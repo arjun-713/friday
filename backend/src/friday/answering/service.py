@@ -25,7 +25,7 @@ from .models import (
     TroubleshootingRequest,
     TroubleshootingResponse,
 )
-from .session import DiagnosticSessionStore
+from .session import DiagnosticSessionStore, repeated_actions_in_response
 from .tools import AgentToolExecutor, AgentToolResult
 
 logger = logging.getLogger(__name__)
@@ -185,7 +185,7 @@ class TroubleshootingService:
             model=request.model,
         )
         result = await self.session_cache.retrieve(
-            _retrieval_query(request),
+            _retrieval_query(request, state),
             self.embedding_provider,
             self.vector_index,
             lexical_retriever=self.lexical_retriever,
@@ -355,8 +355,20 @@ class TroubleshootingService:
             abstained=result.abstained,
             timings_ms=result.timings_ms,
         )
-        retrieval = RetrievalSummary(abstained=result.abstained, reason=result.reason, timings_ms=result.timings_ms)
-        yield {"type": "retrieval", "retrieval": retrieval.model_dump()}
+        retrieval = RetrievalSummary(
+            abstained=result.abstained,
+            reason=result.reason,
+            timings_ms=result.timings_ms,
+            diagnostics={
+                **result.diagnostics,
+                "top_evidence": _compact_retrieval_hits(result.hits),
+            },
+        )
+        yield {
+            "type": "retrieval",
+            "retrieval": retrieval.model_dump(),
+            "backend_elapsed_ms": round((perf_counter() - turn_started) * 1000, 2),
+        }
         if result.abstained or not result.hits:
             missing = _missing_observations(request)
             yield {
@@ -393,7 +405,10 @@ class TroubleshootingService:
             return
         stream_conversation = getattr(self.answer_generator, "stream_conversation", None)
         if callable(stream_conversation):
-            conversation_evidence = [item.model_copy(update={"content": item.content[:2200]}) for item in evidence[:3]]
+            # Keep the conversational path fast and make the stable prompt
+            # prefix easier for the provider cache to reuse. The full evidence
+            # remains available to the structured path and citation response.
+            conversation_evidence = [item.model_copy(update={"content": item.content[:1200]}) for item in evidence[:2]]
             pieces: list[str] = []
             try:
                 token_sequence = 0
@@ -408,7 +423,11 @@ class TroubleshootingService:
                         sequence=token_sequence,
                         chars=len(piece),
                     )
-                    yield {"type": "token", "text": piece}
+                    yield {
+                        "type": "token",
+                        "text": piece,
+                        "backend_elapsed_ms": round((perf_counter() - turn_started) * 1000, 2),
+                    }
             except (UnsupportedAnswerError, InvalidAnswerError):
                 pieces = []
             answer = "".join(pieces).strip()
@@ -439,6 +458,13 @@ class TroubleshootingService:
                 retrieval=retrieval,
                 evidence=conversation_evidence,
                 citations=[item.citation for item in conversation_evidence],
+                facts=state.facts,
+                fact_history=state.fact_history,
+                completed_actions=state.completed_actions,
+                current_next_branch=state.current_next_branch,
+                user_reports=list(state.user_reports),
+                diagnostic_progress="ABSTAIN" if answer.upper() == "UNSUPPORTED" else "RESPONSE_COMPLETED",
+                repeated_actions=repeated_actions_in_response(answer, state.completed_actions),
             )
             self.session_store.save(state)
             trace_event(
@@ -449,7 +475,11 @@ class TroubleshootingService:
                 response_chars=len(answer),
                 status=response.status,
             )
-            yield {"type": "complete", "response": response.model_dump()}
+            yield {
+                "type": "complete",
+                "response": response.model_dump(),
+                "backend_elapsed_ms": round((perf_counter() - turn_started) * 1000, 2),
+            }
             return
         try:
             run = await _generate_turn(
@@ -575,6 +605,11 @@ def _turn_response(
         observations=_confirmed_observations(state),
         facts=dict(state.facts),
         fact_history={key: list(events) for key, events in state.fact_history.items()},
+        completed_actions=list(state.completed_actions),
+        current_next_branch=state.current_next_branch,
+        user_reports=list(state.user_reports),
+        diagnostic_progress=turn.mode.upper(),
+        repeated_actions=repeated_actions_in_response(turn.response, state.completed_actions),
         retrieval=retrieval,
     )
 
@@ -627,6 +662,25 @@ def _confirmed_observations(state: DiagnosticSessionState) -> list[str]:
     """Expose completed-step results in their original diagnostic order."""
 
     return list(state.observations.values())
+
+
+def _compact_retrieval_hits(hits: Sequence[VectorHit], limit: int = 5) -> list[dict[str, object]]:
+    """Expose ranked evidence for benchmark inspection without text dumps."""
+
+    compact: list[dict[str, object]] = []
+    for rank, hit in enumerate(hits[:limit], start=1):
+        payload = hit.payload
+        compact.append(
+            {
+                "rank": rank,
+                "chunk_id": hit.id,
+                "score": round(hit.score, 6),
+                "document": payload.get("document_title"),
+                "page": payload.get("page"),
+                "section": payload.get("section"),
+            }
+        )
+    return compact
 
 
 def _tool_evidence_text(evidence: Sequence[EvidenceContext]) -> str:
@@ -758,12 +812,25 @@ def _observation_request(missing: Sequence[str]) -> str:
     return "I could not verify a safe next step from the available manual evidence."
 
 
-def _retrieval_query(request: TroubleshootingRequest) -> str:
+def _retrieval_query(request: TroubleshootingRequest, state: DiagnosticSessionState | None = None) -> str:
     parts = [request.query]
     if request.observation:
         parts.append(f"Observed: {request.observation}")
     if request.selected_option:
         parts.append(f"Selected result: {request.selected_option}")
+    if state is not None:
+        if state.facts:
+            facts = "; ".join(f"{fact.label}: {fact.value}" for fact in state.facts.values())
+            parts.append(f"Known diagnostic facts: {facts}")
+        if state.completed_actions:
+            parts.append(
+                "Completed actions; find the next branch and exclude these unless explicitly required: "
+                + ", ".join(state.completed_actions)
+            )
+        if state.ruled_out_causes:
+            parts.append("Ruled out causes: " + "; ".join(state.ruled_out_causes))
+        if state.user_reports:
+            parts.append("Earlier user reports: " + "; ".join(state.user_reports[-4:]))
     return " ".join(parts)
 
 

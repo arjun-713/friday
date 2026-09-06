@@ -122,6 +122,7 @@ class RetrievalSummary(BaseModel):
     abstained: bool
     reason: str | None = None
     timings_ms: dict[str, float] = Field(default_factory=dict)
+    diagnostics: dict[str, object] = Field(default_factory=dict)
 
 
 class TroubleshootingResponse(BaseModel):
@@ -143,6 +144,11 @@ class TroubleshootingResponse(BaseModel):
     missing_observations: list[str] = Field(default_factory=list)
     facts: dict[str, DiagnosticFact] = Field(default_factory=dict)
     fact_history: dict[str, list[FactObservation]] = Field(default_factory=dict)
+    completed_actions: list[str] = Field(default_factory=list)
+    current_next_branch: str | None = None
+    user_reports: list[str] = Field(default_factory=list)
+    diagnostic_progress: str = "RESPONSE_COMPLETED"
+    repeated_actions: list[str] = Field(default_factory=list)
     retrieval: RetrievalSummary
 
 
@@ -156,7 +162,10 @@ class DiagnosticSessionState(BaseModel):
     current_turn: DiagnosticTurn | None = None
     observations: dict[str, str] = Field(default_factory=dict)
     completed_steps: list[str] = Field(default_factory=list)
+    completed_actions: list[str] = Field(default_factory=list)
     ruled_out_causes: list[str] = Field(default_factory=list)
+    current_next_branch: str | None = None
+    user_reports: list[str] = Field(default_factory=list)
     current_step_id: str | None = None
     current_step: DiagnosticStep | None = None
     current_evidence: list[EvidenceContext] = Field(default_factory=list)
