@@ -1,20 +1,20 @@
 """Generate validated JSONL chunks from cleaned manuals."""
 
 import json
-from pathlib import Path
 
+from ...paths import chunks_dir, cleaned_dir, repo_relative, resolved_registry
 from ..metadata.registry import ResolvedSource
 from ..models import SourceDocument
 from .generator import generate_chunks
 
 
 def main() -> None:
-    cleaned_root = Path("data/cleaned")
-    manifest_path = Path("data/raw/source_registry.json")
-    output_root = Path("data/chunks")
+    cleaned_root = cleaned_dir()
+    manifest_path = resolved_registry()
+    output_root = chunks_dir()
     if not manifest_path.exists():
         raise FileNotFoundError(
-            "source manifest is missing; run PYTHONPATH=backend/src python -m copilot.ingestion.metadata.registry first"
+            "source manifest is missing; run PYTHONPATH=backend/src python -m friday.ingestion.metadata.registry first"
         )
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -52,7 +52,7 @@ def main() -> None:
         report.append(
             {
                 "source_file": document["source_file"],
-                "output_file": str(output_path),
+                "output_file": repo_relative(output_path),
                 "chunks": len(chunks),
                 "by_strategy": by_strategy,
                 "by_retrieval_profile": by_profile,

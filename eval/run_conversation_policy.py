@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .conversation_policy import ConversationCase, report
+from friday.paths import eval_dir
 
 
 def load_cases(path: Path) -> list[ConversationCase]:
@@ -33,7 +34,7 @@ def main() -> int:
     parser.add_argument(
         "--cases",
         type=Path,
-        default=Path("eval/conversation_cases.jsonl"),
+        default=eval_dir() / "conversation_cases.jsonl",
         help="manually verified structured conversation scenarios",
     )
     parser.add_argument(

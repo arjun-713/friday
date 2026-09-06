@@ -37,7 +37,7 @@ Supported providers (config-only switch in `backend/config.yml`):
 Run the API from the repository root after Qdrant is available:
 
 ```bash
-PYTHONPATH=backend/src backend/.venv/bin/uvicorn copilot.main:app --reload
+PYTHONPATH=backend/src backend/.venv/bin/uvicorn friday.main:app --reload
 ```
 
 The service reads `CHUNKS_ROOT` when set and defaults to `data/chunks`. The

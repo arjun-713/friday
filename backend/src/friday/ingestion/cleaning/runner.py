@@ -2,14 +2,14 @@
 """Create auditable cleaned JSON from the immutable native parser output."""
 
 import json
-from pathlib import Path
 
+from ...paths import cleaned_dir, raw_dir, repo_relative
 from .logic import clean_document
 
 
 def main() -> None:
-    source_root = Path("data/raw")
-    output_root = Path("data/cleaned")
+    source_root = raw_dir()
+    output_root = cleaned_dir()
     report: list[dict[str, object]] = []
 
     for source_path in sorted(source_root.glob("*/*.json")):
@@ -23,8 +23,8 @@ def main() -> None:
         output_path.write_text(json.dumps(cleaned, ensure_ascii=False), encoding="utf-8")
         report.append(
             {
-                "source_file": str(source_path),
-                "output_file": str(output_path),
+                "source_file": repo_relative(source_path),
+                "output_file": repo_relative(output_path),
                 "pages": len(cleaned["pages"]),
                 "removed_fragments": cleaned["cleaning"]["removed_fragment_count"],
                 "removed_by_reason": removed,

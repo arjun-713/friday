@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
-from copilot.answering.litellm import (
+from friday.answering.litellm import (
     AnswerProviderUnavailable,
     InvalidAnswerError,
     LiteLLMAnswerGenerator,
@@ -15,11 +15,11 @@ from copilot.answering.litellm import (
     _mark_cacheable_prefix,
     _prompt_cache_mode,
 )
-from copilot.answering.models import DiagnosticSessionState, DiagnosticStep, TroubleshootingRequest
-from copilot.answering.service import TroubleshootingService, _assemble_evidence, _relevant_evidence
-from copilot.ingestion.models import ChunkKind, DocumentChunk, Evidence, RetrievalProfile, SourceDocument
-from copilot.main import _runtime_path, app, get_troubleshooting_service
-from copilot.retrieval.contracts import MetadataFilter, VectorHit
+from friday.answering.models import DiagnosticSessionState, DiagnosticStep, TroubleshootingRequest
+from friday.answering.service import TroubleshootingService, _assemble_evidence, _relevant_evidence
+from friday.ingestion.models import ChunkKind, DocumentChunk, Evidence, RetrievalProfile, SourceDocument
+from friday.main import _runtime_path, app, get_troubleshooting_service
+from friday.retrieval.contracts import MetadataFilter, VectorHit
 
 
 class FakeEmbeddingProvider:

@@ -3,6 +3,8 @@
 import argparse
 from pathlib import Path
 
+from ..paths import models_dir
+
 
 def export_onnx(model_name: str, output: Path) -> None:
     from sentence_transformers import (
@@ -21,7 +23,7 @@ def export_onnx(model_name: str, output: Path) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model", default="ibm-granite/granite-embedding-small-english-r2")
-    parser.add_argument("--output", type=Path, default=Path("data/models/granite-small-r2-onnx"))
+    parser.add_argument("--output", type=Path, default=models_dir() / "granite-small-r2-onnx")
     return parser
 
 

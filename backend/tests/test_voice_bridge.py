@@ -5,7 +5,7 @@ from urllib.parse import parse_qs, urlparse
 
 import pytest
 
-from copilot.voice.bridge import (
+from friday.voice.bridge import (
     SarvamVoiceBridge,
     VoiceTurnContext,
     _audio,
@@ -17,7 +17,7 @@ from copilot.voice.bridge import (
     _tts_url,
     _voice_context,
 )
-from copilot.voice.sarvam import SarvamRealtimeSettings, SarvamTTSSettings
+from friday.voice.sarvam import SarvamRealtimeSettings, SarvamTTSSettings
 
 
 def test_saaras_realtime_url_uses_fast_vad_pcm_configuration() -> None:

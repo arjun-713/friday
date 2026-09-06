@@ -71,13 +71,13 @@ describe the symptom → find the matching evidence → take one safe check → 
 
 The service boundaries are intentionally independent:
 
-- `backend/src/copilot/ingestion` owns parsing, metadata, cleaning, assets, and
+- `backend/src/friday/ingestion` owns parsing, metadata, cleaning, assets, and
   chunk generation.
-- `backend/src/copilot/retrieval` owns lexical search, embeddings, Qdrant,
+- `backend/src/friday/retrieval` owns lexical search, embeddings, Qdrant,
   caching, indexing, and retrieval metrics.
-- `backend/src/copilot/answering` owns provider calls, prompts, diagnostic
+- `backend/src/friday/answering` owns provider calls, prompts, diagnostic
   state, tools, and citations.
-- `backend/src/copilot/voice` owns the Sarvam STT/TTS bridge and timing hooks.
+- `backend/src/friday/voice` owns the Sarvam STT/TTS bridge and timing hooks.
 - `frontend/app` contains the public landing page and the interactive casebook.
 
 ## Technology
@@ -111,7 +111,7 @@ make backend-venv
 Start the API in one terminal:
 
 ```bash
-PYTHONPATH=backend/src backend/.venv/bin/uvicorn copilot.main:app --reload --port 8000
+PYTHONPATH=backend/src backend/.venv/bin/uvicorn friday.main:app --reload --port 8000
 ```
 
 Start the frontend in another:
@@ -148,7 +148,7 @@ After creating a new Qdrant volume or regenerating chunks, index the current
 vector-retrieval chunks once:
 
 ```bash
-docker compose run --rm backend python -m copilot.retrieval.indexer
+docker compose run --rm backend python -m friday.retrieval.indexer
 ```
 
 ## Rebuild the document pipeline

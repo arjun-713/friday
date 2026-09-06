@@ -2,8 +2,8 @@ import io
 
 from PIL import Image, ImageDraw
 
-from copilot.ingestion.assets.filter import classify_image
-from copilot.ingestion.assets.images import images_for_chunks
+from friday.ingestion.assets.filter import classify_image
+from friday.ingestion.assets.images import images_for_chunks
 
 
 def _png(image: Image.Image) -> bytes:

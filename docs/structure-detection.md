@@ -1,6 +1,6 @@
 # Structure detection
 
-The first chunking subphase is deterministic structure detection. `copilot.ingestion.chunking.structure_document` reads cleaned page records and produces section-aware lines without joining or rewriting content.
+The first chunking subphase is deterministic structure detection. `friday.ingestion.chunking.structure_document` reads cleaned page records and produces section-aware lines without joining or rewriting content.
 
 It recognizes explicit Markdown headings (`#` through `######`), maintains a heading stack across page boundaries, and assigns each line a section path such as `Troubleshooting > Wi-Fi > Signal`.
 

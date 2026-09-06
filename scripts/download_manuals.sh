@@ -11,9 +11,6 @@ download() {
   curl -fL -A "Mozilla/5.0" --retry 3 --retry-delay 2 "$url" -o "$ROOT/$category/$filename"
 }
 
-download "computers" "lenovo-thinkpad-t480-hardware-maintenance-manual.pdf" "https://download.lenovo.com/pccbbs/mobiles_pdf/t480_hmm_en.pdf"
-download "computers" "lenovo-thinkpad-t480s-hardware-maintenance-manual.pdf" "https://download.lenovo.com/pccbbs/mobiles_pdf/t480s-hmm_en.pdf"
-download "computers" "lenovo-thinkpad-t14-gen-2-p14s-gen-2-hardware-maintenance-manual.pdf" "https://download.lenovo.com/pccbbs/mobiles_pdf/t14_gen2_p14s_gen2_hmm_en.pdf"
 download "computers" "lenovo-thinkpad-t14-gen-3-p14s-gen-3-hardware-maintenance-manual.pdf" "https://download.lenovo.com/pccbbs/mobiles_pdf/t14_gen3_p14s_gen3_hmm_en.pdf"
 download "computers" "dell-latitude-7490-owner-s-manual.pdf" "https://dl.dell.com/topicspdf/latitude-14-7490-laptop_owners-manual2_en-us.pdf"
 download "computers" "dell-optiplex-7060-sff-service-manual.pdf" "https://dl.dell.com/topicspdf/optiplex-7060-desktop_service-manual2_en-us.pdf"

@@ -10,6 +10,7 @@ from pathlib import Path
 from time import perf_counter
 
 from ..ingestion.models import DocumentChunk, RetrievalProfile
+from ..paths import chunks_dir, index_dir
 from .contracts import EmbeddingProvider, MetadataFilter, VectorIndex
 from .granite import GraniteEmbeddingProvider
 from .ingest import index_chunks
@@ -29,12 +30,14 @@ class IndexingReport:
 
 
 def load_vector_chunks(
-    chunks_root: Path = Path("data/chunks"),
+    chunks_root: Path | None = None,
     category: str | None = None,
     document_id: str | None = None,
     limit: int | None = None,
 ) -> list[DocumentChunk]:
     """Load vector-profile chunks in stable path and line order."""
+
+    chunks_root = chunks_root or chunks_dir()
 
     if not chunks_root.exists():
         raise FileNotFoundError(f"chunk directory does not exist: {chunks_root}")
@@ -93,7 +96,7 @@ async def run_indexing(args: argparse.Namespace) -> IndexingReport:
         report = await index_from_chunks(chunks, provider, index, args.embedding_batch_size)
     finally:
         await index.close()
-    report = IndexingReport(**{**asdict(report), "chunks_root": args.chunks_root})
+    report = IndexingReport(**{**asdict(report), "chunks_root": str(args.chunks_root)})
     output_path = Path(args.manifest)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(asdict(report), indent=2) + "\n", encoding="utf-8")
@@ -108,13 +111,13 @@ async def run_indexing(args: argparse.Namespace) -> IndexingReport:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--chunks-root", default="data/chunks")
+    parser.add_argument("--chunks-root", default=chunks_dir())
     parser.add_argument("--category", choices=("computers", "routers", "printers"))
     parser.add_argument("--document-id", help="replace and index one generated document scope")
     parser.add_argument("--limit", type=int, help="index only the first N vector chunks")
     parser.add_argument("--embedding-batch-size", type=int, default=8)
     parser.add_argument("--qdrant-batch-size", type=int, default=128)
-    parser.add_argument("--manifest", default="data/index/embedding_manifest.json")
+    parser.add_argument("--manifest", default=index_dir() / "embedding_manifest.json")
     return parser
 
 

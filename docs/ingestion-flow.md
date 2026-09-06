@@ -16,14 +16,14 @@ source registry
 ```
 
 The tracked registry is `config/source_registry.json`. Run
-`PYTHONPATH=backend/src python -m copilot.ingestion.metadata.registry` from the repository root to validate that every local
+`PYTHONPATH=backend/src python -m friday.ingestion.metadata.registry` from the repository root to validate that every local
 manual has explicit title, manufacturer, model, and source URL metadata. The command writes a resolved manifest to
 `data/raw/source_registry.json`, including the PDF SHA-256, a content-addressed version, and the local file's UTC mtime as
 the retrieval timestamp. Missing or extra registry entries fail instead of being inferred.
 
 ## Current scaffold
 
-`backend/src/copilot/ingestion/models.py` defines the source, page, chunk, evidence, and positioned-text schemas. `stages.py` defines dependency-injected stage protocols and the pipeline coordinator. `pdf_inspector.py` is the unexecuted adapter for Firecrawl's `pdf-inspector` Python bindings: it performs detection, extracts per-page Markdown, preserves positioned text, and marks pages needing OCR.
+`backend/src/friday/ingestion/models.py` defines the source, page, chunk, evidence, and positioned-text schemas. `stages.py` defines dependency-injected stage protocols and the pipeline coordinator. `pdf_inspector.py` is the unexecuted adapter for Firecrawl's `pdf-inspector` Python bindings: it performs detection, extracts per-page Markdown, preserves positioned text, and marks pages needing OCR.
 
 The active ingestion path deliberately does not perform OCR. Scanned or mixed pages are parsed with whatever native text is available and retain the `requires_ocr` flag for future review. OCR remains optional and is not required for the corpus to be ingested.
 
@@ -35,11 +35,11 @@ data/manuals/routers/<manual>.pdf    -> data/raw/routers/<manual>.json
 data/manuals/printers/<manual>.pdf   -> data/raw/printers/<manual>.json
 ```
 
-The reproducible runner is `PYTHONPATH=backend/src python -m copilot.ingestion.parsing.text_only` from the repository root; it writes the corpus report to `data/raw/parse_report.json`.
+The reproducible runner is `PYTHONPATH=backend/src python -m friday.ingestion.parsing.text_only` from the repository root; it writes the corpus report to `data/raw/parse_report.json`.
 
-`PYTHONPATH=backend/src python -m copilot.ingestion.parsing.native` is the active corpus runner. It processes all 21 retained manuals without OCR and writes per-document `ocr_required_pages` metadata. The PP-OCR benchmark runner remains available as an optional experiment, but is not part of the default ingestion flow.
+`PYTHONPATH=backend/src python -m friday.ingestion.parsing.native` is the active corpus runner. It processes all 21 retained manuals without OCR and writes per-document `ocr_required_pages` metadata. The PP-OCR benchmark runner remains available as an optional experiment, but is not part of the default ingestion flow.
 
-The next deterministic stage is `PYTHONPATH=backend/src python -m copilot.ingestion.cleaning.runner`, which writes a mirrored `data/cleaned/{computers,routers,printers}` tree. The original text and positioned spans remain immutable in `data/raw/`. Cleaned pages retain their page identity, a raw-source pointer, `span_count`, normalization counts, and `removed_fragments`; coordinates are resolved from raw by source file and page rather than duplicated.
+The next deterministic stage is `PYTHONPATH=backend/src python -m friday.ingestion.cleaning.runner`, which writes a mirrored `data/cleaned/{computers,routers,printers}` tree. The original text and positioned spans remain immutable in `data/raw/`. Cleaned pages retain their page identity, a raw-source pointer, `span_count`, normalization counts, and `removed_fragments`; coordinates are resolved from raw by source file and page rather than duplicated.
 
 Cleanup removes repeated running titles after preserving their first occurrence, isolated page numbers, copyright/navigation boilerplate, non-semantic HTML formatting, malformed Markdown markers, and dot leaders. Contents, empty, and exact-duplicate pages remain represented but are marked `excluded_from_chunking` and carry an exclusion reason. Warnings, procedures, tables, codes, URLs, and source page numbering are preserved.
 

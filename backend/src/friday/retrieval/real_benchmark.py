@@ -7,6 +7,7 @@ from pathlib import Path
 from time import perf_counter
 
 from ..ingestion.models import DocumentChunk
+from ..paths import chunks_dir, index_dir
 from .benchmark import BenchmarkQuery, run_benchmark
 from .bm25 import CombinedLexicalRetriever, InMemoryBM25Retriever, InMemoryExactIdentifierRetriever
 from .cache import RetrievalSessionCache
@@ -202,11 +203,11 @@ async def run_live_benchmark(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--chunks-root", type=Path, default=Path("data/chunks"))
+    parser.add_argument("--chunks-root", type=Path, default=chunks_dir())
     parser.add_argument("--queries", type=int, default=12)
     parser.add_argument("--warmup", type=int, default=2)
     parser.add_argument("--no-scoped-cache", action="store_false", dest="scoped_cache")
-    parser.add_argument("--output", type=Path, default=Path("data/index/retrieval_benchmark.json"))
+    parser.add_argument("--output", type=Path, default=index_dir() / "retrieval_benchmark.json")
     return parser
 
 

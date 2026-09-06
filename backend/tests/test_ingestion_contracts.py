@@ -1,4 +1,4 @@
-from copilot.ingestion.chunking import (
+from friday.ingestion.chunking import (
     ChunkingConfig,
     extract_exact_matches,
     extract_procedures,
@@ -6,8 +6,8 @@ from copilot.ingestion.chunking import (
     generate_chunks,
     structure_document,
 )
-from copilot.ingestion.cleaning import clean_document
-from copilot.ingestion.models import (
+from friday.ingestion.cleaning import clean_document
+from friday.ingestion.models import (
     ChunkKind,
     ChunkStrategy,
     DocumentChunk,

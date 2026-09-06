@@ -1,16 +1,16 @@
 import asyncio
 from collections.abc import Sequence
 
-from copilot.ingestion.models import ChunkKind, DocumentChunk, Evidence, RetrievalProfile, SourceDocument
-from copilot.retrieval.benchmark import BenchmarkQuery, run_benchmark
-from copilot.retrieval.bm25 import InMemoryBM25Retriever, InMemoryExactIdentifierRetriever
-from copilot.retrieval.cache import RetrievalSessionCache
-from copilot.retrieval.contracts import MetadataFilter, VectorHit, VectorRecord
-from copilot.retrieval.granite import GraniteEmbeddingProvider, GraniteEmbeddingSettings
-from copilot.retrieval.hybrid import RetrievalResult, retrieve
-from copilot.retrieval.indexer import index_from_chunks, load_vector_chunks
-from copilot.retrieval.ingest import index_chunks, vector_chunks
-from copilot.retrieval.metrics import latency_summary
+from friday.ingestion.models import ChunkKind, DocumentChunk, Evidence, RetrievalProfile, SourceDocument
+from friday.retrieval.benchmark import BenchmarkQuery, run_benchmark
+from friday.retrieval.bm25 import InMemoryBM25Retriever, InMemoryExactIdentifierRetriever
+from friday.retrieval.cache import RetrievalSessionCache
+from friday.retrieval.contracts import MetadataFilter, VectorHit, VectorRecord
+from friday.retrieval.granite import GraniteEmbeddingProvider, GraniteEmbeddingSettings
+from friday.retrieval.hybrid import RetrievalResult, retrieve
+from friday.retrieval.indexer import index_from_chunks, load_vector_chunks
+from friday.retrieval.ingest import index_chunks, vector_chunks
+from friday.retrieval.metrics import latency_summary
 
 
 class FakeEmbedder:

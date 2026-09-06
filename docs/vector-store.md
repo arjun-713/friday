@@ -14,7 +14,7 @@ Stop the service with:
 make qdrant-down
 ```
 
-The application uses the async `QdrantVectorIndex` adapter. Retrieval code depends on the provider-neutral [`VectorIndex`](../backend/src/copilot/retrieval/contracts.py) protocol rather than Qdrant types.
+The application uses the async `QdrantVectorIndex` adapter. Retrieval code depends on the provider-neutral [`VectorIndex`](../backend/src/friday/retrieval/contracts.py) protocol rather than Qdrant types.
 
 ## Collection contract
 
@@ -55,7 +55,7 @@ After starting Qdrant, index a bounded sample first:
 
 ```bash
 make qdrant-up
-PYTHONPATH=backend/src python -m copilot.retrieval.indexer --limit 100
+PYTHONPATH=backend/src python -m friday.retrieval.indexer --limit 100
 ```
 
 The runner selects only `vector`-profile chunks, embeds them in bounded batches, writes deterministic Qdrant point IDs, and stores an indexing manifest under `data/index/`. Use `--category computers|routers|printers` for a category sample. The full corpus can be indexed with `make index-vectors` after the sample has been benchmarked.

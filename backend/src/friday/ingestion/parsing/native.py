@@ -2,16 +2,16 @@
 """Parse every manual with pdf-inspector's native, non-OCR path."""
 
 import json
-from pathlib import Path
 
 import pdf_inspector
 
+from ...paths import manuals_dir, raw_dir, repo_relative
 from .pdf_inspector import PdfInspectorAdapter
 
 
 def main() -> None:
-    source_root = Path("data/manuals")
-    output_root = Path("data/raw")
+    source_root = manuals_dir()
+    output_root = raw_dir()
     adapter = PdfInspectorAdapter()
     documents: list[dict[str, object]] = []
 
@@ -24,7 +24,7 @@ def main() -> None:
         output_path.write_text(
             json.dumps(
                 {
-                    "source_file": str(source_path),
+                    "source_file": repo_relative(source_path),
                     "pdf_type": kind.value,
                     "page_count": len(pages),
                     "ocr_required_pages": [page.page_number for page in pages if page.requires_ocr],
@@ -36,8 +36,8 @@ def main() -> None:
         )
         documents.append(
             {
-                "source_file": str(source_path),
-                "output_file": str(output_path),
+                "source_file": repo_relative(source_path),
+                "output_file": repo_relative(output_path),
                 "pdf_type": kind.value,
                 "page_count": len(pages),
                 "ocr_required_pages": sum(page.requires_ocr for page in pages),

@@ -34,7 +34,7 @@ This keeps parent context available without forcing every large parent into the 
 Run the generator from the repository root after parsing, cleaning, and source metadata resolution:
 
 ```bash
-PYTHONPATH=backend/src python -m copilot.ingestion.chunking.runner
+PYTHONPATH=backend/src python -m friday.ingestion.chunking.runner
 ```
 
 For the normal workflow after adding or replacing manuals, use the root Makefile:

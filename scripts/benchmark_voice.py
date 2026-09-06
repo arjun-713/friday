@@ -21,6 +21,8 @@ from typing import Any
 
 from websockets.asyncio.client import ClientConnection, connect
 
+from friday.paths import index_dir
+
 CHUNK_BYTES = 1600  # 50 ms of mono, 16-bit PCM at 16 kHz.
 CHUNK_SECONDS = 0.05
 DEFAULT_TIMEOUT_SECONDS = 90.0
@@ -288,9 +290,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT_SECONDS)
     parser.add_argument("--manufacturer", default="TP-Link")
     parser.add_argument("--model", default="Archer C6")
-    parser.add_argument(
-        "--output", type=Path, default=Path("data/index/voice_latency_eval.json")
-    )
+    parser.add_argument("--output", type=Path, default=index_dir() / "voice_latency_eval.json")
     return parser
 
 

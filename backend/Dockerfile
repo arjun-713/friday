@@ -12,4 +12,4 @@ COPY backend ./backend
 RUN pip install --no-deps ./backend
 
 EXPOSE 8000
-CMD ["uvicorn", "copilot.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "friday.main:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -10,15 +10,19 @@ from pathlib import Path
 
 import pdf_inspector
 
+from ...paths import manuals_dir, raw_dir, tmp_dir
 from .ocr import PpOcrAdapter
 
-os.environ.setdefault("PADDLE_PDX_CACHE_HOME", "tmp/paddlex")
+os.environ.setdefault("PADDLE_PDX_CACHE_HOME", str(tmp_dir() / "paddlex"))
 
 
 SAMPLE = {
-    "lenovo-thinkpad-t14-gen-2-p14s-gen-2-hardware-maintenance-manual.pdf": 14,
-    "lenovo-thinkpad-t480-hardware-maintenance-manual.pdf": 13,
-    "lenovo-thinkpad-t480s-hardware-maintenance-manual.pdf": 13,
+    # Dormant until mixed PDFs return to the corpus: all 21 current manuals
+    # are text-based, so flagged_pages() is empty and main() raises the
+    # "No OCR-routed pages" diagnostic below instead of benchmarking.
+    "dell-latitude-7490-owner-s-manual.pdf": 14,
+    "hp-elitebook-855-g8-maintenance-and-service-guide.pdf": 13,
+    "lenovo-thinkpad-t14-gen-3-p14s-gen-3-hardware-maintenance-manual.pdf": 13,
 }
 
 
@@ -40,9 +44,9 @@ def render_page(pdf: Path, page: int, output_dir: Path) -> Path:
 
 
 def main() -> None:
-    source_dir = Path("data/manuals/computers")
-    image_dir = Path("tmp/pdfs/ocr_benchmark")
-    result_dir = Path("data/raw/ocr_benchmark")
+    source_dir = manuals_dir() / "computers"
+    image_dir = tmp_dir() / "pdfs" / "ocr_benchmark"
+    result_dir = raw_dir() / "ocr_benchmark"
     result_dir.mkdir(parents=True, exist_ok=True)
     adapter = PpOcrAdapter(tier="small", device="cpu")
     fallback = PpOcrAdapter(tier="medium", device="cpu")

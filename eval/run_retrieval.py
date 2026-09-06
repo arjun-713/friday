@@ -8,19 +8,20 @@ from pathlib import Path
 from time import perf_counter
 from typing import Any
 
-from copilot.retrieval.bm25 import (
+from friday.paths import chunks_dir, eval_dir, index_dir
+from friday.retrieval.bm25 import (
     CombinedLexicalRetriever,
     InMemoryBM25Retriever,
     InMemoryExactIdentifierRetriever,
 )
-from copilot.retrieval.cache import RetrievalSessionCache
-from copilot.retrieval.context_store import JsonlParentChunkStore
-from copilot.retrieval.contracts import MetadataFilter
-from copilot.retrieval.granite import GraniteEmbeddingProvider
-from copilot.retrieval.hybrid import retrieve
-from copilot.retrieval.indexer import load_vector_chunks
-from copilot.retrieval.metrics import latency_summary
-from copilot.retrieval.qdrant import QdrantSettings, QdrantVectorIndex
+from friday.retrieval.cache import RetrievalSessionCache
+from friday.retrieval.context_store import JsonlParentChunkStore
+from friday.retrieval.contracts import MetadataFilter
+from friday.retrieval.granite import GraniteEmbeddingProvider
+from friday.retrieval.hybrid import retrieve
+from friday.retrieval.indexer import load_vector_chunks
+from friday.retrieval.metrics import latency_summary
+from friday.retrieval.qdrant import QdrantSettings, QdrantVectorIndex
 
 from .retrieval_schema import RetrievalCase
 
@@ -380,13 +381,9 @@ def _mean(values: Any) -> float | None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--cases", type=Path, default=Path("eval/retrieval_cases.jsonl")
-    )
-    parser.add_argument("--chunks-root", type=Path, default=Path("data/chunks"))
-    parser.add_argument(
-        "--output", type=Path, default=Path("data/index/retrieval_eval.json")
-    )
+    parser.add_argument("--cases", type=Path, default=eval_dir() / "retrieval_cases.jsonl")
+    parser.add_argument("--chunks-root", type=Path, default=chunks_dir())
+    parser.add_argument("--output", type=Path, default=index_dir() / "retrieval_eval.json")
     parser.add_argument("--candidate-limit", type=int, default=32)
     parser.add_argument("--dense-weight", type=float, default=1.0)
     parser.add_argument("--lexical-weight", type=float, default=1.5)

@@ -14,17 +14,22 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
+from ...paths import assets_dir, chunks_dir, images_dir, manuals_dir
 from .filter import classify_image, mark_perceptual_duplicates
 
 MANIFEST_VERSION = 1
 
 
 def build_image_manifest(
-    manuals_root: Path = Path("data/manuals"),
-    chunks_root: Path = Path("data/chunks"),
-    output_root: Path = Path("data/assets/images"),
-    manifest_path: Path = Path("data/assets/image_manifest.json"),
+    manuals_root: Path | None = None,
+    chunks_root: Path | None = None,
+    output_root: Path | None = None,
+    manifest_path: Path | None = None,
 ) -> dict[str, Any]:
+    manuals_root = manuals_root or manuals_dir()
+    chunks_root = chunks_root or chunks_dir()
+    output_root = output_root or images_dir()
+    manifest_path = manifest_path or assets_dir() / "image_manifest.json"
     chunks_by_document_page, document_metadata = _load_chunk_index(chunks_root)
     assets: dict[str, dict[str, Any]] = {}
     skipped_pages: list[dict[str, Any]] = []
@@ -255,10 +260,10 @@ def _load_chunk_index(chunks_root: Path) -> tuple[dict[tuple[str, int], set[str]
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--manuals-root", type=Path, default=Path("data/manuals"))
-    parser.add_argument("--chunks-root", type=Path, default=Path("data/chunks"))
-    parser.add_argument("--output-root", type=Path, default=Path("data/assets/images"))
-    parser.add_argument("--manifest", type=Path, default=Path("data/assets/image_manifest.json"))
+    parser.add_argument("--manuals-root", type=Path, default=manuals_dir())
+    parser.add_argument("--chunks-root", type=Path, default=chunks_dir())
+    parser.add_argument("--output-root", type=Path, default=images_dir())
+    parser.add_argument("--manifest", type=Path, default=assets_dir() / "image_manifest.json")
     args = parser.parse_args()
     manifest = build_image_manifest(args.manuals_root, args.chunks_root, args.output_root, args.manifest)
     occurrence_count = sum(len(asset["occurrences"]) for asset in manifest["assets"].values())

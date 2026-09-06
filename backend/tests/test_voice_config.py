@@ -1,7 +1,7 @@
 import pytest
 
-from copilot.answering.litellm import LiteLLMSettings
-from copilot.voice.sarvam import SarvamRealtimeSettings, SarvamTTSSettings
+from friday.answering.litellm import LiteLLMSettings
+from friday.voice.sarvam import SarvamRealtimeSettings, SarvamTTSSettings
 
 
 def test_sarvam_realtime_defaults() -> None:

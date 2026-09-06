@@ -8,6 +8,8 @@ from typing import TypedDict
 
 from pydantic import BaseModel, Field
 
+from ...paths import manuals_dir, repo_relative, resolved_registry, source_registry
+
 
 class RegistryEntry(TypedDict):
     title: str
@@ -66,7 +68,7 @@ def build_registry(
         resolved.append(
             ResolvedSource(
                 document_id=f"{manual_path.parent.name}-{manual_path.stem}",
-                source_file=str(manual_path),
+                source_file=repo_relative(manual_path),
                 title=entry["title"],
                 manufacturer=entry["manufacturer"],
                 model=entry["model"],
@@ -95,12 +97,12 @@ def build_registry(
 
 def main() -> None:
     sources = build_registry(
-        manual_root=Path("data/manuals"),
-        registry_path=Path("config/source_registry.json"),
-        output_path=Path("data/raw/source_registry.json"),
+        manual_root=manuals_dir(),
+        registry_path=source_registry(),
+        output_path=resolved_registry(),
     )
     print(f"resolved metadata for {len(sources)} manuals")
-    print("wrote data/raw/source_registry.json")
+    print(f"wrote {repo_relative(resolved_registry())}")
 
 
 if __name__ == "__main__":

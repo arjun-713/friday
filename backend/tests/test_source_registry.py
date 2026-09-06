@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from copilot.ingestion.metadata.registry import build_registry, load_registry
+from friday.ingestion.metadata.registry import build_registry, load_registry
 
 
 def test_source_registry_resolves_hash_and_content_version(tmp_path: Path) -> None:

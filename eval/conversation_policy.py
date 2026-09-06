@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from copilot.answering.models import DiagnosticTurn
+from friday.answering.models import DiagnosticTurn
 
 
 @dataclass(frozen=True)

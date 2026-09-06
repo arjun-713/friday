@@ -21,6 +21,7 @@ from .answering import (
 )
 from .answering.litellm import AnswerProviderUnavailable
 from .config import config_section, load_runtime_config
+from .paths import project_root
 from .retrieval.bm25 import CombinedLexicalRetriever, InMemoryBM25Retriever, InMemoryExactIdentifierRetriever
 from .retrieval.context_store import JsonlParentChunkStore
 from .retrieval.granite import GraniteEmbeddingProvider
@@ -80,7 +81,7 @@ def _allowed_browser_origins() -> set[str]:
 
 
 _browser_origins = {"http://localhost:3000", "http://127.0.0.1:3000"}
-_PROJECT_ROOT = Path(os.getenv("FRIDAY_ROOT", str(Path(__file__).resolve().parents[3])))
+_PROJECT_ROOT = project_root()
 
 
 def _runtime_path(environment_variable: str, default: str) -> Path:

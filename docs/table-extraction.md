@@ -1,6 +1,6 @@
 # Table extraction
 
-Table extraction is a deterministic chunking subphase. `copilot.ingestion.chunking.extract_table_rows` recognizes only pipe-delimited Markdown tables with an explicit header and separator row.
+Table extraction is a deterministic chunking subphase. `friday.ingestion.chunking.extract_table_rows` recognizes only pipe-delimited Markdown tables with an explicit header and separator row.
 
 Each data row retains its table identifier, row index, headers, cells, normalized content, section, parser, page, and raw-source evidence. Unstructured pipe text and tables on excluded pages are ignored.
 

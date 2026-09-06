@@ -1,4 +1,4 @@
-from copilot.voice.bridge import VoiceSessionState, classify_interruption
+from friday.voice.bridge import VoiceSessionState, classify_interruption
 
 
 def test_voice_session_states_cover_full_duplex_model() -> None:

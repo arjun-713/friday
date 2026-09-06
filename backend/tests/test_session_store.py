@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from copilot.answering.models import (
+from friday.answering.models import (
     DecisionBasis,
     DiagnosticAction,
     DiagnosticFact,
@@ -10,7 +10,7 @@ from copilot.answering.models import (
     ObservationRequest,
     TroubleshootingRequest,
 )
-from copilot.answering.session import DiagnosticSessionStore, SqliteDiagnosticSessionStore
+from friday.answering.session import DiagnosticSessionStore, SqliteDiagnosticSessionStore
 
 
 def test_sqlite_session_store_survives_reopen(tmp_path: Path) -> None:

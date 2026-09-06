@@ -3,16 +3,16 @@
 
 import json
 import time
-from pathlib import Path
 
 import pdf_inspector
 
+from ...paths import manuals_dir, raw_dir, repo_relative
 from .pdf_inspector import PdfInspectorAdapter
 
 
 def main() -> None:
-    source_root = Path("data/manuals")
-    output_root = Path("data/raw")
+    source_root = manuals_dir()
+    output_root = raw_dir()
     adapter = PdfInspectorAdapter()
     report: list[dict[str, object]] = []
 
@@ -30,7 +30,7 @@ def main() -> None:
         output_path.write_text(
             json.dumps(
                 {
-                    "source_file": str(source_path),
+                    "source_file": repo_relative(source_path),
                     "pdf_type": kind.value,
                     "page_count": len(pages),
                     "pages": [page.model_dump() for page in pages],
@@ -41,8 +41,8 @@ def main() -> None:
         )
         report.append(
             {
-                "source_file": str(source_path),
-                "output_file": str(output_path),
+                "source_file": repo_relative(source_path),
+                "output_file": repo_relative(output_path),
                 "pdf_type": kind.value,
                 "pages": len(pages),
                 "characters": sum(len(page.text) for page in pages),
