@@ -16,7 +16,13 @@ import {
   PrinterIcon,
   StopIcon,
   WifiIcon,
+  ArrowPathIcon,
+  DocumentDuplicateIcon,
+  PlusIcon,
+  XMarkIcon,
+  Bars3Icon,
 } from "@heroicons/react/24/outline";
+import Brand, { BrandMark } from "./Brand";
 import {
   API_BASE_URL,
   deleteDiagnosticSession,
@@ -418,6 +424,10 @@ export default function Casebook() {
       setState("thinking");
       return;
     }
+    if (event.type === "tool") {
+      setState("thinking");
+      return;
+    }
     if (event.type === "transcript.partial") {
       setDraft(event.text);
       setState("listening");
@@ -560,8 +570,27 @@ export default function Casebook() {
 
   useEffect(() => {
     if (messages.length === 0) return;
-    threadEnd.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    const container = threadEnd.current?.parentElement;
+    if (container) container.scrollTop = container.scrollHeight;
   }, [messages]);
+
+  useEffect(() => {
+    if (!navigationOpen && !evidenceOpen) return;
+    const panel = document.querySelector<HTMLElement>(navigationOpen ? ".mobile-navigation" : ".diagnostic-rail");
+    const previous = document.activeElement as HTMLElement | null;
+    const controls = () => Array.from(panel?.querySelectorAll<HTMLElement>('button:not([disabled]), a[href], select, summary') ?? []);
+    controls()[0]?.focus();
+    const keydown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") { setNavigationOpen(false); setEvidenceOpen(false); }
+      if (event.key === "Tab") {
+        const items = controls(); const first = items[0]; const last = items.at(-1);
+        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+      }
+    };
+    document.addEventListener("keydown", keydown);
+    return () => { document.removeEventListener("keydown", keydown); previous?.focus(); };
+  }, [navigationOpen, evidenceOpen]);
 
   useEffect(() => {
     if (!sessionsHydrated || activeSession === "new") return;
@@ -605,20 +634,22 @@ export default function Casebook() {
   const orderedSessions = [...sessions].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
 
   return (
-    <main className="app-shell">
+    <main className={`app-shell ${messages.length === 0 ? "session-is-empty" : "session-has-messages"} ${voiceConnected || state === "connecting" ? "voice-active" : ""}`}>
+      <a className="skip-link" href="#conversation">Skip to conversation</a>
       <header className="topbar">
-        <a className="wordmark" href="/" aria-label="Friday home"><span className="wordmark-mark"><Icon name="router" /></span><span>friday</span></a>
-        <div className="topbar-center"><span className="topbar-kicker">CASEBOOK</span><span className="topbar-context">{selectedDevice.name}<span>/</span>{caseQuery || "New session"}</span></div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <a href="/" style={{ fontSize: 11, color: "var(--muted)", textDecoration: "none" }}>About</a>
-          <button className="mobile-nav-toggle" type="button" aria-expanded={navigationOpen} onClick={() => setNavigationOpen((open) => !open)}>Cases <Icon name="chevron" /></button>
+        <Brand/>
+        <div className="topbar-center"><span className="topbar-context">Workspace<span>/</span>{caseQuery ? "Troubleshooting session" : "New session"}</span></div>
+        <div className="topbar-actions">
+          <a href="/">About Friday <ArrowTopRightOnSquareIcon/></a>
+          <button className="mobile-nav-toggle" type="button" aria-label="Open sessions and devices" aria-expanded={navigationOpen} onClick={() => setNavigationOpen((open) => !open)}><Bars3Icon/></button>
         </div>
       </header>
 
       <div className="workspace">
         <aside className="session-sidebar" aria-label="Device and troubleshooting sessions">
+          <button className="new-session-quiet" type="button" onClick={() => startNewSession()}><PlusIcon/> New session</button>
           <div className="device-picker">
-            <span className="sidebar-title">DEVICES</span>
+            <span className="sidebar-title">Your device</span>
             {Object.entries(deviceCategories).map(([category, device]) => (
               <button className={`device-category ${selectedCategory === category ? "selected" : ""}`} key={category} type="button" onClick={() => startNewSession(category as DeviceCategory)}>
                 <Icon name={device.icon} /><span>{device.label}</span>
@@ -627,13 +658,12 @@ export default function Casebook() {
           </div>
 
           <div className="current-device">
-            <span className="sidebar-title">CURRENT DEVICE</span>
+            <span className="sidebar-title">Model</span>
             <div className="current-device-card"><span className="current-device-image"><Icon name={selectedDevice.icon} /></span><div><strong>{selectedDevice.manufacturer} {selectedDevice.name}</strong><span>{selectedDevice.detail}</span><label className="device-model-select"><span className="sr-only">Select a supported device model</span><select value={selectedDevice.name} onChange={(event) => startNewSession(selectedCategory, event.target.value)}>{devicesInCategory.map((device) => <option key={`${device.manufacturer}-${device.name}`} value={device.name}>{device.manufacturer} {device.name}</option>)}</select></label></div></div>
             {catalogError && <p className="catalog-error" role="status">{catalogError}</p>}
           </div>
 
-          <button className="new-session-quiet" type="button" onClick={() => startNewSession()}><span>＋</span> New session</button>
-          <div className="sidebar-heading"><span className="sidebar-title">CASEBOOK</span><h2>Recent cases</h2></div>
+          <div className="sidebar-heading"><h2>Recent sessions</h2><span>{orderedSessions.length}</span></div>
           <div className="session-list">
             {orderedSessions.map((session) => (
               <button className={`session-item ${activeSession === session.id ? "selected" : ""}`} key={session.id} type="button" onClick={() => chooseSession(session)}>
@@ -644,45 +674,37 @@ export default function Casebook() {
             ))}
             {sessionsHydrated && orderedSessions.length === 0 && <p className="session-empty">Your troubleshooting history will appear here.</p>}
           </div>
-          <p className="local-sessions-note">Sessions stay in this browser until you delete them.</p>
+          <p className="local-sessions-note"><ComputerDesktopIcon/><span>Saved on this browser<small>Your sessions stay here until deleted.</small></span></p>
         </aside>
 
         {navigationOpen && <button className="mobile-nav-backdrop" type="button" aria-label="Close case navigation" onClick={() => setNavigationOpen(false)} />}
-        <aside className={`mobile-navigation ${navigationOpen ? "mobile-navigation-open" : ""}`} aria-label="Mobile device and case navigation">
-          <div className="mobile-navigation-header"><strong>Case navigation</strong><button type="button" onClick={() => setNavigationOpen(false)}>Close</button></div>
+        <aside className={`mobile-navigation ${navigationOpen ? "mobile-navigation-open" : ""}`} inert={!navigationOpen} role="dialog" aria-modal={navigationOpen || undefined} aria-label="Mobile device and case navigation">
+          <div className="mobile-navigation-header"><Brand/><button type="button" aria-label="Close navigation" onClick={() => setNavigationOpen(false)}><XMarkIcon/></button></div>
           <div className="mobile-navigation-section"><span className="sidebar-title">DEVICE</span>{Object.entries(deviceCategories).map(([category, device]) => <button className={`device-category ${selectedCategory === category ? "selected" : ""}`} key={category} type="button" onClick={() => startNewSession(category as DeviceCategory)}><Icon name={device.icon} /><span>{device.label}</span></button>)}</div>
-          <div className="mobile-navigation-section"><span className="sidebar-title">CURRENT DEVICE</span><strong className="mobile-current-device">{selectedDevice.manufacturer} {selectedDevice.name}</strong><span className="mobile-device-detail">{selectedDevice.detail}</span></div>
-          <button className="new-session-quiet" type="button" onClick={() => startNewSession()}>＋ New session</button>
+          <div className="mobile-navigation-section"><label className="sidebar-title" htmlFor="mobile-device-model">Model</label><select id="mobile-device-model" className="mobile-model-select" value={selectedDevice.name} onChange={(event) => startNewSession(selectedCategory, event.target.value)}>{devicesInCategory.map((device) => <option key={`${device.manufacturer}-${device.name}`} value={device.name}>{device.manufacturer} {device.name}</option>)}</select></div>
+          <button className="new-session-quiet" type="button" onClick={() => startNewSession()}><PlusIcon/> New session</button>
           <div className="mobile-navigation-section"><span className="sidebar-title">CASES</span>{orderedSessions.map((session) => <button className={`mobile-case ${activeSession === session.id ? "selected" : ""}`} key={session.id} type="button" onClick={() => chooseSession(session)}><strong>{session.title}</strong><span>{sessionStatusLabel(session.status)} · {session.device}</span></button>)}{sessionsHydrated && orderedSessions.length === 0 && <p className="session-empty">No saved cases yet.</p>}</div>
         </aside>
 
         <section className="conversation" id="conversation" aria-labelledby="conversation-title">
           <div className="troubleshooting-thread">
             <div className="conversation-header">
-              <div><span className="case-context">{selectedDevice.detail.toUpperCase()} / {selectedDevice.name.toUpperCase()}</span><h1 id="conversation-title">{caseQuery || "What is happening with this device?"}</h1></div>
+              <div><span className="case-context"><Icon name={selectedDevice.icon}/>{selectedDevice.manufacturer} {selectedDevice.name}</span><h1 id="conversation-title">{caseQuery || "Let’s figure it out."}</h1></div>
               <div className="session-menu-wrap">
                 <button className="session-menu-button" type="button" aria-label="Session actions" aria-expanded={sessionMenuOpen} onClick={() => setSessionMenuOpen((open) => !open)}><Icon name="more" /></button>
                 {sessionMenuOpen && <div className="session-menu" role="menu"><button type="button" onClick={() => startNewSession()}>Start a new session</button>{activeSession !== "new" && <button type="button" onClick={() => void deleteCurrentSession()}>Delete this session</button>}</div>}
               </div>
-              <button className="evidence-toggle" type="button" aria-expanded={evidenceOpen} onClick={() => setEvidenceOpen((open) => !open)}>Diagnostic state <Icon name="chevron" /></button>
+              <button className="evidence-toggle" type="button" aria-expanded={evidenceOpen} onClick={() => setEvidenceOpen((open) => !open)}><BookOpenIcon/> Evidence</button>
             </div>
 
-            <div className="diagnostic-progress" aria-label="Diagnostic progress">
-              <span className={hasReportedProblem ? "complete" : "pending"}><i aria-hidden="true" />Problem reported</span>
-              <span className={hasEvidence ? "complete" : hasReportedProblem ? "current" : "pending"}><i aria-hidden="true" />Evidence retrieved</span>
-              <span className={hasConfirmedState ? "complete" : hasEvidence ? "current" : "pending"}><i aria-hidden="true" />Observation confirmed</span>
-              <span className={isWaitingForObservation ? "current" : "pending"}><i aria-hidden="true" />{isWaitingForObservation ? "Waiting" : "Next check"}</span>
-            </div>
+            {hasReportedProblem && <div className="diagnostic-progress" aria-label="Session status"><span><i/>{isThinking ? "Working on your response" : isWaitingForObservation ? "Waiting for your observation" : "Conversation in progress"}</span>{hasEvidence && <span><BookOpenIcon/>{latestResponse?.citations.length} source{latestResponse?.citations.length === 1 ? "" : "s"} available</span>}</div>}
             <div className="message-list" aria-live="polite">
               {messages.length === 0 && <div className="empty-thread">
-                <span className="empty-kicker">NEW TROUBLESHOOTING SESSION</span>
-                <h2>Tell Friday what the device is doing.</h2>
-                <ol className="workflow-preview">
-                  <li><span>01</span>Identify the relevant manual evidence</li>
-                  <li><span>02</span>Track what you have confirmed</li>
-                  <li><span>03</span>Give one diagnostic check at a time</li>
-                  <li><span>04</span>Show the source behind each recommendation</li>
-                </ol>
+                <div className="empty-device-art" aria-hidden="true"><span/><span/><div><Icon name={selectedDevice.icon}/></div></div>
+                <h2>What isn’t working?</h2>
+                <p>Describe what you’re seeing. We’ll work through it with your device’s manual close at hand.</p>
+                <div className="starter-prompts" aria-label="Start with an example">{(selectedCategory === "router" ? ["Wi-Fi connects, but there’s no internet", "Help me understand the router lights", "The connection keeps dropping"] : selectedCategory === "printer" ? ["My printer is on but won’t print", "There’s an error on the display", "The paper keeps getting stuck"] : ["My laptop isn’t charging", "It won’t start up", "I’m having trouble connecting to Wi-Fi"]).map(prompt => <button type="button" key={prompt} onClick={() => { setDraft(prompt); composerInput.current?.focus(); }}>{prompt}<ArrowRightIcon/></button>)}</div>
+                {!voiceConnected && state !== "connecting" && <div className="voice-entry"><button className="empty-voice-link" type="button" onClick={() => void startVoice()}><MicrophoneIcon/><span>Talk to Friday</span><span className="voice-entry-wave" aria-hidden="true"><i/><i/><i/><i/><i/></span></button><small>Keep your hands on the device. Tell us what you see.</small></div>}
               </div>}
               {messages.filter((message) => message.role !== "assistant" || message.text || message.response).map((message, index) => {
                 const response = message.response;
@@ -692,9 +714,10 @@ export default function Casebook() {
                 return (
                   <article className={`message message-row diagnostic-entry ${message.role}`} key={message.id}>
                     {message.role === "user" && <div className="chat-bubble user-bubble"><p>{message.text}</p></div>}
+                    {message.role === "assistant" && !response && message.text && <div className="assistant-message streaming-response"><div className="assistant-avatar"><BrandMark/></div><div className="chat-bubble assistant-bubble"><p className="response-copy">{message.text}<span className="stream-caret"/></p></div></div>}
                     {message.role === "assistant" && response && (
                       <div className={`assistant-message ${isLatestResponse ? "active-response" : "history-response"}`}>
-                        <div className="assistant-signal" aria-hidden="true"><span /></div>
+                        <div className="assistant-avatar" aria-hidden="true"><BrandMark/></div>
                         <div className="chat-bubble assistant-bubble">
                           <p className="response-copy">{message.text}</p>
                         {response.status === "abstained" && response.missing_observations.length > 0 && <ul className="missing-observations">{response.missing_observations.map((observation) => <li key={observation}>{observation}</li>)}</ul>}
@@ -704,25 +727,22 @@ export default function Casebook() {
                         })}</div>}
                         {response.images.length > 0 && <div className="manual-images" aria-label="Figures from the manufacturer manual">{response.images.map((image) => <figure key={image.asset_id}><img src={`${API_BASE_URL}${image.url}`} alt={`${image.document_title}, page ${image.page}`} /><figcaption>{image.document_title} · p. {image.page}</figcaption></figure>)}</div>}
                         {response.citations[0] && <div className="source-line"><Icon name="manual" /><a href={response.citations[0].source_url || "#source"} target="_blank" rel="noreferrer">{response.citations[0].document_title} · p. {response.citations[0].page} · {response.citations[0].section}</a><Icon name="external" /></div>}
-                        {isLatestResponse && (
-                          <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+                          <div className="response-actions">
                             <button
                               type="button"
                               onClick={() => void copyMessage(message.id, message.text)}
-                              style={{ fontSize: 11, fontWeight: 700, border: "1px solid var(--border)", borderRadius: 6, background: "var(--surface)", padding: "6px 10px" }}
+                              aria-label={copiedId === message.id ? "Response copied" : "Copy response"}
                             >
-                              {copiedId === message.id ? "Copied" : "Copy"}
+                              {copiedId === message.id ? <CheckIcon/> : <DocumentDuplicateIcon/>}<span>{copiedId === message.id ? "Copied" : "Copy"}</span>
                             </button>
-                            <button
+                            {isLatestResponse && <button
                               type="button"
                               onClick={regenerateLatest}
                               disabled={state === "thinking"}
-                              style={{ fontSize: 11, fontWeight: 700, border: "1px solid var(--border)", borderRadius: 6, background: "var(--surface)", padding: "6px 10px" }}
                             >
-                              Regenerate
-                            </button>
+                              <ArrowPathIcon/><span>Try again</span>
+                            </button>}
                           </div>
-                        )}
                         </div>
                       </div>
                     )}
@@ -730,40 +750,42 @@ export default function Casebook() {
                 );
               })}
               {apiError && <div className="api-error" role="alert"><strong>Couldn&apos;t check the manuals.</strong><span>{apiError}</span><button type="button" onClick={() => { const latestUserMessage = [...messages].reverse().find((message) => message.role === "user"); if (latestUserMessage) void runTroubleshoot(latestUserMessage.text, "", false); }}>Try again</button></div>}
-              {isThinking && <div className="thinking-line" role="status"><span className="thinking-pulse" /> Checking the manual</div>}
+              {isThinking && !messages.at(-1)?.text && <div className="thinking-line" role="status"><BrandMark/><span className="thinking-pulse" /> Working on your response</div>}
               <div ref={threadEnd} />
             </div>
 
             <div className="composer-wrap">
-              {(voiceConnected || state === "connecting") ? <section className={`voice-console ${isListening ? "voice-console-listening" : ""}`} aria-label="Voice controls">
+              {(voiceConnected || state === "connecting") ? <section className={`voice-console voice-state-${!voiceCaptureEnabled && state === "listening" ? "paused" : state} ${isListening ? "voice-console-listening" : ""}`} aria-label="Voice controls">
                 <div className="voice-console-header">
-                  <div className="voice-console-title"><span className="voice-live-dot" aria-hidden="true" /><strong>{state === "connecting" ? "Connecting to voice" : state === "speaking" ? "Friday is speaking" : state === "thinking" ? "Working on your case" : voiceCaptureEnabled ? "Listening" : "Microphone paused"}</strong><span className="voice-console-hint">{state === "speaking" ? "You can interrupt at any time" : "Speak naturally; pause when you are finished"}</span></div>
-                  <button className="voice-end-button" type="button" onClick={() => void stopVoice()}>End session</button>
+                  <div className="voice-console-title"><BrandMark/><span>Friday voice</span></div>
+                  <button className="voice-end-button" type="button" onClick={() => void stopVoice()}><XMarkIcon/>End voice</button>
                 </div>
                 <div className="voice-console-body">
-                  <div className={`voice-meter voice-meter-${state}`} aria-hidden="true"><i /><i /><i /><i /><i /><i /><i /><i /><i /></div>
-                  <div className="voice-transcript-wrap"><span className="voice-transcript-label">{state === "speaking" ? "OUTPUT" : "LIVE TRANSCRIPT"}</span><p className="voice-transcript" aria-live="polite">{draft || (state === "speaking" ? "Friday is responding…" : state === "thinking" ? "Checking the manual…" : "Say what you noticed…")}</p></div>
+                  <div className="voice-signal" aria-hidden="true"><svg viewBox="0 0 240 96" fill="none">{Array.from({ length: 35 }, (_, index) => <line key={index} x1={18 + index * 6} x2={18 + index * 6} y1={48 - (8 + Math.sin(index * .72) ** 2 * (32 - Math.abs(index - 17)))} y2={48 + (8 + Math.sin(index * .72) ** 2 * (32 - Math.abs(index - 17)))} style={{ animationDelay: `${index * -63}ms` }}/>)}</svg></div>
+                  <div className="voice-transcript-wrap"><strong className="voice-state-label" role="status">{state === "connecting" ? "Getting connected…" : state === "speaking" ? "Friday is speaking" : state === "thinking" ? "Putting your answer together" : voiceCaptureEnabled ? "I’m listening." : "Microphone paused"}</strong><p className="voice-transcript">{draft || (state === "speaking" ? [...messages].reverse().find(message => message.role === "assistant")?.text || "Your reply will appear here as it arrives." : state === "thinking" ? "Your observation is in. The reply will appear in the conversation." : !voiceCaptureEnabled ? "Take your time. Resume whenever you’re ready." : "Describe the problem, or tell me what changed.")}</p></div>
                 </div>
                 <div className="voice-console-footer">
-                  <button className={`voice-control-button ${voiceCaptureEnabled ? "selected" : ""}`} type="button" onClick={toggleVoiceCapture}><Icon name={voiceCaptureEnabled ? "pause" : "mic"} /><span>{voiceCaptureEnabled ? "Pause microphone" : "Resume microphone"}</span></button>
+                  <button className={`voice-control-button ${voiceCaptureEnabled ? "selected" : ""}`} type="button" disabled={state === "connecting"} onClick={toggleVoiceCapture}><Icon name={voiceCaptureEnabled ? "pause" : "mic"} /><span>{voiceCaptureEnabled ? "Pause microphone" : "Resume microphone"}</span></button>
                   {state === "speaking" && <button className="voice-control-button interrupt-control" type="button" onClick={interruptVoice}><Icon name="stop" /><span>Interrupt Friday</span></button>}
-                  <span className="voice-console-shortcut">Text input stays available after you end voice</span>
+                  <button className="voice-to-text" type="button" onClick={() => void stopVoice()}>Switch to typing</button>
                 </div>
               </section> : <form className="composer" onSubmit={submitMessage}>
                 <label className="sr-only" htmlFor="message">Describe what you see</label>
-                <textarea ref={composerInput} id="message" rows={1} value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={handleComposerKeyDown} placeholder="Describe what you see…" />
-                <button className={`mic-button ${draft ? "quiet" : "primary"}`} type="button" aria-label="Start voice input" onClick={() => void startVoice()}><Icon name="mic" /></button>
-                <button className="send-button visible" type="submit" aria-label="Send observation" disabled={!draft.trim()}><Icon name="send" /></button>
+                <textarea ref={composerInput} id="message" rows={1} value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={handleComposerKeyDown} placeholder={messages.length === 0 ? "Tell Friday what’s happening…" : "What did you notice?"} />
+                <div className="composer-toolbar"><span className="composer-device"><Icon name={selectedDevice.icon}/>{selectedDevice.name}</span><button className="mic-button" type="button" aria-label="Start voice input" onClick={() => void startVoice()}><Icon name="mic" /><span>Talk to Friday</span></button><button className="send-button visible" type="submit" aria-label="Send observation" disabled={!draft.trim()}><Icon name="arrow" /></button></div>
               </form>}
+              <p className="composer-note">Friday can make mistakes. Check the linked manual before acting.</p>
             </div>
           </div>
         </section>
 
+        {evidenceOpen && <button className="evidence-backdrop" type="button" aria-label="Close evidence panel" onClick={() => setEvidenceOpen(false)}/>}
         <aside className={`diagnostic-rail ${evidenceOpen ? "mobile-open" : ""}`} aria-label="Diagnostic state and evidence">
-          <div className="rail-header"><div><span className="rail-kicker">CASE RECORD</span><h2>Evidence ledger</h2></div><button className="rail-toggle" type="button" aria-label="Close diagnostic state" onClick={() => setEvidenceOpen(false)}><Icon name="chevron" /></button></div>
+          <div className="rail-header"><div><BookOpenIcon/><h2>Evidence & context</h2></div><button className="rail-toggle" type="button" aria-label="Close diagnostic state" onClick={() => setEvidenceOpen(false)}><XMarkIcon/></button></div>
           <div className="rail-section"><div className="rail-label">CURRENT DEVICE</div><p className="rail-device">{selectedDevice.manufacturer} {selectedDevice.name}<span>{selectedDevice.detail}</span></p></div>
           <div className="rail-section"><div className="rail-label">CONFIRMED</div>{confirmedFacts.length > 0 ? <dl className="fact-list">{confirmedFacts.map((fact) => <div className="fact-row" key={fact.key}><dt>{factKeyLabel(fact.key)}</dt><dd><span>{fact.value}</span><Icon name="check" /></dd></div>)}</dl> : observations.length > 0 ? <ul className="observation-list">{observations.map((observation) => <li key={observation}><span className="observation-dot done" /><span>{observation}</span></li>)}</ul> : <p className="rail-empty">No confirmed observations yet.</p>}{factTransitions.length > 0 && <div className="fact-transitions"><div className="rail-label">CHANGED AFTER CHECK</div>{factTransitions.map((transition) => <p key={transition}>{transition}</p>)}</div>}</div>
-          {(activeQuestion || (latestResponse?.missing_observations ?? []).length > 0) && <div className="rail-section"><div className="rail-label">NEXT TO ESTABLISH</div><ul className="unknown-list">{activeQuestion && <li><code>{latestResponse?.turn?.observation_request?.fact_key ?? "next_observation"}</code><span>—</span></li>}{!activeQuestion && latestResponse?.missing_observations.map((observation) => <li key={observation}><span>{observation}</span><span>—</span></li>)}</ul></div>}
+          {(activeQuestion || (latestResponse?.missing_observations ?? []).length > 0) && <div className="rail-section"><div className="rail-label">Next to establish</div><ul className="unknown-list">{activeQuestion && <li><span>{activeQuestion}</span></li>}{!activeQuestion && latestResponse?.missing_observations.map((observation) => <li key={observation}><span>{observation}</span></li>)}</ul></div>}
+          {!latestCitation && <div className="rail-source-empty"><BookOpenIcon/><strong>The source stays with the answer.</strong><p>Relevant manual pages and references will appear here as you troubleshoot.</p></div>}
           {latestCitation && <div className="rail-section evidence-section"><div className="rail-label">SOURCE</div><div className="evidence-card"><strong>{latestCitation.document_title}</strong><span>{latestCitation.section}</span><span className="evidence-page">Page {latestCitation.page}</span><details className="manual-viewer"><summary>View original page</summary><div className="manual-viewer-content"><iframe title={`${latestCitation.document_title}, page ${latestCitation.page}`} src={`${latestCitation.source_url || "about:blank"}#page=${latestCitation.page}`} loading="lazy" /></div></details><a href={latestCitation.source_url || "#source"} target="_blank" rel="noreferrer">Open manual page <Icon name="arrow" /></a></div></div>}
         </aside>
       </div>

@@ -14,6 +14,7 @@ export type VoiceEvent =
   | { type: "assistant.audio_complete"; turn_id: string }
   | { type: "assistant.cancelled"; turn_id?: string }
   | { type: "retrieval"; retrieval: Record<string, unknown>; turn_id: string }
+  | { type: "tool"; tools: string[]; turn_id: string }
   | { type: "voice.error"; message: string }
   | { type: "voice.closed"; message: string };
 

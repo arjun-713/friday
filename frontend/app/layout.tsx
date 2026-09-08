@@ -1,19 +1,19 @@
 import type { ReactNode } from "react";
+import type { Metadata } from "next";
+import localFont from "next/font/local";
 
 import "./globals.css";
 
+const manrope = localFont({ src: "../public/fonts/manrope-variable.ttf", variable: "--font-manrope", display: "swap", weight: "200 800" });
+export const metadata: Metadata = {
+  title: { default: "Friday — Get your devices working again", template: "%s · Friday" },
+  description: "Describe the problem. Friday finds relevant manufacturer manual evidence and guides you through troubleshooting by text or voice.",
+};
+
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" className={manrope.variable}>
       <body>
-        {/*
-          THESIS: Friday is a conversation first, with a live diagnostic map that turns uncertainty into one safe next action.
-          OWN-WORLD: A warm field-console surface of paper, ink navy, signal orange, and amber instrument states; the rail is a measuring tool, not decoration.
-          STORY: The owner describes a messy symptom, sees the device and evidence become legible, then reports the result of one cited test.
-          FIRST VIEWPORT: A dominant transcript and composer on the left; a persistent device, signal, observation, test, and evidence rail on the right.
-          FORM: Code-first diagnostic console, chosen for interaction fidelity; seed key 63548530.
-          FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md
-        */}
         {children}
       </body>
     </html>

@@ -114,9 +114,10 @@ export type TroubleshootingResponse = {
 };
 
 export type TroubleshootingStreamEvent =
-  | { type: "retrieval"; retrieval: RetrievalSummary }
-  | { type: "token"; text: string }
-  | { type: "complete"; response: TroubleshootingResponse }
+  | { type: "retrieval"; retrieval: RetrievalSummary; backend_elapsed_ms?: number }
+  | { type: "tool"; tools: string[]; backend_elapsed_ms?: number }
+  | { type: "token"; text: string; backend_elapsed_ms?: number }
+  | { type: "complete"; response: TroubleshootingResponse; backend_elapsed_ms?: number }
   | { type: "error"; message: string };
 
 export class TroubleshootingApiError extends Error {

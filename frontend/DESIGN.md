@@ -1,82 +1,62 @@
-# Friday interface direction
+# Friday — graphite / jade
 
-Friday is a calm technical evidence workbench for ordinary device owners and
-support trainees. The interface should make the current case, the next safe
-check, and its manufacturer evidence immediately legible. It is not a generic
-AI chat surface or a dashboard.
+## Direction
 
-## Design thesis
+Friday helps device owners describe a fault, consult manufacturer evidence,
+and troubleshoot in conversation. The visual concept is a portable diagnostic
+instrument: tactile hardware, legible evidence, calm controls. This replaces
+the previous cobalt casebook styling.
 
-Friday is a diagnostic desk / casebook. The current case is the primary object:
-the left rail holds the case history, the center is the live conversation, and
-the right rail is an evidence ledger. The identity carrier is a restrained
-cobalt signal spine beside the active diagnostic thread. It gives the product a
-recognisable geometry without decorative AI motifs, gradients, or illustration.
+The landing centers an original interactive Three.js router. Its exploded view
+is illustrative, not a manufacturer-specific disassembly instruction. The page
+moves through conversation, manual evidence, voice, supported device categories,
+and practical questions. Demonstrations are labeled; no fabricated customer
+logos, benchmarks, testimonials, or live activity are used.
 
-The architecture deliberately keeps all three regions visible on a wide screen.
-A chat-first drawer layout was rejected because it hides the manual evidence
-that makes Friday trustworthy. A checklist/stepper layout was rejected because
-it would turn natural troubleshooting into the decision-tree interaction the
-product is designed to avoid.
+## System
 
-## Composition
+`app/globals.css` contains authoritative custom properties. Graphite `#101715`,
+navigation `#0c1210`, raised surfaces `#19231e`, text `#f1f5ef`, secondary text
+`#a8b6ac`, and jade `#b5e4bc` form the workspace. Landing paper is `#edf1e9`
+with `#15231b` ink. Self-hosted Manrope variable supplies display and UI type;
+monospace is reserved for brief technical metadata. The font's OFL license is
+kept beside it in `public/fonts`.
 
-- A fluid three-region desktop shell: device and casebook navigation, a
-  centered conversation work surface, and an evidence ledger.
-- The conversation itself is capped at 960px for readable scan paths; the app
-  shell remains full-width on large screens.
-- One raised surface is reserved for an active diagnostic procedure. Supporting
-  information uses flat sections and divider lines rather than nested cards.
-- At widths below 980px, the evidence ledger becomes a drawer. Below 760px,
-  navigation is omitted from the canvas and the conversation remains primary.
+Spacing follows a 4px foundation, with compact control groups and larger section
+intervals. Controls use 8px radii; major surfaces use 16–24px. Shadows indicate
+elevation rather than decorating every element. Hero typography supports the
+hardware composition rather than replacing it.
 
-## Tokens
+## Workspace and flow
 
-| Role | Token |
-| --- | --- |
-| Application background | `--bg` |
-| Navigation and rail | `--surface` |
-| Raised procedure / composer | `--surface-raised` |
-| Primary text | `--text` |
-| Secondary text | `--muted` |
-| Structural rule | `--border` |
-| Product action and focus | `--accent` |
-| Confirmed observation | `--success` |
-| Clarification | `--warning` |
-| Warning / error | `--danger` |
+Desktop has device/session navigation, a readable transcript, and evidence.
+Below 1200px evidence becomes a drawer; at 760px navigation becomes a sheet.
+The app occupies the viewport and only its transcript and rails scroll.
+New-session prompts fill the draft without sending it. Device selection,
+session restoration, sources, and voice remain available through existing APIs.
 
-The palette is neutral blue-gray with one cobalt accent. Cobalt signals a
-selected device, a current choice, primary sending/listening, and focus. Green
-is reserved for a completed observation. No decorative gradients or glow are
-used.
+User messages align right; assistant messages align left with a quiet brand
+marker. Streaming text appears before structured completion. Selected answers
+remain attached to their original response. Sources are separate from prose.
+Copy works on completed historical responses; regeneration targets the latest.
+Voice controls explicitly pause, resume, interrupt, and end the voice session.
+Do not add nonfunctional authentication, attachments, or ratings.
 
-## Typography and geometry
+## Motion and access
 
-- UI type: Avenir Next, Segoe UI, system sans-serif fallback.
-- Metadata type: system monospace, only for concise device/source labels.
-- Type scale: 12, 13, 14, 16, 20, 28, 34px.
-- Corner radii: 6px controls, 8px normal components, 12px elevated procedure.
-- The procedure surface may use a restrained shadow; all other structure uses
-  rules and tone.
+The router responds to pointer movement and an explicit inspection toggle.
+Rendering is capped and skipped when not visible; reduced motion gives stable
+transitions. Voice animation reflects an interaction, not permanent background
+activity. Keyboard focus is visible; drawers support Escape and focus cycling.
+Mobile gives the device composition its own space instead of shrinking desktop.
 
-## Interaction language
+## Verification
 
-- The primary action is always answering the current diagnostic question.
-- Voice starts a persistent, interruptible session. Its status lives directly
-  beside the composer, not in the global navigation.
-- User observations are quiet transcript entries; Friday's response is a
-  structured assessment with one raised next-check surface.
-- “Evidence ledger” is the source of truth beside the conversation. It separates confirmed facts from
-  only the unknown currently relevant to the next check.
+`npm run test:ui` exercises the landing, streaming, saved sessions, copy,
+regeneration, selected observations, mobile drawers, voice controls, and error
+recovery with controlled fixtures. This is not a live speech-quality or backend
+diagnosis evaluation. Run `npm run build` and inspect rendered layouts after
+composition changes.
 
-## Content discipline
-
-- The active case heading names the user’s actual problem when available; it
-  does not use generic editorial slogans during diagnosis.
-- The assistant response owns its full message bubble. Citations remain a
-  separate source row so evidence never leaks into the spoken/chat copy.
-- The rail shows current device, confirmed observations, the next unknown, and
-  the latest source. It does not announce that manuals are “loaded” or repeat
-  the entire assistant response.
-- Voice state belongs next to the composer. The global header describes the
-  case, not the fact that an AI system is running.
+Development writes `.next-dev`; production writes `.next`, preventing concurrent
+builds from corrupting the hot-reload chunks. Keep frontend port 3000.

@@ -11,6 +11,9 @@ __pycache__/
 # Frontend build output and dependencies.
 node_modules/
 .next/
+.next-dev/
+playwright-report/
+test-results/
 .turbo/
 .npm/
 
