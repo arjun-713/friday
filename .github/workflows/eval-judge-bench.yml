@@ -2,6 +2,11 @@ name: Judge benchmark (local Ollama)
 
 on:
   workflow_dispatch:
+    inputs:
+      models:
+        description: 'JSON array of Ollama models to bench (default: all four)'
+        required: false
+        default: '["qwen2.5:1.5b", "llama3.2:latest", "qwen2.5:3b", "qwen3:4b"]'
 
 permissions:
   contents: read
@@ -14,11 +19,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        model:
-          - qwen2.5:1.5b
-          - llama3.2:latest
-          - qwen2.5:3b
-          - qwen3:4b
+        model: ${{ fromJSON(inputs.models) }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -37,7 +38,11 @@ jobs:
         run: |
           ollama serve > /tmp/ollama.log 2>&1 &
           sleep 5
-          ollama pull "${{ matrix.model }}"
+          for attempt in 1 2 3; do
+            ollama pull "${{ matrix.model }}" && break
+            echo "pull attempt $attempt failed, retrying..."
+            sleep 15
+          done
           ollama list
 
       - name: Install backend development dependencies
