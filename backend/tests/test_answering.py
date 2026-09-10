@@ -11,17 +11,26 @@ from friday.answering.litellm import (
     InvalidAnswerError,
     LiteLLMAnswerGenerator,
     LiteLLMSettings,
+    UnsupportedAnswerError,
     _expand_step_citations,
     _mark_cacheable_prefix,
     _prompt_cache_mode,
+    _validate_turn,
 )
-from friday.answering.models import DiagnosticFact, DiagnosticSessionState, DiagnosticStep, TroubleshootingRequest
+from friday.answering.models import (
+    DiagnosticFact,
+    DiagnosticSessionState,
+    DiagnosticStep,
+    DiagnosticTurn,
+    TroubleshootingRequest,
+)
 from friday.answering.service import (
     TroubleshootingService,
     _assemble_evidence,
     _relevant_evidence,
     _retrieval_query,
 )
+from friday.answering.tools import AgentToolResult
 from friday.ingestion.models import ChunkKind, DocumentChunk, Evidence, RetrievalProfile, SourceDocument
 from friday.main import _runtime_path, app, get_troubleshooting_service
 from friday.retrieval.contracts import MetadataFilter, VectorHit
@@ -69,6 +78,10 @@ class FakeLexicalRetriever:
     async def search(self, query: str, metadata_filter: MetadataFilter | None = None, limit: int = 10):
         del query, metadata_filter
         return self.hits[:limit]
+
+    def scoped(self, metadata_filter: MetadataFilter) -> "FakeLexicalRetriever":
+        del metadata_filter
+        return self
 
 
 class FakeParentStore:
@@ -340,7 +353,7 @@ def test_litellm_generator_sends_evidence_and_accepts_known_citation() -> None:
     assert "[source:child-1]" in messages[1]["content"]
     assert "natural conversation with the device owner" in messages[0]["content"]
     assert "Do not use general world knowledge" in messages[0]["content"]
-    assert "troubleshooting-v5" in messages[0]["content"]
+    assert "troubleshooting-v" in messages[0]["content"]
 
 
 def test_litellm_generator_explicitly_disables_sarvam_reasoning() -> None:
@@ -672,12 +685,227 @@ def test_litellm_stream_validates_structured_step_after_tokens() -> None:
     assert events[-1].instruction.startswith("Check the cable.")
 
 
+def test_agentic_stream_executes_bounded_manual_tool_then_streams_final_answer() -> None:
+    calls: list[dict[str, object]] = []
+
+    async def completion(**request):
+        calls.append(request)
+        if len(calls) == 1:
+            return SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        message=SimpleNamespace(
+                            content=None,
+                            tool_calls=[
+                                SimpleNamespace(
+                                    id="call-1",
+                                    function=SimpleNamespace(
+                                        name="search_manual",
+                                        arguments='{"query":"WAN light status"}',
+                                    ),
+                                )
+                            ],
+                        )
+                    )
+                ]
+            )
+
+        class Stream:
+            async def __aiter__(self):
+                yield SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content="Check the WAN light."))])
+
+        return Stream()
+
+    async def run() -> list[object]:
+        generator = LiteLLMAnswerGenerator(completion=completion)
+        evidence = _assemble_evidence([_hit()], [_chunk()])
+
+        async def execute(name: str, arguments: dict[str, object]) -> AgentToolResult:
+            assert name == "search_manual"
+            assert arguments["query"] == "WAN light status"
+            return AgentToolResult("WAN evidence", evidence)
+
+        return [
+            item
+            async for item in generator.stream_agentic_conversation(
+                "The router has no internet",
+                evidence,
+                DiagnosticSessionState(session_id="agentic-test"),
+                execute,
+            )
+        ]
+
+    events = asyncio.run(run())
+    assert len(calls) == 2
+    assert calls[0]["tools"]
+    assert calls[1]["stream"] is True
+    assert any(getattr(event, "tool_names", []) == ["search_manual"] for event in events)
+    assert "Check the WAN light." in events[-1]
+
+
+def test_single_call_planner_uses_one_call_without_tools() -> None:
+    """The common no-tool turn must cost exactly one provider call."""
+
+    calls: list[dict[str, object]] = []
+
+    async def completion(**request):
+        calls.append(request)
+        return SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(
+                        content=(
+                            '{"mode":"solve","response":"The cable is connected.",'
+                            '"interpretation":null,"next_action":null,"observation_request":null,'
+                            '"decision_basis":null,"facts_learned":[],'
+                            '"candidate_causes":[],"ruled_out_causes":[],"source_ids":["child-1"]}'
+                        )
+                    )
+                )
+            ]
+        )
+
+    async def run():
+        generator = LiteLLMAnswerGenerator(completion=completion)
+        evidence = _assemble_evidence([_hit()], [_chunk()])
+
+        async def execute(name: str, arguments: dict[str, object]) -> AgentToolResult:
+            raise AssertionError("no tool should be executed")
+
+        return await generator.generate_agent_turn(
+            "The router cannot connect",
+            evidence,
+            DiagnosticSessionState(session_id="single-call"),
+            execute,
+        )
+
+    run_result = asyncio.run(run())
+
+    assert len(calls) == 1
+    assert run_result.turn.mode == "solve"
+    assert run_result.tool_names == []
+
+
+def test_single_call_planner_handles_null_content_with_tool_calls() -> None:
+    """Tool-call responses with null content must enrich evidence, not crash."""
+
+    calls: list[dict[str, object]] = []
+
+    async def completion(**request):
+        calls.append(request)
+        if len(calls) == 1:
+            return SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        message=SimpleNamespace(
+                            content=None,
+                            tool_calls=[
+                                SimpleNamespace(
+                                    id="call-1",
+                                    function=SimpleNamespace(
+                                        name="search_manual",
+                                        arguments='{"query":"WAN light status"}',
+                                    ),
+                                )
+                            ],
+                        )
+                    )
+                ]
+            )
+        return SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(
+                        content=(
+                            '{"mode":"solve","response":"The WAN light is off.",'
+                            '"interpretation":null,"next_action":null,"observation_request":null,'
+                            '"decision_basis":null,"facts_learned":[],'
+                            '"candidate_causes":[],"ruled_out_causes":[],"source_ids":["child-1"]}'
+                        )
+                    )
+                )
+            ]
+        )
+
+    async def run():
+        generator = LiteLLMAnswerGenerator(completion=completion)
+        evidence = _assemble_evidence([_hit()], [_chunk()])
+
+        async def execute(name: str, arguments: dict[str, object]) -> AgentToolResult:
+            assert name == "search_manual"
+            return AgentToolResult("WAN evidence", evidence)
+
+        return await generator.generate_agent_turn(
+            "The router has no internet",
+            evidence,
+            DiagnosticSessionState(session_id="tool-content-none"),
+            execute,
+        )
+
+    run_result = asyncio.run(run())
+
+    assert len(calls) == 2
+    assert run_result.tool_names == ["search_manual"]
+    assert run_result.turn.mode == "solve"
+
+
+def test_planner_retries_once_on_correctable_validation_failure() -> None:
+    """An ungrounded option must trigger one correction retry, not an abstain."""
+
+    calls: list[dict[str, object]] = []
+
+    def turn_payload(options: str) -> str:
+        return (
+            '{"mode":"clarify","response":"What is the light doing?",'
+            '"interpretation":null,"next_action":null,'
+            '"observation_request":{"request_id":"light-1","fact_key":"router_light",'
+            '"question":"What is the router light doing?",'
+            f'"options":{options},'
+            '"recheck_after_action":false},'
+            '"decision_basis":{"why_not_solved":"The light state selects the branch.",'
+            '"discriminates_between":["power issue","connection issue"],'
+            '"expected_discrimination":"Light state selects the branch."},'
+            '"facts_learned":[],"candidate_causes":[],"ruled_out_causes":[],'
+            '"source_ids":["child-1"]}'
+        )
+
+    async def completion(**request):
+        calls.append(request)
+        if len(calls) == 1:
+            content = turn_payload('[{"id":"e501","label":"Error E501","value":"E501"}]')
+        else:
+            content = turn_payload('[{"id":"connected","label":"Connected","value":"connected"}]')
+            assert "rejected and not shown" in json.dumps(request.get("messages", []))
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=content))])
+
+    async def run():
+        generator = LiteLLMAnswerGenerator(completion=completion)
+        evidence = _assemble_evidence([_hit()], [_chunk()])
+
+        async def execute(name: str, arguments: dict[str, object]) -> AgentToolResult:
+            raise AssertionError("retry path must not use tools")
+
+        return await generator.generate_agent_turn(
+            "The router cannot connect",
+            evidence,
+            DiagnosticSessionState(session_id="retry-validation"),
+            execute,
+        )
+
+    run_result = asyncio.run(run())
+
+    assert len(calls) == 2
+    assert run_result.turn.mode == "clarify"
+    assert run_result.turn.observation_request is not None
+    assert [option.label for option in run_result.turn.observation_request.options] == ["Connected"]
+
+
 def test_litellm_normalizes_sarvam_option_and_source_id_formatting() -> None:
     async def completion(**request):
         del request
         payload = (
             '{"title":"Check the cable","instruction":"Check the cable.",'
-            '"question":"What do you see?","options":["Connected","Loose"],'
+            '"question":"What do you see?","options":["Connected","Cable loose"],'
             '"source_ids":["source:child-1"]}'
         )
 
@@ -702,7 +930,7 @@ def test_litellm_normalizes_sarvam_option_and_source_id_formatting() -> None:
     step = events[-1]
     assert isinstance(step, DiagnosticStep)
     assert step.source_ids == ["child-1"]
-    assert [option.label for option in step.options] == ["Connected", "Loose"]
+    assert [option.label for option in step.options] == ["Connected", "Cable loose"]
     assert len({option.id for option in step.options}) == 2
 
 
@@ -767,17 +995,34 @@ def test_sarvam_litellm_request_uses_compatible_endpoint_and_structured_output(m
     assert captured["response_format"] == {"type": "json_object"}
 
 
+def _delta_chunk(text: str) -> SimpleNamespace:
+    """Model a provider stream delta carrying assistant content."""
+
+    return SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content=text, tool_calls=None))])
+
+
+async def _stream_texts(texts: Sequence[str]):
+    for piece in texts:
+        yield _delta_chunk(piece)
+
+
 def test_stream_endpoint_emits_tokens_and_final_response() -> None:
+    payload = (
+        '{"mode":"solve","response":"Check the cable. It is connected.",'
+        '"interpretation":null,"next_action":null,"observation_request":null,'
+        '"decision_basis":null,"facts_learned":[],'
+        '"candidate_causes":[],"ruled_out_causes":[],"source_ids":["child-1"]}'
+    )
+
     async def completion(**request):
-        assert request["stream"] is True
-        assert "response_format" not in request
-
-        async def chunks():
-            yield SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content="Check the cable. "))])
-            yield SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content="It is connected."))])
-            yield SimpleNamespace(choices=[])
-
-        return chunks()
+        # Single-call planner: the structured request carries tools; with no
+        # tool calls needed the turn parses directly from this response.
+        assert "tools" in request
+        if request.get("stream"):
+            # Split inside the response value so the gate decodes incrementally.
+            cut = payload.index("It is connected.")
+            return _stream_texts([payload[:cut], payload[cut:]])
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=payload))])
 
     base_service = _service([_hit()])
     service = TroubleshootingService(
@@ -801,6 +1046,9 @@ def test_stream_endpoint_emits_tokens_and_final_response() -> None:
     assert response.status_code == 200
     assert '"type": "token"' in body
     assert '"type": "complete"' in body
+    assert "Check the cable" in body
+    # Planner contract is preserved in streaming so buttons and memory work.
+    assert '"turn"' in body
 
 
 def test_session_advances_to_the_next_step_after_observation() -> None:
@@ -1074,3 +1322,699 @@ def test_retrieval_query_carries_state_constraints_into_next_branch() -> None:
     assert "POWER_CYCLE_MODEM_ROUTER" in query
     assert "CHECK_WAN_CABLE" in query
     assert "modem connectivity" in query
+
+
+def test_lean_retrieval_query_drops_planner_only_instructions() -> None:
+    from friday.answering.service import _retrieval_query_lean
+
+    state = DiagnosticSessionState(session_id="lean-query")
+    state.facts["wan_light"] = DiagnosticFact(
+        key="wan_light",
+        value="off",
+        label="WAN light",
+        raw="The WAN light is off.",
+    )
+    state.completed_actions = ["POWER_CYCLE_MODEM_ROUTER", "CHECK_WAN_CABLE"]
+    state.ruled_out_causes = ["modem connectivity"]
+    state.user_reports = ["the modem works directly", "renew did not help"]
+
+    query = _retrieval_query_lean(
+        TroubleshootingRequest(
+            query="Wi-Fi connects but there is no internet",
+            manufacturer="TP-Link",
+            model="Archer C6",
+            observation="The WAN light is off",
+        ),
+        state,
+    )
+
+    assert "Wi-Fi connects but there is no internet" in query
+    assert "The WAN light is off" in query
+    assert "WAN light: off" in query
+    assert "renew did not help" in query
+    assert "POWER_CYCLE_MODEM_ROUTER" not in query
+    assert "modem connectivity" not in query
+    assert len(query) <= 600
+
+
+def test_scoped_retriever_returns_subset_matches() -> None:
+    from friday.retrieval.bm25 import CombinedLexicalRetriever, InMemoryBM25Retriever
+
+    own_chunk = _chunk().model_copy(deep=True)
+    own_chunk.chunk_id = "own-1"
+    own_chunk.content = "Check the WAN light state on the router before changing settings."
+    own_chunk.retrieval_profiles = [RetrievalProfile.BM25]
+    other_chunk = _chunk().model_copy(deep=True)
+    other_chunk.chunk_id = "other-1"
+    other_chunk.content = "Check the WAN light state on the other device before changing settings."
+    other_chunk.document = other_chunk.document.model_copy(update={"manufacturer": "Other", "model": "Nope"})
+    other_chunk.retrieval_profiles = [RetrievalProfile.BM25]
+    base = CombinedLexicalRetriever(
+        InMemoryBM25Retriever([own_chunk, other_chunk]),
+        FakeLexicalRetriever([]),
+    )
+    service = TroubleshootingService(
+        embedding_provider=FakeEmbeddingProvider(),
+        vector_index=FakeVectorIndex([]),
+        lexical_retriever=base,
+        parent_store=FakeParentStore([]),
+    )
+    scoped = service._scoped_retriever(MetadataFilter(manufacturer="Example", model="Example 1"))
+
+    async def search() -> list:
+        return await scoped.search("WAN light state", MetadataFilter(manufacturer="Example", model="Example 1"), 10)
+
+    hits = asyncio.run(search())
+
+    assert [hit.id for hit in hits] == ["own-1"]
+    # No-scope requests reuse the shared base retriever without building subsets.
+    assert service._scoped_retriever(MetadataFilter()) is service.lexical_retriever
+
+
+def _collect_stream(
+    service: TroubleshootingService, request: TroubleshootingRequest
+) -> tuple[list[dict[str, object]], dict[str, object]]:
+    events: list[dict[str, object]] = []
+
+    async def collect() -> dict[str, object]:
+        async for event in service.stream_answer(request):
+            events.append(event)
+        complete = next(event for event in events if event.get("type") == "complete")
+        return complete["response"]  # type: ignore[return-value]
+
+    response = asyncio.run(collect())
+    assert isinstance(response, dict)
+    return events, response
+
+
+def test_streaming_persists_planner_state_across_turns() -> None:
+    """Follow-up reports must advance the diagnosis instead of repeating it."""
+
+    base_service = _service([_hit()])
+    service = TroubleshootingService(
+        embedding_provider=base_service.embedding_provider,
+        vector_index=base_service.vector_index,
+        lexical_retriever=base_service.lexical_retriever,
+        parent_store=base_service.parent_store,
+        answer_generator=SequentialStepGenerator(),
+    )
+
+    _, first = _collect_stream(
+        service,
+        TroubleshootingRequest(
+            query="Wi-Fi is visible but there is no internet",
+            manufacturer="Example",
+            model="Example 1",
+            session_id="session-stream-advance",
+        ),
+    )
+    _, second = _collect_stream(
+        service,
+        TroubleshootingRequest(
+            query="Wi-Fi is visible but there is no internet",
+            manufacturer="Example",
+            model="Example 1",
+            session_id="session-stream-advance",
+            observation="The WAN light is off",
+        ),
+    )
+
+    assert first["turn"]["observation_request"]["request_id"] == "step-1"
+    assert second["turn"]["observation_request"]["request_id"] == "step-2"
+    assert second["turn"]["response"] != first["turn"]["response"]
+    state = service.session_store.get("session-stream-advance")
+    assert state.observations
+    assert state.current_request is not None
+
+
+def test_streaming_complete_includes_turn_buttons_and_citations() -> None:
+    payload = (
+        '{"mode":"advance","response":"The network is visible so we check upstream next.",'
+        '"interpretation":"Visible Wi-Fi isolates the fault to upstream.",'
+        '"next_action":{"instruction":"Check the WAN light state on the router.",'
+        '"why":"The WAN light shows whether upstream is detected."},'
+        '"observation_request":{"request_id":"wan-light-1","fact_key":"wan_light",'
+        '"question":"What is the WAN light doing?",'
+        '"options":[{"id":"off","label":"Off","value":"off"},'
+        '{"id":"solid","label":"Solid","value":"solid"},'
+        '{"id":"blinking","label":"Blinking","value":"blinking"}],'
+        '"recheck_after_action":false},'
+        '"decision_basis":{"why_not_solved":"Visible Wi-Fi does not show upstream state.",'
+        '"discriminates_between":["upstream failure","local wireless issue"],'
+        '"expected_discrimination":"WAN light selects the branch."},'
+        '"facts_learned":[],"candidate_causes":["upstream failure"],'
+        '"ruled_out_causes":[],"source_ids":["child-1"]}'
+    )
+
+    async def completion(**request):
+        assert "tools" in request
+        if request.get("stream"):
+            cut = payload.index("so we check upstream")
+            return _stream_texts([payload[:cut], payload[cut:]])
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=payload))])
+
+    wan_chunk = _chunk()
+    wan_chunk = wan_chunk.model_copy(
+        update={
+            "content": (
+                "Check the router light labelled Internet or WAN and note "
+                "whether it is off, solid, or blinking before changing settings."
+            ),
+            "section": "Troubleshooting > WAN light",
+        }
+    )
+    wan_chunk.evidence[0] = wan_chunk.evidence[0].model_copy(
+        update={
+            "content": wan_chunk.content,
+            "section": "Troubleshooting > WAN light",
+        }
+    )
+    service = TroubleshootingService(
+        embedding_provider=FakeEmbeddingProvider(),
+        vector_index=FakeVectorIndex([_hit()]),
+        lexical_retriever=FakeLexicalRetriever([_hit()]),
+        parent_store=FakeParentStore([wan_chunk]),
+        answer_generator=LiteLLMAnswerGenerator(completion=completion),
+    )
+    events, response = _collect_stream(
+        service,
+        TroubleshootingRequest(
+            query="Wi-Fi connects but there is no internet",
+            manufacturer="Example",
+            model="Example 1",
+            session_id="session-stream-buttons",
+        ),
+    )
+
+    assert any(event.get("type") == "token" for event in events)
+    turn = response["turn"]
+    assert turn["mode"] == "advance"
+    labels = [option["label"] for option in turn["observation_request"]["options"]]
+    assert labels == ["Off", "Solid", "Blinking"]
+    assert response["citations"][0]["page"] == 4
+    assert response["awaiting_observation"] is True
+
+
+def test_planner_rejects_invented_option_states() -> None:
+    evidence = _assemble_evidence([_hit()], [_chunk()])
+    turn = DiagnosticTurn.model_validate(
+        {
+            "turn_id": "turn-invented",
+            "mode": "clarify",
+            "response": "What is the light doing?",
+            "interpretation": None,
+            "next_action": None,
+            "observation_request": {
+                "request_id": "light-1",
+                "fact_key": "router_light",
+                "question": "What is the router light doing?",
+                "options": [{"id": "e501", "label": "Error E501", "value": "E501"}],
+                "recheck_after_action": False,
+            },
+            "decision_basis": {
+                "why_not_solved": "The light state selects the branch.",
+                "discriminates_between": ["power issue", "connection issue"],
+                "expected_discrimination": "Light state selects the branch.",
+            },
+            "facts_learned": [],
+            "candidate_causes": [],
+            "ruled_out_causes": [],
+            "source_ids": ["child-1"],
+        }
+    )
+
+    with pytest.raises(InvalidAnswerError, match="not grounded"):
+        _validate_turn(turn, evidence, DiagnosticSessionState(session_id="grounding-check"))
+
+
+def test_planner_allows_paraphrased_observation_states() -> None:
+    """Benign paraphrases must not fail validation and drive abstains."""
+
+    evidence = _assemble_evidence([_hit()], [_chunk()])
+    turn = DiagnosticTurn.model_validate(
+        {
+            "turn_id": "turn-paraphrase",
+            "mode": "clarify",
+            "response": "What is the light doing?",
+            "interpretation": None,
+            "next_action": None,
+            "observation_request": {
+                "request_id": "light-1",
+                "fact_key": "router_light",
+                "question": "What is the router light doing?",
+                "options": [{"id": "valid", "label": "Valid IP address", "value": "valid ip address"}],
+                "recheck_after_action": False,
+            },
+            "decision_basis": {
+                "why_not_solved": "The light state selects the branch.",
+                "discriminates_between": ["power issue", "connection issue"],
+                "expected_discrimination": "Light state selects the branch.",
+            },
+            "facts_learned": [],
+            "candidate_causes": [],
+            "ruled_out_causes": [],
+            "source_ids": ["child-1"],
+        }
+    )
+
+    _validate_turn(turn, evidence, DiagnosticSessionState(session_id="paraphrase-check"))
+
+
+def test_planner_rejects_repeated_completed_action() -> None:
+    evidence = _assemble_evidence([_hit()], [_chunk()])
+    state = DiagnosticSessionState(session_id="repeat-check")
+    state.completed_actions = ["check the wan light state on the router."]
+    turn = DiagnosticTurn.model_validate(
+        {
+            "turn_id": "turn-repeat",
+            "mode": "advance",
+            "response": "Check the WAN light again.",
+            "interpretation": None,
+            "next_action": {
+                "instruction": "Check the WAN light state on the router.",
+                "why": "The WAN light shows upstream state.",
+            },
+            "observation_request": None,
+            "decision_basis": {
+                "why_not_solved": "Upstream state unknown.",
+                "discriminates_between": ["upstream failure", "local issue"],
+                "expected_discrimination": "Light selects branch.",
+            },
+            "facts_learned": [],
+            "candidate_causes": [],
+            "ruled_out_causes": [],
+            "source_ids": ["child-1"],
+        }
+    )
+
+    with pytest.raises(InvalidAnswerError, match="repeated a completed action"):
+        _validate_turn(turn, evidence, state)
+
+
+def test_chunked_planner_response_roundtrips_exactly() -> None:
+    from friday.answering.service import _chunk_planned_response
+
+    response = "The Wi-Fi is visible, so the local link is up. Check the WAN light next."
+    pieces = _chunk_planned_response(response)
+
+    assert len(pieces) > 1
+    assert "".join(pieces) == response
+
+
+def _repair_fixture(**overrides: object) -> DiagnosticTurn:
+    payload: dict[str, object] = {
+        "turn_id": "turn-repair",
+        "mode": "advance",
+        "response": "Check the cable state next.",
+        "interpretation": None,
+        "next_action": None,
+        "observation_request": {
+            "request_id": "cable-1",
+            "fact_key": "cable_state",
+            "question": "What is the cable state?",
+            "options": [],
+            "recheck_after_action": False,
+        },
+        "decision_basis": {
+            "why_not_solved": "The cable state selects the branch.",
+            "discriminates_between": ["loose cable", "faulty port"],
+            "expected_discrimination": "Cable state selects the branch.",
+        },
+        "facts_learned": [],
+        "candidate_causes": [],
+        "ruled_out_causes": [],
+        "source_ids": ["child-1"],
+    }
+    payload.update(overrides)
+    return DiagnosticTurn.model_validate(payload)
+
+
+def test_repair_demotes_actionless_advance_to_clarify() -> None:
+    from friday.answering.litellm import _attempt_repair
+
+    evidence = _assemble_evidence([_hit()], [_chunk()])
+    state = DiagnosticSessionState(session_id="repair-advance")
+    repaired = _attempt_repair(_repair_fixture(), _assemble_evidence([_hit()], [_chunk()]))
+
+    assert repaired is not None
+    assert repaired.mode == "clarify"
+    _validate_turn(repaired, evidence, state)
+
+
+def test_repair_strips_extras_from_solve_turn() -> None:
+    from friday.answering.litellm import _attempt_repair
+
+    evidence = _assemble_evidence([_hit()], [_chunk()])
+    state = DiagnosticSessionState(session_id="repair-solve")
+    turn = _repair_fixture(
+        mode="solve",
+        next_action={"instruction": "Check again.", "why": "Just in case."},
+        decision_basis=None,
+    )
+    repaired = _attempt_repair(turn, _assemble_evidence([_hit()], [_chunk()]))
+
+    assert repaired is not None
+    assert repaired.next_action is None
+    assert repaired.observation_request is None
+    assert repaired.decision_basis is None
+    _validate_turn(repaired, evidence, state)
+
+
+def test_repair_drops_action_from_clarify_turn() -> None:
+    from friday.answering.litellm import _attempt_repair
+
+    evidence = _assemble_evidence([_hit()], [_chunk()])
+    state = DiagnosticSessionState(session_id="repair-clarify")
+    turn = _repair_fixture(
+        mode="clarify", next_action={"instruction": "Check the cable.", "why": "It selects the branch."}
+    )
+    repaired = _attempt_repair(turn, _assemble_evidence([_hit()], [_chunk()]))
+
+    assert repaired is not None
+    assert repaired.next_action is None
+    _validate_turn(repaired, evidence, state)
+
+
+def test_repair_declines_repeated_action_without_invention() -> None:
+    from friday.answering.litellm import _attempt_repair
+
+    state = DiagnosticSessionState(session_id="repair-repeat")
+    state.completed_actions = ["check the cable state on the router."]
+    turn = _repair_fixture(
+        next_action={"instruction": "Check the cable state on the router.", "why": "It selects the branch."},
+        observation_request=None,
+    )
+
+    assert _attempt_repair(turn, _assemble_evidence([_hit()], [_chunk()])) is None
+
+
+def test_repeated_actions_ignores_mentions_and_flags_recommendations() -> None:
+    from friday.answering.session import repeated_actions_in_response
+
+    completed = ["RENEW_DHCP", "POWER_CYCLE_ROUTER"]
+    mention = (
+        "Since renewing the connection did not help, check the router's WAN IP status next. "
+        "You already restarted the router, so no need to power it off again."
+    )
+    assert repeated_actions_in_response(mention, completed) == []
+
+    recommendation = "Please renew the connection now, then power off the router for one minute."
+    flagged = repeated_actions_in_response(recommendation, completed)
+    assert set(flagged) == {"RENEW_DHCP", "POWER_CYCLE_ROUTER"}
+
+
+def test_scanner_tolerates_truncation_and_nesting() -> None:
+    from friday.answering.litellm import _decode_partial_json_string, _scan_top_level_fields
+
+    raw = '{"mode": "advance", "next_action": {"instruction": "Check it", "why": "x"}, "tags": ["a", {"b": 1}], "half": "abc'
+    fields = _scan_top_level_fields(raw)
+    assert set(fields) == {"mode", "next_action", "tags", "half"}
+    assert all(end is not None for key, (_, end) in fields.items() if key != "half")
+    assert fields["half"][1] is None
+    assert _decode_partial_json_string(raw, fields["half"][0]) == "abc"
+    assert _decode_partial_json_string('{"a": 1}', 5) is None
+
+
+def test_partial_decoder_matches_stdlib_on_tricky_strings() -> None:
+    import json as _json
+
+    from friday.answering.litellm import _decode_partial_json_string
+
+    tricky = 'He said "hi" \\ backslash \n newline \t tab caf\u00e9 \U0001f50c end'
+    encoded = _json.dumps(tricky)
+    assert _decode_partial_json_string(encoded, 0) == tricky
+    # Every truncation point must decode to a prefix of the full string.
+    for cut in range(1, len(encoded)):
+        decoded = _decode_partial_json_string(encoded[:cut], 0)
+        assert decoded is not None
+        assert tricky.startswith(decoded), cut
+
+
+def test_gate_buffers_response_until_fields_validate() -> None:
+    from friday.answering.litellm import _ResponseGate
+
+    evidence = _assemble_evidence([_hit()], [_chunk()])
+    state = DiagnosticSessionState(session_id="gate-buffer")
+    gate = _ResponseGate(evidence, state)
+    head = '{"mode":"solve","interpretation":null,"next_action":null,"observation_request":null,'
+    # Response arrives before the remaining fields: nothing may leak yet.
+    assert gate.feed(head + '"response":"Check th') == []
+    tail = 'e cable.","decision_basis":null,"facts_learned":[],"candidate_causes":[],"ruled_out_causes":[],"source_ids":["child-1"]}'
+    assert gate.feed(tail) == ["Check the cable."]
+    assert gate.complete_turn().mode == "solve"
+
+
+def test_gate_withholds_repeat_action_prose() -> None:
+    from friday.answering.litellm import _ResponseGate
+
+    evidence = _assemble_evidence([_hit()], [_chunk()])
+    state = DiagnosticSessionState(session_id="gate-repeat")
+    state.completed_actions = ["check the cable state on the router."]
+    gate = _ResponseGate(evidence, state)
+    turn_json = (
+        '{"mode":"advance","interpretation":null,'
+        '"next_action":{"instruction":"Check the cable state on the router.","why":"It selects the branch."},'
+        '"observation_request":null,'
+        '"decision_basis":{"why_not_solved":"The cable state is unknown.","discriminates_between":["loose cable","faulty port"],"expected_discrimination":"The reported state selects the branch."},'
+        '"facts_learned":[],"candidate_causes":[],"ruled_out_causes":[],"source_ids":["child-1"],'
+        '"response":"Check the cable state on the router now."}'
+    )
+    # The repeat is only detectable once next_action arrives; until then the
+    # gate must stay shut even though response text is already buffered.
+    assert gate.feed(turn_json[: turn_json.index('"response"')]) == []
+    assert gate.feed(turn_json[turn_json.index('"response"') :]) == []
+    with pytest.raises(InvalidAnswerError, match="repeated a completed action"):
+        gate.complete_turn()
+
+
+def test_tool_accumulator_reassembles_split_arguments() -> None:
+    from friday.answering.litellm import _ToolCallAccumulator
+
+    acc = _ToolCallAccumulator()
+    acc.add([(0, "call-1", "search_manual", '{"query": "WAN')])
+    acc.add([(0, "", "", ' light"}'), (1, "call-2", "open_manual_page", '{"document_id": "d", "page": 3}')])
+    acc.add([(9, "", "", "orphan")])
+    assert acc.calls() == [
+        ("search_manual", {"query": "WAN light"}, "call-1"),
+        ("open_manual_page", {"document_id": "d", "page": 3}, "call-2"),
+    ]
+
+
+def test_stream_agent_turn_speaks_before_completion() -> None:
+    payload = (
+        '{"mode":"solve","interpretation":null,"next_action":null,"observation_request":null,'
+        '"decision_basis":null,"facts_learned":[],"candidate_causes":[],"ruled_out_causes":[],'
+        '"source_ids":["child-1"],"response":"Check the cable. It is connected."}'
+    )
+
+    async def completion(**request):
+        assert request.get("stream") is True
+        assert "tools" in request
+        cut = payload.index("It is connected.")
+        return _stream_texts([payload[:cut], payload[cut:]])
+
+    async def run():
+        generator = LiteLLMAnswerGenerator(completion=completion)
+        evidence = _assemble_evidence([_hit()], [_chunk()])
+
+        async def execute(name: str, arguments: dict[str, object]) -> AgentToolResult:
+            raise AssertionError("no tool should be executed")
+
+        items = [
+            item
+            async for item in generator.stream_agent_turn(
+                "The router cannot connect",
+                evidence,
+                DiagnosticSessionState(session_id="gate-speech"),
+                execute,
+            )
+        ]
+        return items
+
+    items = asyncio.run(run())
+    tokens = [item for item in items if isinstance(item, str)]
+    runs = [item for item in items if not isinstance(item, str)]
+    assert "".join(tokens) == "Check the cable. It is connected."
+    assert len(runs) == 1
+    assert runs[0].turn.mode == "solve"
+    assert len(runs[0].llm_calls) == 1
+    assert runs[0].llm_calls[0].stream is True
+    assert runs[0].llm_calls[0].ttft_ms is not None
+
+
+def test_stream_agent_turn_executes_streamed_tool_calls() -> None:
+    followup = (
+        '{"mode":"solve","interpretation":null,"next_action":null,"observation_request":null,'
+        '"decision_basis":null,"facts_learned":[],"candidate_causes":[],"ruled_out_causes":[],'
+        '"source_ids":["child-1"],"response":"The WAN light is off."}'
+    )
+    calls: list[dict[str, object]] = []
+
+    async def completion(**request):
+        calls.append(request)
+        if len(calls) == 1:
+            assert request.get("stream") is True
+
+            async def tool_stream():
+                yield SimpleNamespace(
+                    choices=[
+                        SimpleNamespace(
+                            delta=SimpleNamespace(
+                                content=None,
+                                tool_calls=[
+                                    SimpleNamespace(
+                                        index=0,
+                                        id="call-1",
+                                        function=SimpleNamespace(
+                                            name="search_manual", arguments='{"query":"WAN light"}'
+                                        ),
+                                    )
+                                ],
+                            )
+                        )
+                    ]
+                )
+
+            return tool_stream()
+        return _stream_texts([followup])
+
+    async def run():
+        generator = LiteLLMAnswerGenerator(completion=completion)
+        evidence = _assemble_evidence([_hit()], [_chunk()])
+
+        async def execute(name: str, arguments: dict[str, object]) -> AgentToolResult:
+            assert name == "search_manual"
+            assert arguments == {"query": "WAN light"}
+            return AgentToolResult("WAN evidence", evidence)
+
+        return [
+            item
+            async for item in generator.stream_agent_turn(
+                "The router has no internet",
+                evidence,
+                DiagnosticSessionState(session_id="gate-tools"),
+                execute,
+            )
+        ]
+
+    items = asyncio.run(run())
+    kinds = [type(item).__name__ for item in items]
+    assert "AgentStreamEvidence" in kinds
+    assert items[-1].turn.response == "The WAN light is off."
+    assert items[-1].tool_names == ["search_manual"]
+    assert len(items[-1].llm_calls) == 2
+
+
+def test_gate_optimistic_releases_response_before_validation() -> None:
+    from friday.answering.litellm import _ResponseGate
+
+    evidence = _assemble_evidence([_hit()], [_chunk()])
+    state = DiagnosticSessionState(session_id="gate-optimistic")
+    gate = _ResponseGate(evidence, state, optimistic=True)
+    # Response arrives first: strict mode withholds everything...
+    strict = _ResponseGate(evidence, state)
+    assert strict.feed('{"response":"Check the cable."') == []
+    # ...while optimistic mode speaks it immediately.
+    assert gate.feed('{"response":"Check the cable."') == ["Check the cable."]
+    rest = ',"mode":"solve","interpretation":null,"next_action":null,"observation_request":null,"decision_basis":null,"facts_learned":[],"candidate_causes":[],"ruled_out_causes":[],"source_ids":["child-1"]}'
+    assert gate.feed(rest) == []
+    assert gate.complete_turn().mode == "solve"
+
+
+def test_response_first_schema_and_prompt_ordering() -> None:
+    from friday.answering.litellm import _diagnostic_turn_schema
+    from friday.prompts import build_messages
+
+    first = _diagnostic_turn_schema(response_first=True)
+    assert next(iter(first["properties"])) == "response"
+    last = _diagnostic_turn_schema(response_first=False)
+    assert list(last["properties"])[-1] == "response"
+    assert set(first["required"]) == set(last["required"])
+    default_line = build_messages("q", [], None)[1]["content"].splitlines()[-1]
+    assert "`mode`" in default_line and default_line.index("`mode`") < default_line.index("`response`")
+    first_line = build_messages("q", [], None, response_first=True)[1]["content"].splitlines()[-1]
+    assert first_line.index("`response`") < first_line.index("`mode`")
+
+
+def test_repair_filters_hallucinated_source_ids() -> None:
+    from friday.answering.litellm import _attempt_repair
+
+    evidence = _assemble_evidence([_hit()], [_chunk()])
+    turn = _repair_fixture(source_ids=["child-1", "ghost-chunk"])
+    repaired = _attempt_repair(turn, evidence)
+
+    assert repaired is not None
+    assert repaired.source_ids == ["child-1"]
+    _validate_turn(repaired, evidence, DiagnosticSessionState(session_id="repair-ids"))
+
+
+def test_repair_declines_fully_hallucinated_citations() -> None:
+    from friday.answering.litellm import _attempt_repair
+
+    evidence = _assemble_evidence([_hit()], [_chunk()])
+    turn = _repair_fixture(source_ids=["ghost-chunk"])
+
+    assert _attempt_repair(turn, evidence) is None
+
+
+def test_gate_logs_abandoned_optimistic_speech(caplog: pytest.LogCaptureFixture) -> None:
+    import logging
+
+    from friday.answering.litellm import _ResponseGate
+
+    evidence = _assemble_evidence([_hit()], [_chunk()])
+    state = DiagnosticSessionState(session_id="gate-abandoned")
+    gate = _ResponseGate(evidence, state, optimistic=True)
+    assert gate.feed('{"response":"Check the cable now."') != []
+    with caplog.at_level(logging.INFO, logger="friday.answering.litellm"), pytest.raises(InvalidAnswerError):
+        gate.complete_turn()
+    assert "optimistic_speech_abandoned" in caplog.text
+
+
+def test_bare_sentinel_abstain_turn_maps_to_unsupported() -> None:
+    """A JSON abstain turn carrying bare UNSUPPORTED prose must not reach users."""
+
+    from friday.answering.litellm import _parse_turn_text
+
+    evidence = _assemble_evidence([_hit()], [_chunk()])
+    state = DiagnosticSessionState(session_id="sentinel-check")
+    payload = json.dumps(
+        {
+            "mode": "abstain",
+            "response": "UNSUPPORTED",
+            "interpretation": None,
+            "next_action": None,
+            "observation_request": None,
+            "decision_basis": None,
+            "facts_learned": [],
+            "candidate_causes": [],
+            "ruled_out_causes": [],
+            "source_ids": ["child-1"],
+        }
+    )
+    with pytest.raises(UnsupportedAnswerError):
+        _parse_turn_text(payload, evidence, state)
+
+
+def test_mentioning_unsupported_in_prose_stays_valid() -> None:
+    """Exact-match only: prose merely containing the word must still validate."""
+
+    from friday.answering.litellm import _parse_turn_text
+
+    evidence = _assemble_evidence([_hit()], [_chunk()])
+    state = DiagnosticSessionState(session_id="sentinel-prose-check")
+    payload = json.dumps(
+        {
+            "mode": "solve",
+            "response": "The old method is unsupported, so check the cable instead. It is connected.",
+            "interpretation": None,
+            "next_action": None,
+            "observation_request": None,
+            "decision_basis": None,
+            "facts_learned": [],
+            "candidate_causes": [],
+            "ruled_out_causes": [],
+            "source_ids": ["child-1"],
+        }
+    )
+    assert _parse_turn_text(payload, evidence, state).mode == "solve"

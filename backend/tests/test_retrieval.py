@@ -150,6 +150,33 @@ def test_hybrid_retrieval_can_abstain_on_low_dense_confidence() -> None:
     assert result.reason == "low_dense_confidence"
 
 
+def test_diversify_caps_kind_variants_per_manual_location() -> None:
+    from friday.retrieval.hybrid import _diversified_ids
+
+    payloads = {
+        f"variant-{index}": {
+            "document_id": "manual",
+            "page": 85,
+            "section": "Control the LED > Q4",
+            "parent_chunk_id": f"parent-{index}",
+        }
+        for index in range(4)
+    }
+    payloads["distinct"] = {
+        "document_id": "manual",
+        "page": 12,
+        "section": "Connect Your Router",
+        "parent_chunk_id": "parent-other",
+    }
+    ranked = ["variant-0", "variant-1", "variant-2", "variant-3", "distinct"]
+
+    selected = _diversified_ids(ranked, payloads, 5)
+
+    assert selected[:2] == ["variant-0", "variant-1"]
+    assert "distinct" in selected[:3]
+    assert len(selected) == 5
+
+
 def test_session_cache_reuses_completed_turn_and_applies_device_scope() -> None:
     index = FakeIndex()
     chunk = _chunk("vector", RetrievalProfile.VECTOR)
@@ -389,3 +416,20 @@ def test_index_from_chunks_returns_provider_manifest_fields() -> None:
     assert report.indexed_chunks == 1
     assert report.model_name == "fixture"
     assert report.dimension == 3
+
+
+def test_lexical_retriever_scopes_exact_index_to_vector_chunks() -> None:
+    """Identifier stubs without a vector profile must not trigger exact early-return."""
+
+    from friday.main import _lexical_retriever
+
+    stub = _chunk("exact-stub", RetrievalProfile.EXACT)
+    stub.metadata = {"normalized_value": "HL1234"}
+    content = _chunk("content-chunk", RetrievalProfile.EXACT)
+    content.metadata = {"normalized_value": "HL1234"}
+    content.retrieval_profiles.append(RetrievalProfile.VECTOR)
+
+    retriever = _lexical_retriever([stub, content])
+    hits = asyncio.run(retriever.exact_search("My HL1234 shows an error", None, limit=5))
+
+    assert [hit.id for hit in hits] == ["content-chunk"]

@@ -21,11 +21,12 @@ from .answering import (
 )
 from .answering.litellm import AnswerProviderUnavailable
 from .config import config_section, load_runtime_config
+from .ingestion.models import DocumentChunk, RetrievalProfile
 from .paths import project_root
 from .retrieval.bm25 import CombinedLexicalRetriever, InMemoryBM25Retriever, InMemoryExactIdentifierRetriever
 from .retrieval.context_store import JsonlParentChunkStore
 from .retrieval.granite import GraniteEmbeddingProvider
-from .retrieval.indexer import load_vector_chunks
+from .retrieval.indexer import load_all_chunks
 from .retrieval.qdrant import QdrantSettings, QdrantVectorIndex
 from .voice.bridge import SarvamVoiceBridge
 
@@ -250,27 +251,42 @@ async def voice(websocket: WebSocket) -> None:
     await SarvamVoiceBridge(service).serve(websocket, accepted=True)
 
 
+def _lexical_retriever(all_chunks: list[DocumentChunk]) -> CombinedLexicalRetriever:
+    """Build the production lexical retriever with a vector-scoped exact index.
+
+    Identifier stubs without a vector profile must not trigger the exact
+    early-return and starve fusion: a query merely mentioning a model number
+    would otherwise serve only the stub and hide the content chunks (e.g. the
+    Toner LED section for a Toner LED question). Matches the deterministic
+    eval configuration (recall 0.988).
+    """
+
+    vector_chunks = [chunk for chunk in all_chunks if RetrievalProfile.VECTOR in chunk.retrieval_profiles]
+    return CombinedLexicalRetriever(
+        InMemoryBM25Retriever(all_chunks),
+        InMemoryExactIdentifierRetriever(vector_chunks),
+    )
+
+
 def _build_service() -> TroubleshootingService:
     global _image_manifest
     chunks_root = _runtime_path("CHUNKS_ROOT", "data/chunks")
     _image_manifest = _load_image_manifest()
     try:
-        chunks = load_vector_chunks(chunks_root)
+        all_chunks = load_all_chunks(chunks_root)
     except FileNotFoundError as error:
         raise RuntimeError(
             f"chunk directory is missing at {chunks_root}; run `make ingest` then `make index-vectors`"
         ) from error
+    chunks = [chunk for chunk in all_chunks if RetrievalProfile.VECTOR in chunk.retrieval_profiles]
     if not chunks:
         raise RuntimeError(f"no vector chunks found under {chunks_root}; run `make chunk` before starting the API")
-    lexical = CombinedLexicalRetriever(
-        InMemoryBM25Retriever.from_directory(chunks_root),
-        InMemoryExactIdentifierRetriever(chunks),
-    )
+    lexical = _lexical_retriever(all_chunks)
     return TroubleshootingService(
         embedding_provider=GraniteEmbeddingProvider(),
         vector_index=QdrantVectorIndex(QdrantSettings()),
         lexical_retriever=lexical,
-        parent_store=JsonlParentChunkStore.from_directory(chunks_root),
+        parent_store=JsonlParentChunkStore.from_chunks(all_chunks),
         answer_generator=_answer_generator(),
         session_store=SqliteDiagnosticSessionStore(
             _runtime_path("SESSION_STORE_PATH", "data/index/diagnostic_sessions.sqlite3")
