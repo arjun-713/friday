@@ -37,6 +37,8 @@ describe the symptom → find the matching evidence → take one safe check → 
   and parent-context expansion.
 - Local persistent Qdrant storage behind a small vector-index abstraction.
 - LiteLLM answer layer with provider-selectable streaming chat completions.
+- Bounded agentic RAG: Luna can request up to two scoped, read-only manual tools
+  before producing one final grounded streamed answer.
 - Structured troubleshooting state that carries the selected device,
   observations, completed checks, and current diagnostic step across turns.
 - Citation-aware answers and explicit unsupported-question handling.

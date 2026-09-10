@@ -1,0 +1,12 @@
+# Runtime-only dependencies for the production image.
+# requirements-cpu.txt additionally pulls the dev toolchain (pytest, mypy, ruff)
+# for the local venv; none of it is imported by backend/src (verified by grep),
+# so the image installs this subset to cut download, install, and layer-export
+# time on every build.
+-r requirements.txt
+
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.5.1+cpu
+sentence-transformers[onnx,openvino]==5.4.1
+transformers>=4.48,<5
+onnxruntime==1.23.2

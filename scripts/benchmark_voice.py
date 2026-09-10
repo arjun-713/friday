@@ -19,9 +19,8 @@ from pathlib import Path
 from time import perf_counter
 from typing import Any
 
-from websockets.asyncio.client import ClientConnection, connect
-
 from friday.paths import index_dir
+from websockets.asyncio.client import ClientConnection, connect
 
 CHUNK_BYTES = 1600  # 50 ms of mono, 16-bit PCM at 16 kHz.
 CHUNK_SECONDS = 0.05

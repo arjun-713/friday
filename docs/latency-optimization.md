@@ -3,7 +3,8 @@
 Friday measures the user-visible path as:
 
 ```text
-speech end → final transcript → retrieval → first LLM text → first TTS audio
+speech end → final transcript → retrieval → provider request → first token
+→ first sentence → first actionable sentence → first TTS audio → completion
 ```
 
 The important production metric is speech-end-to-first-audio. Individual model
@@ -14,9 +15,26 @@ The bridge logs each stage with `turn_id` and a millisecond duration:
 voice_stt_final
 voice_retrieval_complete
 voice_llm_first_token
+voice_first_sentence
+voice_first_actionable_sentence
 voice_tts_connection_ready
 voice_tts_first_audio
 ```
+
+`voice_first_sentence` fires when the first TTS sentence unit is queued;
+`voice_first_actionable_sentence` fires for the first unit that asks the user
+something (ends with `?`) or opens with an imperative troubleshooting verb
+(`_is_actionable_sentence`, deterministic by design). Acknowledgements
+("Your phone is connected…") are speakable but not actionable, which is why
+both milestones are tracked: most replies acknowledge before instructing.
+
+Provider-side spans come from per-call `LLMCallRecord`s attached to every
+`complete` SSE event as `llm_calls`: `ttft_ms` isolates queue/scheduling delay
+from generation speed (`tokens_per_sec`, computed over post-TTFT time from
+provider usage). Measured on Luna: TTFT alone swings 0.8–4.1 s call to call,
+so TTFT variance — not generation speed or application overhead — dominates
+end-to-end variance. Streaming the planner call does not reduce TTFT, but it
+removes the wait after it: first sentence follows TTFT by ~100–300 ms.
 
 ## Implemented decisions
 

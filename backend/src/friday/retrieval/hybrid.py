@@ -244,14 +244,21 @@ def _rrf_fuse(
 def _diversified_ids(ranked_candidates: Sequence[str], payloads: dict[str, dict[str, object]], limit: int) -> list[str]:
     selected: list[str] = []
     seen_groups: set[str] = set()
+    # Kind variants of one manual location (procedure + section + parent/child
+    # splits of the same page/section) otherwise occupy most of top-k with
+    # near-duplicate text, starving the planner of distinct branches. Cap each
+    # document/page/section at two chunks so one more distinct section fits.
+    location_counts: dict[str, int] = {}
     deferred: list[str] = []
     for chunk_id in ranked_candidates:
         group = _evidence_group(payloads[chunk_id])
-        if group in seen_groups:
+        location = _evidence_location(payloads[chunk_id])
+        if group in seen_groups or location_counts.get(location, 0) >= 2:
             deferred.append(chunk_id)
             continue
         selected.append(chunk_id)
         seen_groups.add(group)
+        location_counts[location] = location_counts.get(location, 0) + 1
         if len(selected) == limit:
             return selected
     for chunk_id in deferred:
@@ -259,6 +266,12 @@ def _diversified_ids(ranked_candidates: Sequence[str], payloads: dict[str, dict[
             break
         selected.append(chunk_id)
     return selected
+
+
+def _evidence_location(payload: dict[str, object]) -> str:
+    """Group kind variants that share one manual page and section heading."""
+
+    return ":".join(str(payload.get(field, "")) for field in ("document_id", "page", "section"))
 
 
 def _evidence_group(payload: dict[str, object]) -> str:

@@ -113,11 +113,29 @@ export type TroubleshootingResponse = {
   retrieval: RetrievalSummary;
 };
 
+export type LLMCallRecord = {
+  index: number;
+  model: string;
+  stream: boolean;
+  structured: boolean;
+  tools_attached: boolean;
+  prompt_chars: number;
+  max_tokens?: number | null;
+  ttft_ms?: number | null;
+  latency_ms: number;
+  prompt_tokens?: number | null;
+  completion_tokens?: number | null;
+  cached_tokens?: number | null;
+  tokens_per_sec?: number | null;
+  tool_names: string[];
+  note?: string | null;
+};
+
 export type TroubleshootingStreamEvent =
   | { type: "retrieval"; retrieval: RetrievalSummary; backend_elapsed_ms?: number }
   | { type: "tool"; tools: string[]; backend_elapsed_ms?: number }
   | { type: "token"; text: string; backend_elapsed_ms?: number }
-  | { type: "complete"; response: TroubleshootingResponse; backend_elapsed_ms?: number }
+  | { type: "complete"; response: TroubleshootingResponse; llm_calls?: LLMCallRecord[]; backend_elapsed_ms?: number }
   | { type: "error"; message: string };
 
 export class TroubleshootingApiError extends Error {

@@ -37,8 +37,25 @@ def load_vector_chunks(
 ) -> list[DocumentChunk]:
     """Load vector-profile chunks in stable path and line order."""
 
-    chunks_root = chunks_root or chunks_dir()
+    chunks = load_all_chunks(chunks_root, category)
+    selected: list[DocumentChunk] = []
+    for chunk in chunks:
+        if RetrievalProfile.VECTOR in chunk.retrieval_profiles:
+            if document_id is not None and chunk.document.document_id != document_id:
+                continue
+            selected.append(chunk)
+            if limit is not None and len(selected) >= limit:
+                return selected
+    return selected
 
+
+def load_all_chunks(
+    chunks_root: Path | None = None,
+    category: str | None = None,
+) -> list[DocumentChunk]:
+    """Parse every chunk file once so startup loaders can share the result."""
+
+    chunks_root = chunks_root or chunks_dir()
     if not chunks_root.exists():
         raise FileNotFoundError(f"chunk directory does not exist: {chunks_root}")
     paths = sorted((chunks_root / category).glob("*.jsonl") if category else chunks_root.glob("*/*.jsonl"))
@@ -48,15 +65,9 @@ def load_vector_chunks(
             if not line.strip():
                 continue
             try:
-                chunk = DocumentChunk.model_validate(json.loads(line))
+                chunks.append(DocumentChunk.model_validate(json.loads(line)))
             except (json.JSONDecodeError, ValueError) as error:
                 raise ValueError(f"invalid chunk at {path}:{line_number}") from error
-            if RetrievalProfile.VECTOR in chunk.retrieval_profiles:
-                if document_id is not None and chunk.document.document_id != document_id:
-                    continue
-                chunks.append(chunk)
-                if limit is not None and len(chunks) >= limit:
-                    return chunks
     return chunks
 
 

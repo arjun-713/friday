@@ -187,10 +187,90 @@ def _completed_actions_from_report(report: str) -> set[str]:
     return actions
 
 
-def repeated_actions_in_response(response: str, completed_actions: list[str]) -> list[str]:
-    """Find completed operations that a new assistant reply recommends again."""
+_REPEAT_MENTION_CUES = (
+    "already",
+    "didn't",
+    "didnt",
+    "did not",
+    "hasn't",
+    "hasnt",
+    "have not",
+    "wasn't",
+    "wasnt",
+    "were not",
+    "don't",
+    "dont",
+    "do not",
+    "no need",
+    "no longer",
+    "not help",
+    "not necessary",
+    "instead",
+    "rather than",
+    "skip",
+    "avoid",
+    "stop",
+    "completed",
+    "done that",
+)
 
-    normalized = " ".join(response.lower().split())
+_RECOMMEND_CUES = (
+    "please",
+    "you should",
+    "need to",
+    "have to",
+    "must",
+    "next step",
+    "go ahead",
+    "try ",
+    "have you",
+    "did you",
+    "can you",
+    "could you",
+)
+
+# Mirrors the voice bridge imperative set; session.py cannot import it without
+# pulling fastapi/websockets into the storage layer.
+_RECOMMEND_IMPERATIVES = frozenset(
+    {
+        "check", "verify", "confirm", "look", "open", "press", "power", "unplug",
+        "plug", "restart", "renew", "retry", "reconnect", "try", "tell", "wait",
+        "leave", "move", "connect", "disconnect", "turn", "switch", "ensure",
+        "make", "take", "remove", "insert", "clean", "replace", "update",
+        "change", "set", "select", "choose", "measure", "test", "run", "watch",
+        "note", "report", "describe", "say", "keep", "hold",
+    }
+)
+
+
+def _is_mention_sentence(sentence: str) -> bool:
+    """Detect sentences that reference a completed action without recommending it."""
+
+    return any(cue in sentence for cue in _REPEAT_MENTION_CUES)
+
+
+def _is_recommendation_sentence(sentence: str) -> bool:
+    """Detect sentences that ask the user to perform an action again."""
+
+    stripped = sentence.strip()
+    if stripped.endswith("?"):
+        return True
+    first = re.split(r"\s+", stripped.strip("\"'()"), maxsplit=1)[0].rstrip(",.:;!")
+    if first in _RECOMMEND_IMPERATIVES:
+        return True
+    return any(cue in stripped for cue in _RECOMMEND_CUES)
+
+
+def repeated_actions_in_response(response: str, completed_actions: list[str]) -> list[str]:
+    """Flag completed operations only when the reply recommends them again.
+
+    The previous substring check fired on ordinary acknowledgements ("since
+    renewing the connection did not help, check..."), which is metric noise at
+    best and a false repeat warning at worst. Matching runs per sentence:
+    mentions of past attempts are skipped, recommendations are flagged.
+    """
+
+    sentences = [part for part in re.split(r"(?<=[.!?])\s+", " ".join(response.lower().split())) if part]
     phrases = {
         "POWER_CYCLE_MODEM": ("power off", "modem"),
         "POWER_CYCLE_ROUTER": ("power off", "router"),
@@ -198,11 +278,20 @@ def repeated_actions_in_response(response: str, completed_actions: list[str]) ->
         "TEST_MODEM_DIRECT": ("connect", "direct", "modem"),
         "RENEW_DHCP": ("renew", "connection"),
     }
-    return [
-        action_id
-        for action_id in completed_actions
-        if action_id in phrases and all(term in normalized for term in phrases[action_id])
-    ]
+    flagged: list[str] = []
+    for action_id in completed_actions:
+        terms = phrases.get(action_id)
+        if not terms:
+            continue
+        for sentence in sentences:
+            if not all(term in sentence for term in terms):
+                continue
+            if _is_mention_sentence(sentence):
+                continue
+            if _is_recommendation_sentence(sentence):
+                flagged.append(action_id)
+                break
+    return flagged
 
 
 def _submitted_observation(state: DiagnosticSessionState, request: TroubleshootingRequest) -> str:

@@ -9,7 +9,7 @@ llm:
   # migration once its event mapping is validated against this dependency.
   api_mode: chat_completions
   api_key_env: OPENAI_API_KEY
-  temperature: 0.2
+  temperature: 0.1
   # Diagnostic turns are intentionally concise: the UI renders the action and
   # evidence separately, so a large completion budget only increases latency.
   max_tokens: 140
@@ -18,7 +18,15 @@ llm:
   # The agentic / non-stream path parses a diagnostic turn object. The
   # conversation stream remains unstructured because it passes structured=false
   # and emits natural-language tokens directly.
+  # json_object is the default structured-output mode: it coexists with tool
+  # calling on all supported providers (strict json_schema does not on Groq,
+  # and showed no retry reduction on Luna in A/B measurement).
   response_format: json_object
+  # Streaming gate experiment arms (see docs/rag-performance.md). Defaults keep
+  # validated-only speech: planner schema orders `response` last and the gate
+  # withholds it until every other field validates.
+  # planner_response_position: last
+  # streaming_gate: strict
   # Provider-managed prefix caching is enabled when the selected provider
   # supports it. Groq currently ignores this because it has no documented
   # prompt-cache contract; switching providers requires no code change.
@@ -31,6 +39,8 @@ llm:
   # Luna supports explicit reasoning control. Keep it off for the interactive
   # troubleshooting path so visible output can start as soon as possible.
   reasoning_effort: none
+  agentic_enabled: true
+  max_tool_calls: 2
 
 voice:
   stt:

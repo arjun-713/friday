@@ -24,6 +24,12 @@ class JsonlParentChunkStore:
                 chunks[chunk.chunk_id] = chunk
         return cls(chunks)
 
+    @classmethod
+    def from_chunks(cls, chunks: Sequence[DocumentChunk]) -> "JsonlParentChunkStore":
+        """Build the store from already-parsed chunks without re-reading disk."""
+
+        return cls({chunk.chunk_id: chunk for chunk in chunks})
+
     async def fetch(self, ids: Sequence[str]) -> list[DocumentChunk]:
         return [self._chunks[chunk_id] for chunk_id in ids if chunk_id in self._chunks]
 

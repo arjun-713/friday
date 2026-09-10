@@ -18,6 +18,7 @@ from websockets.asyncio.client import ClientConnection, connect
 
 from ..answering.models import TroubleshootingRequest
 from ..answering.service import TroubleshootingService
+from ..prompts import VOICE_STT_TERMINOLOGY_PROMPT
 from .sarvam import SarvamRealtimeSettings, SarvamTTSSettings
 
 JsonSender = Callable[[dict[str, object]], Awaitable[None]]
@@ -233,6 +234,8 @@ class SarvamVoiceBridge:
         started = perf_counter()
         self._state = VoiceSessionState.THINKING
         first_token = True
+        first_sentence_logged = False
+        first_actionable_logged = False
         speech_buffer = ""
         spoken_text = ""
         tts_queue: asyncio.Queue[str | None] | None = None
@@ -265,6 +268,22 @@ class SarvamVoiceBridge:
                     speech_buffer += piece
                     sentences, speech_buffer = _take_tts_sentences(speech_buffer)
                     for sentence in sentences:
+                        if not first_sentence_logged:
+                            first_sentence_logged = True
+                            logger.info(
+                                "voice_first_sentence turn_id=%s latency_ms=%.1f chars=%d",
+                                turn_id,
+                                (perf_counter() - started) * 1000,
+                                len(sentence),
+                            )
+                        if not first_actionable_logged and _is_actionable_sentence(sentence):
+                            first_actionable_logged = True
+                            logger.info(
+                                "voice_first_actionable_sentence turn_id=%s latency_ms=%.1f sentence=%s",
+                                turn_id,
+                                (perf_counter() - started) * 1000,
+                                sentence[:160],
+                            )
                         if tts_queue is None:
                             tts_queue = asyncio.Queue()
                             tts_task = asyncio.create_task(self._run_tts_stream(client, turn_id, tts_queue))
@@ -282,6 +301,9 @@ class SarvamVoiceBridge:
                         client,
                         {"type": "retrieval", "retrieval": retrieval, "turn_id": turn_id},
                     )
+                elif event_type == "tool":
+                    tools = event.get("tools", [])
+                    await self._send(client, {"type": "tool", "tools": tools, "turn_id": turn_id})
                 elif event_type == "complete":
                     logger.info(
                         "voice_answer_complete turn_id=%s latency_ms=%.1f",
@@ -486,7 +508,7 @@ def _stt_url(settings: SarvamRealtimeSettings) -> str:
         "threshold": str(settings.vad_threshold),
         "silence_duration_ms": str(settings.silence_ms),
         "min_speech_duration_ms": str(settings.min_speech_ms),
-        "prompt": "Wi-Fi, WLAN, Ethernet, DHCP, DNS, BIOS, UEFI, ThinkPad, router, SSID, printer, toner, paper jam, HP, Brother, Epson, Canon.",
+        "prompt": VOICE_STT_TERMINOLOGY_PROMPT,
     }
     return f"{settings.endpoint}?{urlencode(params)}"
 
@@ -510,9 +532,75 @@ def _tts_config(settings: SarvamTTSSettings) -> dict[str, object]:
     }
 
 
+_IMPERATIVE_LEADS = frozenset(
+    {
+        "check",
+        "verify",
+        "confirm",
+        "look",
+        "open",
+        "press",
+        "power",
+        "unplug",
+        "plug",
+        "restart",
+        "renew",
+        "reconnect",
+        "try",
+        "tell",
+        "wait",
+        "leave",
+        "move",
+        "connect",
+        "disconnect",
+        "turn",
+        "switch",
+        "ensure",
+        "make",
+        "take",
+        "remove",
+        "insert",
+        "clean",
+        "replace",
+        "update",
+        "change",
+        "set",
+        "select",
+        "choose",
+        "measure",
+        "test",
+        "run",
+        "watch",
+        "note",
+        "report",
+        "describe",
+        "say",
+        "keep",
+        "hold",
+    }
+)
+
+
+def _is_actionable_sentence(sentence: str) -> bool:
+    """Decide whether a TTS sentence carries the turn's useful payload.
+
+    A sentence is actionable when it asks the user for an observation (ends
+    with a question mark) or opens with an imperative troubleshooting verb.
+    Pure acknowledgements ("Your phone is connected...") are speakable but
+    not actionable. Deterministic by design so voice TTFT reports are stable.
+    """
+
+    stripped = sentence.strip().strip("\"'\u201c\u201d\u2018\u2019()")
+    if not stripped:
+        return False
+    if stripped.endswith("?"):
+        return True
+    first = re.split(r"\s+", stripped, maxsplit=1)[0].lower().rstrip(",.:;!")
+    return first in _IMPERATIVE_LEADS
+
+
 def _take_tts_sentences(buffer: str, *, final: bool = False) -> tuple[list[str], str]:
     """Release complete speech units without waiting for the whole answer."""
-
     sentences: list[str] = []
     remaining = buffer
     while remaining:
