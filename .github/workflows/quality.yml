@@ -80,6 +80,30 @@ jobs:
       - name: Run type checker
         run: mypy
 
+  deepeval-calibration:
+    # Judge-only eval gate: no Qdrant, models, or indexed data needed
+    # (calibration makes zero app calls). Skips cleanly without a key.
+    # App-dependent suites (RAG/conversation/agent/voice/simulator) need the
+    # gitignored manual corpus, embedding artifact, and indexed collection,
+    # so they run manually/nightly — see docs/eval-deepeval.md.
+    name: deepeval-calibration
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+      - name: Install backend development dependencies
+        run: python -m pip install --quiet -e ".[dev]"
+      - name: Validate eval judges and dataset contracts
+        run: deepeval test run eval/evals/test_calibration.py eval/evals/test_rag.py::test_dataset_contract --identifier ci-calibration
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
   frontend:
     name: frontend
     runs-on: ubuntu-latest

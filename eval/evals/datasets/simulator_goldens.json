@@ -1,0 +1,81 @@
+{
+  "comment": "ConversationSimulator goldens. The simulator plays the user with these personas against the REAL Friday backend; expected_outcome judges the resulting conversation. Personas stress state management, repeat suppression, and robustness to vague/impatient users.",
+  "goldens": [
+    {
+      "name": "sim-impatient-archer",
+      "scenario": "A home user's Archer C6 Wi-Fi connects but there is no internet. The user is impatient and gives very short answers.",
+      "expected_outcome": "The assistant reaches a grounded next step or honest abstention without repeating a completed check, despite minimal user input.",
+      "user_description": "Impatient home user. Answers in three words or fewer. Says 'just tell me what to do' if asked more than one question at a time.",
+      "context": [
+        "TP-Link Archer C6"
+      ],
+      "device": {
+        "manufacturer": "TP-Link",
+        "model": "Archer C6"
+      },
+      "additional_metadata": {
+        "device": {
+          "manufacturer": "TP-Link",
+          "model": "Archer C6"
+        }
+      }
+    },
+    {
+      "name": "sim-vague-asus",
+      "scenario": "An ASUS RT-AX3000 owner reports 'the internet is broken' with no details and answers vaguely.",
+      "expected_outcome": "The assistant asks discriminating observation questions, grounds follow-ups in manual evidence, and does not invent specifics the user never reported.",
+      "user_description": "Vague user. Says things like 'it just does not work' and 'not sure'. Never volunteers LED states unless directly asked.",
+      "context": [
+        "ASUS RT-AX3000"
+      ],
+      "device": {
+        "manufacturer": "ASUS",
+        "model": "RT-AX3000"
+      },
+      "additional_metadata": {
+        "device": {
+          "manufacturer": "ASUS",
+          "model": "RT-AX3000"
+        }
+      }
+    },
+    {
+      "name": "sim-failed-step-repeat-stress",
+      "scenario": "A TP-Link Archer C6 user already checked the cable and restarted both devices, and says so. The assistant must not ask about the cable again.",
+      "expected_outcome": "No completed check is repeated. The assistant acknowledges the reported results as established facts and advances to the next supported branch.",
+      "user_description": "Precise user who reports results clearly, including 'I already checked the cable, it is firmly connected' and 'restarting did not help'. Gets annoyed if asked to redo a finished step.",
+      "context": [
+        "TP-Link Archer C6"
+      ],
+      "device": {
+        "manufacturer": "TP-Link",
+        "model": "Archer C6"
+      },
+      "additional_metadata": {
+        "device": {
+          "manufacturer": "TP-Link",
+          "model": "Archer C6"
+        }
+      }
+    },
+    {
+      "name": "sim-error-code-brother",
+      "scenario": "A Brother HL-L2350DW owner reports a specific LED/error state and asks what it means.",
+      "expected_outcome": "The assistant identifies the indicator from manual evidence, gives one safe check, and offers grounded observation options.",
+      "user_description": "User who reads exactly what the printer shows, including LED names, but does not know what they mean.",
+      "context": [
+        "Brother HL-L2350DW"
+      ],
+      "device": {
+        "manufacturer": "Brother",
+        "model": "HL-L2350DW Series"
+      },
+      "additional_metadata": {
+        "device": {
+          "manufacturer": "Brother",
+          "model": "HL-L2350DW Series"
+        }
+      }
+    }
+  ]
+}

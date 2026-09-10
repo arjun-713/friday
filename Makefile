@@ -2,7 +2,7 @@ PYTHON ?= python
 BACKEND_PYTHONPATH := backend/src
 MODULE := PYTHONPATH=$(BACKEND_PYTHONPATH) $(PYTHON) -m
 
-.PHONY: prepare chunk assets ingest ingest-summary bootstrap qdrant-up qdrant-down compose-up compose-down index-vectors benchmark-retrieval benchmark-retrieval-optimized benchmark-embedding benchmark-voice benchmark-conversation export-embedding eval-retrieval eval-retrieval-optimized eval-conversation-policy smoke-text smoke-voice backend-venv
+.PHONY: prepare chunk assets ingest ingest-summary bootstrap qdrant-up qdrant-down compose-up compose-down index-vectors benchmark-retrieval benchmark-retrieval-optimized benchmark-embedding benchmark-voice benchmark-conversation export-embedding eval-retrieval eval-retrieval-optimized eval-conversation-policy eval-deepeval-fast eval-deepeval-full eval-deepeval-agent eval-deepeval-conversation eval-deepeval-calibrate eval-deepeval-voice eval-deepeval-sim eval-deepeval-synthetic smoke-text smoke-voice backend-venv
 
 # Run after adding or replacing manuals in data/manuals.
 prepare:
@@ -57,6 +57,38 @@ eval-retrieval-optimized:
 
 eval-conversation-policy:
 	PYTHONPATH=backend/src backend/.venv/bin/python -m eval.run_conversation_policy
+
+# DeepEval harness (eval/evals/). Source backend/.env first so OPENAI_API_KEY
+# (judge) is present; it is never committed. Tiers:
+# - fast: PR gate (deterministic guards + 8-case RAG smoke + short
+#   conversations + judge calibration). No simulator, voice, or synthetic.
+# - full: all curated cases and conversations.
+# - voice/sim/synthetic: separate heavyweight suites, run manually/nightly.
+EVAL_ENV := EMBEDDING_BACKEND=onnx EMBEDDING_MODEL=data/models/granite-small-r2-onnx EMBEDDING_MODEL_FILE=onnx/model_int8-avx2.onnx
+
+eval-deepeval-fast:
+	$(EVAL_ENV) FRIDAY_EVAL_TIER=fast backend/.venv/bin/deepeval test run eval/evals/test_rag.py eval/evals/test_conversation.py eval/evals/test_calibration.py --identifier friday-fast
+
+eval-deepeval-full:
+	$(EVAL_ENV) FRIDAY_EVAL_TIER=full backend/.venv/bin/deepeval test run eval/evals/test_rag.py eval/evals/test_conversation.py eval/evals/test_agent.py eval/evals/test_calibration.py --identifier friday-full
+
+eval-deepeval-agent:
+	$(EVAL_ENV) backend/.venv/bin/deepeval test run eval/evals/test_agent.py --identifier friday-agent
+
+eval-deepeval-conversation:
+	$(EVAL_ENV) FRIDAY_EVAL_TIER=full backend/.venv/bin/deepeval test run eval/evals/test_conversation.py --identifier friday-conversation
+
+eval-deepeval-calibrate:
+	backend/.venv/bin/deepeval test run eval/evals/test_calibration.py --identifier friday-calibrate
+
+eval-deepeval-voice:
+	$(EVAL_ENV) backend/.venv/bin/deepeval test run eval/evals/test_voice.py --identifier friday-voice
+
+eval-deepeval-sim:
+	$(EVAL_ENV) FRIDAY_EVAL_SIM=1 backend/.venv/bin/deepeval test run eval/evals/test_simulator.py --identifier friday-sim
+
+eval-deepeval-synthetic:
+	PYTHONPATH=backend/src backend/.venv/bin/python eval/evals/datasets/generate_synthetic.py
 
 smoke-text:
 	PYTHONPATH=backend/src backend/.venv/bin/python scripts/smoke_text.py

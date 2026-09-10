@@ -1,5 +1,6 @@
 -r requirements.txt
 
+deepeval>=3.9,<4
 httpx>=0.27,<1
 mypy>=1.13,<2
 pytest>=8,<9

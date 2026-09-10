@@ -22,6 +22,14 @@ test-results/
 *.env
 !.env.example
 
+# DeepEval local run cache and last-run reports (regenerable).
+.deepeval/
+
+# Unreviewed synthetic eval candidates (see eval/evals/datasets/generate_synthetic.py).
+eval/evals/datasets/synthetic_rag.json
+eval/evals/datasets/_synthetic_raw.json
+eval/evals/datasets/_contexts_export.json
+
 # Local design-tool state and generated visual-audit output.
 .impeccable/
 

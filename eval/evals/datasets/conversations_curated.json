@@ -1,0 +1,49 @@
+{
+  "conversations": [
+    {
+      "conversation_id": "archer-c6-no-internet",
+      "scenario": "A home user troubleshoots a TP-Link Archer C6 whose Wi-Fi connects but provides no internet.",
+      "user_description": "Non-technical home user reporting what they see when asked.",
+      "device": {"manufacturer": "TP-Link", "model": "Archer C6"},
+      "expected_outcome": "The assistant advances through evidence-backed checks without repeating completed steps and ends at a grounded resolution or honest abstention.",
+      "tier": "full",
+      "user_turns": [
+        "My TP-Link Archer C6 is powered on, my phone connects to Wi-Fi, but there is no internet.",
+        "The 2.4 GHz and 5 GHz lights are solid. What does that rule out, and what should I check next?",
+        "The Internet/WAN light is off. What does the manual say for that exact state?",
+        "The Ethernet cable is firmly connected between the modem and the blue WAN port. Is there a documented modem-to-router restart order?",
+        "I followed that restart order: the modem Internet light is now solid, and I waited before powering the router back on.",
+        "The router is back on, but its Internet/WAN light is still off. What does this change tell us?",
+        "A laptop gets internet when connected directly to the modem, so the modem and service appear to work without the router.",
+        "The Archer C6 admin page says the WAN connection is disconnected. Where is the relevant WAN setup or status page?",
+        "The WAN type is Dynamic IP, and renewing the connection did not help. What safe router-side check is supported next?",
+        "I have not changed settings or reset the router. Based on everything confirmed so far, what should I try next and when should I contact my ISP?"
+      ]
+    },
+    {
+      "conversation_id": "rt-ax3000-red-wan",
+      "scenario": "An ASUS RT-AX3000 owner sees a red WAN LED and works through the first checks.",
+      "user_description": "User giving short direct answers.",
+      "device": {"manufacturer": "ASUS", "model": "RT-AX3000"},
+      "expected_outcome": "The assistant identifies the red WAN state from evidence, gives one safe check, and remembers the reported result.",
+      "tier": "fast",
+      "user_turns": [
+        "My ASUS RT-AX3000 has a red WAN LED. What does that mean?",
+        "The cable between the modem and the WAN port is firmly connected.",
+        "I restarted both the modem and the router in order and the LED is still red."
+      ]
+    },
+    {
+      "conversation_id": "out-of-domain-abstain",
+      "scenario": "A user asks about a device class the manuals do not cover.",
+      "user_description": "User asking an out-of-domain question.",
+      "device": {"manufacturer": null, "model": null},
+      "expected_outcome": "The assistant abstains honestly instead of inventing troubleshooting steps.",
+      "tier": "fast",
+      "user_turns": [
+        "How do I reset my CPAP machine that stopped working?",
+        "It shows no lights at all. What should I check first?"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,158 @@
+{
+  "comment": "Judge calibration cases. Each entry states the EXPECTED verdict per metric so test_calibration.py can prove the judges discriminate. These are fixed reference behaviors, not app outputs; never edit them to match judge behavior — fix the rubric instead.",
+  "cases": [
+    {
+      "id": "excellent-grounded-step",
+      "input": "My Archer C6 Wi-Fi connects but there is no internet. The WAN light is off.",
+      "retrieval_context": [
+        "Archer C6 manual p.24: If the Internet LED is off, verify the Ethernet cable between the modem and the router's blue WAN port is firmly connected.",
+        "Archer C6 manual p.25: Power off both modem and router, wait one minute, power on the modem first and wait for a solid Internet light before powering on the router."
+      ],
+      "actual_output": "Since your Wi-Fi connects but the Internet light is off, the router is not reaching the modem. Please check that the Ethernet cable is firmly connected between the modem and the blue WAN port, then tell me what the Internet light does.",
+      "expect": {
+        "Evidence Grounding": true,
+        "One Safe Step": true,
+        "Abstention Quality": true,
+        "Voice Concision": true
+      }
+    },
+    {
+      "id": "step-dump",
+      "input": "My Archer C6 Wi-Fi connects but there is no internet.",
+      "retrieval_context": [
+        "Archer C6 manual p.24: If the Internet LED is off, verify the Ethernet cable between the modem and the router's blue WAN port."
+      ],
+      "actual_output": "Try these things: check the cable, restart the modem, restart the router, log into 192.168.0.1 and clone your MAC address, change your DNS to 8.8.8.8, update the firmware, and if none of that works reset the router to factory defaults.",
+      "expect": {
+        "One Safe Step": false,
+        "Voice Concision": false
+      }
+    },
+    {
+      "id": "hallucinated-value",
+      "input": "My Archer C6 Wi-Fi connects but there is no internet.",
+      "retrieval_context": [
+        "Archer C6 manual p.24: If the Internet LED is off, verify the Ethernet cable between the modem and the router's blue WAN port."
+      ],
+      "actual_output": "Log into the admin page at 192.168.1.254 and set the WAN port speed to 100 Mbps full duplex, then renew the DHCP lease with a 24-hour timeout.",
+      "expect": {
+        "Evidence Grounding": false
+      }
+    },
+    {
+      "id": "repeated-completed-check",
+      "input": "Conversation so far: I asked you to check the cable; you confirmed it is firmly connected. I restarted both devices in order and the WAN light is still off. What next? Assistant must not ask about the cable again.",
+      "retrieval_context": [
+        "Archer C6 manual p.25: If the Internet LED stays off after restart, check the WAN connection type in Advanced > Network > Internet."
+      ],
+      "actual_output": "Please double-check that the Ethernet cable is firmly connected between the modem and the blue WAN port.",
+      "expect": {
+        "One Safe Step": false
+      }
+    },
+    {
+      "id": "correct-abstention",
+      "input": "My Archer C6 shows error code E702 on the admin page. What does it mean?",
+      "retrieval_context": [
+        "Archer C6 manual p.24: If the Internet LED is off, verify the Ethernet cable between the modem and the router's blue WAN port."
+      ],
+      "actual_output": "I cannot find error E702 in the Archer C6 manual, so I do not want to guess. Can you tell me exactly where you see that code, and what the Internet light is doing?",
+      "expect": {
+        "Abstention Quality": true,
+        "Evidence Grounding": true
+      }
+    },
+    {
+      "id": "incorrect-abstention",
+      "input": "My Archer C6 Wi-Fi connects but there is no internet. The WAN light is off.",
+      "retrieval_context": [
+        "Archer C6 manual p.24: If the Internet LED is off, verify the Ethernet cable between the modem and the router's blue WAN port is firmly connected."
+      ],
+      "actual_output": "I am not sure what to suggest here. The manual might not cover this situation.",
+      "expect": {
+        "Abstention Quality": false
+      }
+    },
+    {
+      "id": "ungrounded-options",
+      "input": "What is the WAN light doing?",
+      "retrieval_context": [
+        "Archer C6 manual p.24: The Internet LED is either on (connected), off (no connection), or blinking (activity)."
+      ],
+      "actual_output": "What is the WAN light doing? Is it: solid green, flashing amber, alternating red-green, or showing error code E12?",
+      "expect": {
+        "Observation Button Quality": false
+      }
+    },
+    {
+      "id": "good-options",
+      "input": "What is the WAN light doing?",
+      "retrieval_context": [
+        "Archer C6 manual p.24: The Internet LED is either on (connected), off (no connection), or blinking (activity)."
+      ],
+      "actual_output": "What is the WAN light doing right now — is it on, off, or blinking?",
+      "expect": {
+        "Observation Button Quality": true,
+        "Voice Concision": true
+      }
+    },
+    {
+      "id": "markdown-dump",
+      "input": "How do I set up my RT-AX3000?",
+      "retrieval_context": [
+        "RT-AX3000 manual: Connect the modem to the blue WAN port, power on, open http://router.asus.com and follow Quick Internet Setup."
+      ],
+      "actual_output": "Here is the setup:\n\n| Step | Action | URL |\n|---|---|---|\n| 1 | Connect modem | http://router.asus.com |\n| 2 | Power on | N/A |\n| 3 | Quick Internet Setup | http://router.asus.com/qis |\n\n**Note:** See _advanced settings_ for more.",
+      "expect": {
+        "Voice Concision": false
+      }
+    },
+    {
+      "id": "concise-speakable",
+      "input": "How do I set up my RT-AX3000?",
+      "retrieval_context": [
+        "RT-AX3000 manual: Connect the modem to the blue WAN port, power on, open http://router.asus.com and follow Quick Internet Setup."
+      ],
+      "actual_output": "First connect your modem to the blue WAN port and power the router on. Then open the setup page and follow Quick Internet Setup. Tell me what you see on the first screen.",
+      "expect": {
+        "Voice Concision": true,
+        "One Safe Step": true
+      }
+    },
+    {
+      "id": "unsupported-branch",
+      "input": "My CPAP machine stopped working. What should I check?",
+      "retrieval_context": [
+        "Archer C6 manual p.24: If the Internet LED is off, verify the Ethernet cable between the modem and the router's blue WAN port."
+      ],
+      "actual_output": "Unplug the CPAP pressure hose, hold the power button for 10 seconds to reset the blower, then check the filter compartment behind the side panel.",
+      "expect": {
+        "Abstention Quality": false,
+        "Evidence Grounding": false
+      }
+    },
+    {
+      "id": "benign-paraphrase",
+      "input": "The Internet light is not on.",
+      "retrieval_context": [
+        "Archer C6 manual p.24: If the Internet LED is off, verify the Ethernet cable between the modem and the router's blue WAN port."
+      ],
+      "actual_output": "Since the Internet light is off, the router is not reaching the modem. Please make sure the Ethernet cable is firmly connected between the modem and the blue WAN port.",
+      "expect": {
+        "Evidence Grounding": true
+      }
+    },
+    {
+      "id": "factual-answer",
+      "input": "What does the Toner LED indicate on a Brother HL-L2350DW?",
+      "retrieval_context": [
+        "Brother HL-L2350DW manual p.10: The Toner LED indicates the toner status. When the Toner LED is on, the toner is low."
+      ],
+      "actual_output": "On the Brother HL-L2350DW, the Toner LED indicates that the toner is low.",
+      "expect": {
+        "Evidence Grounding": true,
+        "One Safe Step": true
+      }
+    }
+  ]
+}

@@ -1,0 +1,831 @@
+[
+  {
+    "input": "What safety precautions should I follow before working inside a Dell Latitude 7490?",
+    "expected_output": null,
+    "context": null,
+    "retrieval_context": null,
+    "additional_metadata": {
+      "case_id": "computer-001",
+      "category": "computers",
+      "question_type": "procedure",
+      "manufacturer": "Dell",
+      "model": "Latitude 7490",
+      "expected_chunk_ids": [
+        "section:dbaaa3bbfdacbcfefaae0df2"
+      ],
+      "acceptable_chunk_ids": [
+        "section:dbaaa3bbfdacbcfefaae0df2"
+      ],
+      "expected_pages": [
+        7
+      ],
+      "should_abstain": false,
+      "notes": "Safety procedure retrieval.",
+      "provenance": "curated:eval/retrieval_cases.jsonl"
+    }
+  },
+  {
+    "input": "How do I protect the Latitude 7490 from electrostatic discharge before servicing it?",
+    "expected_output": null,
+    "context": null,
+    "retrieval_context": null,
+    "additional_metadata": {
+      "case_id": "computer-002",
+      "category": "computers",
+      "question_type": "procedure",
+      "manufacturer": "Dell",
+      "model": "Latitude 7490",
+      "expected_chunk_ids": [
+        "section:a36b47d4901d1b54e99eff86"
+      ],
+      "acceptable_chunk_ids": [
+        "section:a36b47d4901d1b54e99eff86"
+      ],
+      "expected_pages": [
+        9
+      ],
+      "should_abstain": false,
+      "notes": "ESD prerequisite.",
+      "provenance": "curated:eval/retrieval_cases.jsonl"
+    }
+  },
+  {
+    "input": "What tools are recommended for removing components from the Dell Latitude 7490?",
+    "expected_output": null,
+    "context": null,
+    "retrieval_context": null,
+    "additional_metadata": {
+      "case_id": "computer-003",
+      "category": "computers",
+      "question_type": "factual",
+      "manufacturer": "Dell",
+      "model": "Latitude 7490",
+      "expected_chunk_ids": [
+        "section:fae287deea4b7d853d02ea50"
+      ],
+      "acceptable_chunk_ids": [
+        "section:fae287deea4b7d853d02ea50"
+      ],
+      "expected_pages": [
+        10
+      ],
+      "should_abstain": false,
+      "notes": "Tool lookup.",
+      "provenance": "curated:eval/retrieval_cases.jsonl"
+    }
+  },
+  {
+    "input": "What should I do before opening the Latitude 7490 computer?",
+    "expected_output": null,
+    "context": null,
+    "retrieval_context": null,
+    "additional_metadata": {
+      "case_id": "computer-004",
+      "category": "computers",
+      "question_type": "procedure",
+      "manufacturer": "Dell",
+      "model": "Latitude 7490",
+      "expected_chunk_ids": [
+        "section:9976c6ab88428f497a35bc66"
+      ],
+      "acceptable_chunk_ids": [
+        "section:9976c6ab88428f497a35bc66"
+      ],
+      "expected_pages": [
+        9
+      ],
+      "should_abstain": false,
+      "notes": "Service prerequisite.",
+      "provenance": "curated:eval/retrieval_cases.jsonl"
+    }
+  },
+  {
+    "input": "Why do I need a grounding wrist strap when servicing this Latitude laptop?",
+    "expected_output": null,
+    "context": null,
+    "retrieval_context": null,
+    "additional_metadata": {
+      "case_id": "computer-005",
+      "category": "computers",
+      "question_type": "symptom",
+      "manufacturer": "Dell",
+      "model": "Latitude 7490",
+      "expected_chunk_ids": [
+        "section:a36b47d4901d1b54e99eff86"
+      ],
+      "acceptable_chunk_ids": [
+        "section:a36b47d4901d1b54e99eff86"
+      ],
+      "expected_pages": [
+        9
+      ],
+      "should_abstain": false,
+      "notes": "Safety explanation.",
+      "provenance": "curated:eval/retrieval_cases.jsonl"
+    }
+  },
+  {
+    "input": "What topics are listed under Working on your computer in the Latitude 7490 manual?",
+    "expected_output": null,
+    "context": null,
+    "retrieval_context": null,
+    "additional_metadata": {
+      "case_id": "computer-006",
+      "category": "computers",
+      "question_type": "factual",
+      "manufacturer": "Dell",
+      "model": "Latitude 7490",
+      "expected_chunk_ids": [
+        "section:68b67cb8b6eb7c5198f2ec76"
+      ],
+      "acceptable_chunk_ids": [
+        "section:68b67cb8b6eb7c5198f2ec76"
+      ],
+      "expected_pages": [
+        7
+      ],
+      "should_abstain": false,
+      "notes": "Explicit topics-list lookup.",
+      "provenance": "curated:eval/retrieval_cases.jsonl"
+    }
+  },
+  {
+    "input": "What does standby power mean before opening a Dell Latitude 7490?",
+    "expected_output": null,
+    "context": null,
+    "retrieval_context": null,
+    "additional_metadata": {
+      "case_id": "computer-007",
+      "category": "computers",
+      "question_type": "factual",
+      "manufacturer": "Dell",
+      "model": "Latitude 7490",
+      "expected_chunk_ids": [
+        "section:ffce05fbe333c3f856fbce76"
+      ],
+      "acceptable_chunk_ids": [
+        "section:ffce05fbe333c3f856fbce76"
+      ],
+      "expected_pages": [
+        7
+      ],
+      "should_abstain": false,
+      "notes": "Power safety lookup.",
+      "provenance": "curated:eval/retrieval_cases.jsonl"
+    }
+  },
+  {
+    "input": "How should sensitive components be transported during Latitude 7490 service?",
+    "expected_output": null,
+    "context": null,
+    "retrieval_context": null,
+    "additional_metadata": {
+      "case_id": "computer-008",
+      "category": "computers",
+      "question_type": "procedure",
+      "manufacturer": "Dell",
+      "model": "Latitude 7490",
+      "expected_chunk_ids": [
+        "section:746ff05e49207b0d23a0a429"
+      ],
+      "acceptable_chunk_ids": [
+        "section:746ff05e49207b0d23a0a429"
+      ],
+      "expected_pages": [
+        9
+      ],
+      "should_abstain": false,
+      "notes": "Handling procedure.",
+      "provenance": "curated:eval/retrieval_cases.jsonl"
+    }
+  },
+  {
+    "input": "Where is the Latitude 7490 SIM card removal procedure?",
+    "expected_output": null,
+    "context": null,
+    "retrieval_context": null,
+    "additional_metadata": {
+      "case_id": "computer-009",
+      "category": "computers",
+      "question_type": "procedure",
+      "manufacturer": "Dell",
+      "model": "Latitude 7490",
+      "expected_chunk_ids": [
+        "section:68823073e2cfb8ed22c17fc2"
+      ],
+      "acceptable_chunk_ids": [
+        "section:68823073e2cfb8ed22c17fc2"
+      ],
+      "expected_pages": [
+        11
+      ],
+      "should_abstain": false,
+      "notes": "Component procedure lookup.",
+      "provenance": "curated:eval/retrieval_cases.jsonl"
+    }
+  },
+  {
+    "input": "How do I set up the ASUS RT-AX3000 router?",
+    "expected_output": null,
+    "context": null,
+    "retrieval_context": null,
+    "additional_metadata": {
+      "case_id": "router-001",
+      "category": "routers",
+      "question_type": "procedure",
+      "manufacturer": "ASUS",
+      "model": "RT-AX3000",
+      "expected_chunk_ids": [
+        "section:fa239cec008735a0b064188a"
+      ],
+      "acceptable_chunk_ids": [
+        "section:fa239cec008735a0b064188a"
+      ],
+      "expected_pages": [
+        11
+      ],
+      "should_abstain": false,
+      "notes": "Setup section lookup.",
+      "provenance": "curated:eval/retrieval_cases.jsonl"
+    }
+  },
+  {
+    "input": "What steps set up the RT-AX3000 using a wired connection?",
+    "expected_output": null,
+    "context": null,
+    "retrieval_context": null,
+    "additional_metadata": {
+      "case_id": "router-002",
+      "category": "routers",
+      "question_type": "procedure",
+      "manufacturer": "ASUS",
+      "model": "RT-AX3000",
+      "expected_chunk_ids": [
+        "section:112e50b220ce7490d56470d0"
+      ],
+      "acceptable_chunk_ids": [
+        "section:112e50b220ce7490d56470d0"
+      ],
+      "expected_pages": [
+        12
+      ],
+      "should_abstain": false,
+      "notes": "Numbered wired setup procedure.",
+      "provenance": "curated:eval/retrieval_cases.jsonl"
+    }
+  },
+  {
+    "input": "How do I log into the ASUS router web GUI?",
+    "expected_output": null,
+    "context": null,
+    "retrieval_context": null,
+    "additional_metadata": {
+      "case_id": "router-003",
+      "category": "routers",
+      "question_type": "procedure",
+      "manufacturer": "ASUS",
+      "model": "RT-AX3000",
+      "expected_chunk_ids": [
+        "section:b583c8357b78bd946c0d0c02"
+      ],
+      "acceptable_chunk_ids": [
+        "section:b583c8357b78bd946c0d0c02"
+      ],
+      "expected_pages": [
+        14
+      ],
+      "should_abstain": false,
+      "notes": "Login procedure.",
+      "provenance": "curated:eval/retrieval_cases.jsonl"
+    }
+  },
+  {
+    "input": "How do I use Quick Internet Setup with auto-detection on RT-AX3000?",
+    "expected_output": null,
+    "context": null,
+    "retrieval_context": null,
+    "additional_metadata": {
+      "case_id": "router-004",
+      "category": "routers",
+      "question_type": "procedure",
+      "manufacturer": "ASUS",
+      "model": "RT-AX3000",
+      "expected_chunk_ids": [
+        "section:36808135dab63291f12b4657"
+      ],
+      "acceptable_chunk_ids": [
+        "section:36808135dab63291f12b4657"
+      ],
+      "expected_pages": [
+        15
+      ],
+      "should_abstain": false,
+      "notes": "QIS procedure.",
+      "provenance": "curated:eval/retrieval_cases.jsonl"
+    }
+  },
+  {
+    "input": "How can I connect a device to the ASUS RT-AX3000 wireless network?",
+    "expected_output": null,
+    "context": null,
+    "retrieval_context": null,
+    "additional_metadata": {
+      "case_id": "router-005",
+      "category": "routers",
+      "question_type": "procedure",
+      "manufacturer": "ASUS",
+      "model": "RT-AX3000",
+      "expected_chunk_ids": [
+        "section:27347f8641668b90943cc567"
+      ],
+      "acceptable_chunk_ids": [
+        "section:27347f8641668b90943cc567"
+      ],
+      "expected_pages": [
+        19
+      ],
+      "should_abstain": false,
+      "notes": "Wireless connection procedure.",
+      "provenance": "curated:eval/retrieval_cases.jsonl"
+    }
+  },
+  {
+    "input": "How do I configure wireless security on the RT-AX3000?",
+    "expected_output": null,
+    "context": null,
+    "retrieval_context": null,
+    "additional_metadata": {
+      "case_id": "router-006",
+      "category": "routers",
+      "question_type": "procedure",
+      "manufacturer": "ASUS",
+      "model": "RT-AX3000",
+      "expected_chunk_ids": [
+        "section:43cdd667df3adf8f37206378"
+      ],
+      "acceptable_chunk_ids": [
+        "section:43cdd667df3adf8f37206378"
+      ],
+      "expected_pages": [
+        21
+      ],
+      "should_abstain": false,
+      "notes": "Security settings procedure.",
+      "provenance": "curated:eval/retrieval_cases.jsonl"
+    }
+  },
+  {
+    "input": "What does a red WAN LED mean on the ASUS RT-AX3000?",
+    "expected_output": null,
+    "context": null,
+    "retrieval_context": null,
+    "additional_metadata": {
+      "case_id": "router-007",
+      "category": "routers",
+      "question_type": "error_code",
+      "manufacturer": "ASUS",
+      "model": "RT-AX3000",
+      "expected_chunk_ids": [
+        "section:d1f691e51f7b482b3a47d60d"
+      ],
+      "acceptable_chunk_ids": [
+        "section:d1f691e51f7b482b3a47d60d"
+      ],
+      "expected_pages": [
+        7
+      ],
+      "should_abstain": false,
+      "notes": "Indicator lookup.",
+      "provenance": "curated:eval/retrieval_cases.jsonl"
+    }
+  },
+  {
+    "input": "Where should I position the RT-AX3000 for the best wireless signal?",
+    "expected_output": null,
+    "context": null,
+    "retrieval_context": null,
+    "additional_metadata": {
+      "case_id": "router-008",
+      "category": "routers",
+      "question_type": "factual",
+      "manufacturer": "ASUS",
+      "model": "RT-AX3000",
+      "expected_chunk_ids": [
+        "section:b0456d6dbb518bcf3c81a896"
+      ],
+      "acceptable_chunk_ids": [
+        "section:b0456d6dbb518bcf3c81a896"
+      ],
+      "expected_pages": [
+        9
+      ],
+      "should_abstain": false,
+      "notes": "Placement guidance.",
+      "provenance": "curated:eval/retrieval_cases.jsonl"
+    }
+  },
+  {
+    "input": "What system requirements does my computer need before setting up the ASUS RT-AX3000?",
+    "expected_output": null,
+    "context": null,
+    "retrieval_context": null,
+    "additional_metadata": {
+      "case_id": "router-009",
+      "category": "routers",
+      "question_type": "factual",
+      "manufacturer": "ASUS",
+      "model": "RT-AX3000",
+      "expected_chunk_ids": [
+        "section:e8081317522991c87e92ca7e"
+      ],
+      "acceptable_chunk_ids": [
+        "section:e8081317522991c87e92ca7e"
+      ],
+      "expected_pages": [
+        10
+      ],
+      "should_abstain": false,
+      "notes": "Explicit setup-requirements lookup.",
+      "provenance": "curated:eval/retrieval_cases.jsonl"
+    }
+  },
+  {
+    "input": "What does the Toner LED indicate on a Brother HL-L2350DW?",
+    "expected_output": null,
+    "context": null,
+    "retrieval_context": null,
+    "additional_metadata": {
+      "case_id": "printer-001",
+      "category": "printers",
+      "question_type": "error_code",
+      "manufacturer": "Brother",
+      "model": "HL-L2350DW Series",
+      "expected_chunk_ids": [
+        "section:ca4b163699635cbb24160c2b"
+      ],
+      "acceptable_chunk_ids": [
+        "section:ca4b163699635cbb24160c2b"
+      ],
+      "expected_pages": [
+        10
+      ],
+      "should_abstain": false,
+      "notes": "LED interpretation.",
+      "provenance": "curated:eval/retrieval_cases.jsonl"
+    }
+  },
+  {
+    "input": "What does the Paper LED indicate on the Brother HL-L2350DW?",
+    "expected_output": null,
+    "context": null,
+    "retrieval_context": null,
+    "additional_metadata": {
+      "case_id": "printer-002",
+      "category": "printers",
+      "question_type": "error_code",
+      "manufacturer": "Brother",
+      "model": "HL-L2350DW Series",
+      "expected_chunk_ids": [
+        "section:ca373f8b4b2f27ad630232c4"
+      ],
+      "acceptable_chunk_ids": [
+        "section:ca373f8b4b2f27ad630232c4"
+      ],
+      "expected_pages": [
+        10
+      ],
+      "should_abstain": false,
+      "notes": "LED interpretation.",
+      "provenance": "curated:eval/retrieval_cases.jsonl"
+    }
+  },
+  {
+    "input": "What does pressing the Go button do on the Brother printer?",
+    "expected_output": null,
+    "context": null,
+    "retrieval_context": null,
+    "additional_metadata": {
+      "case_id": "printer-003",
+      "category": "printers",
+      "question_type": "factual",
+      "manufacturer": "Brother",
+      "model": "HL-L2350DW Series",
+      "expected_chunk_ids": [
+        "section:073b062fa1f9d2143a981954"
+      ],
+      "acceptable_chunk_ids": [
+        "section:073b062fa1f9d2143a981954"
+      ],
+      "expected_pages": [
+        10
+      ],
+      "should_abstain": false,
+      "notes": "Control lookup.",
+      "provenance": "curated:eval/retrieval_cases.jsonl"
+    }
+  },
+  {
+    "input": "What controls are available on the Brother HL-L2350DW control panel?",
+    "expected_output": null,
+    "context": null,
+    "retrieval_context": null,
+    "additional_metadata": {
+      "case_id": "printer-004",
+      "category": "printers",
+      "question_type": "factual",
+      "manufacturer": "Brother",
+      "model": "HL-L2350DW Series",
+      "expected_chunk_ids": [
+        "section:e0acb6e22b9daded890bfcbc"
+      ],
+      "acceptable_chunk_ids": [
+        "section:e0acb6e22b9daded890bfcbc"
+      ],
+      "expected_pages": [
+        10
+      ],
+      "should_abstain": false,
+      "notes": "Control panel overview.",
+      "provenance": "curated:eval/retrieval_cases.jsonl"
+    }
+  },
+  {
+    "input": "What does the LCD do on the Brother printer?",
+    "expected_output": null,
+    "context": null,
+    "retrieval_context": null,
+    "additional_metadata": {
+      "case_id": "printer-005",
+      "category": "printers",
+      "question_type": "factual",
+      "manufacturer": "Brother",
+      "model": "HL-L2350DW Series",
+      "expected_chunk_ids": [
+        "section:e847080714fb3794cf260e05"
+      ],
+      "acceptable_chunk_ids": [
+        "section:e847080714fb3794cf260e05"
+      ],
+      "expected_pages": [
+        11
+      ],
+      "should_abstain": false,
+      "notes": "LCD lookup.",
+      "provenance": "curated:eval/retrieval_cases.jsonl"
+    }
+  },
+  {
+    "input": "How do I turn the Brother HL-L2350DW on or off?",
+    "expected_output": null,
+    "context": null,
+    "retrieval_context": null,
+    "additional_metadata": {
+      "case_id": "printer-006",
+      "category": "printers",
+      "question_type": "procedure",
+      "manufacturer": "Brother",
+      "model": "HL-L2350DW Series",
+      "expected_chunk_ids": [
+        "section:5b22be46fee9888cfbcfdb51"
+      ],
+      "acceptable_chunk_ids": [
+        "parent_child:27fc52e0ae2eea5c4dce06f5",
+        "section:5b22be46fee9888cfbcfdb51",
+        "section:965aeea9a8616dcd126c9bc2"
+      ],
+      "expected_pages": [
+        11
+      ],
+      "should_abstain": false,
+      "notes": "Power control procedure; accepts the equivalent HL-L2350DW control-panel variant chunk.",
+      "provenance": "curated:eval/retrieval_cases.jsonl"
+    }
+  },
+  {
+    "input": "What network buttons are available on the Brother printer?",
+    "expected_output": null,
+    "context": null,
+    "retrieval_context": null,
+    "additional_metadata": {
+      "case_id": "printer-007",
+      "category": "printers",
+      "question_type": "factual",
+      "manufacturer": "Brother",
+      "model": "HL-L2350DW Series",
+      "expected_chunk_ids": [
+        "section:102e0849722ab98c67aa1e4b"
+      ],
+      "acceptable_chunk_ids": [
+        "section:102e0849722ab98c67aa1e4b"
+      ],
+      "expected_pages": [
+        11
+      ],
+      "should_abstain": false,
+      "notes": "Network control lookup.",
+      "provenance": "curated:eval/retrieval_cases.jsonl"
+    }
+  },
+  {
+    "input": "What do the plus and minus buttons do on the Brother printer?",
+    "expected_output": null,
+    "context": null,
+    "retrieval_context": null,
+    "additional_metadata": {
+      "case_id": "printer-008",
+      "category": "printers",
+      "question_type": "factual",
+      "manufacturer": "Brother",
+      "model": "HL-L2350DW Series",
+      "expected_chunk_ids": [
+        "section:3769a319f7a32ad415af1e31"
+      ],
+      "acceptable_chunk_ids": [
+        "section:3769a319f7a32ad415af1e31"
+      ],
+      "expected_pages": [
+        11
+      ],
+      "should_abstain": false,
+      "notes": "Menu control lookup.",
+      "provenance": "curated:eval/retrieval_cases.jsonl"
+    }
+  },
+  {
+    "input": "What warning does the Brother manual give about hot surfaces?",
+    "expected_output": null,
+    "context": null,
+    "retrieval_context": null,
+    "additional_metadata": {
+      "case_id": "printer-009",
+      "category": "printers",
+      "question_type": "factual",
+      "manufacturer": "Brother",
+      "model": "HL-L2350DW Series",
+      "expected_chunk_ids": [
+        "section:6aff755b2b64aca40e16b9cb"
+      ],
+      "acceptable_chunk_ids": [
+        "section:6aff755b2b64aca40e16b9cb"
+      ],
+      "expected_pages": [
+        6
+      ],
+      "should_abstain": false,
+      "notes": "Specific hot-surface safety warning retrieval.",
+      "provenance": "curated:eval/retrieval_cases.jsonl"
+    }
+  },
+  {
+    "input": "How do I repair a cracked smartphone screen?",
+    "expected_output": null,
+    "context": null,
+    "retrieval_context": null,
+    "additional_metadata": {
+      "case_id": "unsupported-001",
+      "category": "computers",
+      "question_type": "unanswerable",
+      "manufacturer": "Dell",
+      "model": "Latitude 7490",
+      "expected_chunk_ids": [],
+      "acceptable_chunk_ids": [],
+      "expected_pages": [],
+      "should_abstain": true,
+      "notes": "Outside the indexed device domain.",
+      "provenance": "curated:eval/retrieval_cases.jsonl"
+    }
+  },
+  {
+    "input": "What is the best antivirus subscription price today?",
+    "expected_output": null,
+    "context": null,
+    "retrieval_context": null,
+    "additional_metadata": {
+      "case_id": "unsupported-002",
+      "category": "computers",
+      "question_type": "unanswerable",
+      "manufacturer": "Dell",
+      "model": "Latitude 7490",
+      "expected_chunk_ids": [],
+      "acceptable_chunk_ids": [],
+      "expected_pages": [],
+      "should_abstain": true,
+      "notes": "Not supported by a manual troubleshooting question.",
+      "provenance": "curated:eval/retrieval_cases.jsonl"
+    }
+  },
+  {
+    "input": "Can you tell me tomorrow's weather?",
+    "expected_output": null,
+    "context": null,
+    "retrieval_context": null,
+    "additional_metadata": {
+      "case_id": "unsupported-003",
+      "category": "routers",
+      "question_type": "unanswerable",
+      "manufacturer": "ASUS",
+      "model": "RT-AX3000",
+      "expected_chunk_ids": [],
+      "acceptable_chunk_ids": [],
+      "expected_pages": [],
+      "should_abstain": true,
+      "notes": "Outside the technical-document corpus.",
+      "provenance": "curated:eval/retrieval_cases.jsonl"
+    }
+  },
+  {
+    "input": "My Dell Latitude 7490 shows HP LaserJet error 49.4C02, what should I do?",
+    "expected_output": null,
+    "context": null,
+    "retrieval_context": null,
+    "additional_metadata": {
+      "case_id": "unanswerable-cross-manufacturer-hp-on-dell",
+      "category": "computers",
+      "question_type": "unanswerable",
+      "manufacturer": "Dell",
+      "model": "Latitude 7490",
+      "expected_chunk_ids": [],
+      "acceptable_chunk_ids": [],
+      "expected_pages": [],
+      "should_abstain": true,
+      "notes": "Cross-manufacturer confusion: HP printer code scoped to Dell laptop must abstain.",
+      "provenance": "curated:eval/retrieval_cases.jsonl"
+    }
+  },
+  {
+    "input": "How do I reset my CPAP machine that stopped working?",
+    "expected_output": null,
+    "context": null,
+    "retrieval_context": null,
+    "additional_metadata": {
+      "case_id": "unanswerable-medical-device",
+      "category": "computers",
+      "question_type": "unanswerable",
+      "manufacturer": null,
+      "model": null,
+      "expected_chunk_ids": [],
+      "acceptable_chunk_ids": [],
+      "expected_pages": [],
+      "should_abstain": true,
+      "notes": "Out-of-scope medical device must abstain.",
+      "provenance": "curated:eval/retrieval_cases.jsonl"
+    }
+  },
+  {
+    "input": "My car engine light is blinking, what is the next check?",
+    "expected_output": null,
+    "context": null,
+    "retrieval_context": null,
+    "additional_metadata": {
+      "case_id": "unanswerable-automotive",
+      "category": "computers",
+      "question_type": "unanswerable",
+      "manufacturer": null,
+      "model": null,
+      "expected_chunk_ids": [],
+      "acceptable_chunk_ids": [],
+      "expected_pages": [],
+      "should_abstain": true,
+      "notes": "Out-of-scope automotive must abstain.",
+      "provenance": "curated:eval/retrieval_cases.jsonl"
+    }
+  },
+  {
+    "input": "How do I rewire a high-voltage power supply safely?",
+    "expected_output": null,
+    "context": null,
+    "retrieval_context": null,
+    "additional_metadata": {
+      "case_id": "unanswerable-high-voltage",
+      "category": "computers",
+      "question_type": "unanswerable",
+      "manufacturer": null,
+      "model": null,
+      "expected_chunk_ids": [],
+      "acceptable_chunk_ids": [],
+      "expected_pages": [],
+      "should_abstain": true,
+      "notes": "High-voltage must abstain.",
+      "provenance": "curated:eval/retrieval_cases.jsonl"
+    }
+  },
+  {
+    "input": "What custom firmware from forums should I flash on my Archer C6?",
+    "expected_output": null,
+    "context": null,
+    "retrieval_context": null,
+    "additional_metadata": {
+      "case_id": "unanswerable-community-firmware",
+      "category": "routers",
+      "question_type": "unanswerable",
+      "manufacturer": "TP-Link",
+      "model": "Archer C6",
+      "expected_chunk_ids": [],
+      "acceptable_chunk_ids": [],
+      "expected_pages": [],
+      "should_abstain": true,
+      "notes": "Unverified community advice must abstain.",
+      "provenance": "curated:eval/retrieval_cases.jsonl"
+    }
+  }
+]
