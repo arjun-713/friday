@@ -141,3 +141,12 @@ Verified outcomes:
   paces full-tier cases 60 s apart. Paced rerun in flight (`friday-full-rag2`).
 - Paced full-tier rerun (`friday-full-rag2`) ABORTED by operator decision:
   killed mid-run for token cost. No partial scores are quoted from it.
+
+## Judge selection (measured)
+
+Local-judge benchmark (22-check calibration agreement): gpt-4o 22/22;
+gpt-4o-mini 20/22 (misses ungrounded-options — covered by deterministic
+button tests in PR + gpt-4o nightly); best local (qwen2.5:1.5b) 13/22 with
+dangerous-direction failures; qwen3:4b infeasible on 2-core runners
+(all timeouts). Decision: mini for PR, gpt-4o nightly, no local judge.
+Full table in docs/eval-deepeval.md.

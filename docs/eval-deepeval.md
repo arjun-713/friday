@@ -49,6 +49,30 @@ Key design points:
   (`result.retrieval_context`), never an idealized context.
 - Friday runs at temperature 0.1 (`backend/config.yml`, untouched). Judges run
   at temperature 0 (`eval/evals/config.py`). The two are configured separately.
+  `FRIDAY_JUDGE_PROVIDER` selects `openai` (default) or `ollama` (local, no
+  key, no logprob-weighted scoring — verdict agreement, not raw scores, is
+  the comparison basis). `FRIDAY_JUDGE_MODEL` names the model.
+
+## Local-judge benchmark (measured, not assumed)
+
+Calibrated-judge agreement on the 22-check `test_calibration.py` set
+(gpt-4o reference: 22/22), timed on GitHub free runners unless noted:
+
+| Judge | Agreement | Time | Cost | Verdict |
+| --- | --- | --- | --- | --- |
+| gpt-4o (reference) | 22/22 (100%) | ~2 min | API | Trusted baseline; nightly + local full runs |
+| gpt-4o-mini | 20/22 (91%) | ~2 min | ~20x cheaper API | PR gate. Misses: correct-abstention grounding (0.25), ungrounded-options (0.98 pass — dangerous direction) |
+| qwen2.5:1.5b (local) | 13/22 (59%, systematic inversions incl. passing hallucinations) | ~4 min | free | Rejected |
+| qwen2.5:3b (local) | 12/22 (55%, over-strict pedantry) | ~7 min | free | Rejected |
+| llama3.2:3b (local) | 9/22 (41%) | ~6.5 min | free | Rejected |
+| qwen3:4b (local) | 0/22 (every call timed out) | 66 min wasted | free | Infeasible on 2-core runners |
+
+No CPU-runnable local model in the 1.5–4B range judges acceptably; the best
+local score (59%) fails in the dangerous direction. So there is no local PR
+judge — cost control is mini (documented misses above) with two mitigations:
+deterministic button-grounding unit tests gate every PR alongside it, and the
+gpt-4o nightly catches what mini misses. Revisit if a larger local model or a
+GPU runner becomes available (`eval-judge-bench.yml` reruns the comparison).
 
 ## Installation
 

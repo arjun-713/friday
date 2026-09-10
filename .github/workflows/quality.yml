@@ -100,9 +100,14 @@ jobs:
       - name: Install backend development dependencies
         run: python -m pip install --quiet -e ".[dev]"
       - name: Validate eval judges and dataset contracts
+        # Cost-controlled judge: mini agrees with gpt-4o on 20/22 calibration
+        # checks; its one blind spot (ungrounded observation options) is
+        # covered by deterministic button-grounding unit tests in this same
+        # pipeline and by the gpt-4o nightly run. See docs/eval-deepeval.md.
         run: deepeval test run eval/evals/test_calibration.py eval/evals/test_rag.py::test_dataset_contract --identifier ci-calibration
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          FRIDAY_JUDGE_MODEL: gpt-4o-mini
 
   frontend:
     name: frontend
