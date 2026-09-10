@@ -30,6 +30,36 @@ TARGET_DEVICES = [
 CONTEXTS_PER_DEVICE = 8
 
 
+def max_contexts() -> int | None:
+    """Cap exported contexts via FRIDAY_SYNTH_CONTEXTS (small runs validate
+    the pipeline without burning the shared TPM budget)."""
+
+    import os
+
+    raw = os.getenv("FRIDAY_SYNTH_CONTEXTS")
+    return max(1, int(raw)) if raw else None
+
+
+def _is_boilerplate(chunk) -> bool:
+    """Drop compliance/footer chunks: they generate nonsense QA pairs (e.g.
+    troubleshooting advice from a restricted-substance exemption footer)."""
+
+    text = f"{chunk.section}\n{chunk.content[:400]}".lower()
+    markers = (
+        "restricted substance",
+        "rohs",
+        "exemption",
+        "certification",
+        "compliance",
+        "trademark",
+        "fcc",
+        "declaration of conformity",
+        "recycl",
+        "warranty",
+    )
+    return any(marker in text for marker in markers)
+
+
 def export_contexts() -> list[list[str]]:
     from friday.paths import chunks_dir
     from friday.retrieval.indexer import load_all_chunks
@@ -40,6 +70,8 @@ def export_contexts() -> list[list[str]]:
         if len(chunk.content) < 200:
             continue
         if chunk.kind.value not in ("section", "procedure"):
+            continue
+        if _is_boilerplate(chunk):
             continue
         key = (chunk.document.manufacturer or "", chunk.document.model or "")
         by_device[key].append(chunk)
@@ -59,6 +91,9 @@ def export_contexts() -> list[list[str]]:
 
 def main() -> int:
     contexts = export_contexts()
+    cap = max_contexts()
+    if cap is not None:
+        contexts = contexts[:cap]
     print(f"exported {len(contexts)} contexts")
     CONTEXTS_FILE.write_text(json.dumps(contexts, ensure_ascii=False), encoding="utf-8")
     cmd = [
@@ -70,8 +105,10 @@ def main() -> int:
         "single-turn",
         "--contexts-file",
         str(CONTEXTS_FILE),
-        "--num-goldens",
-        str(len(contexts)),
+        # NOTE: --num-goldens is scratch-only; contexts-method volume is driven
+        # by --max-goldens-per-context (one golden per exported context here).
+        "--max-goldens-per-context",
+        "1",
         "--scenario",
         "Home users and office users troubleshooting routers, printers, and laptops with the Friday assistant",
         "--task",
@@ -80,7 +117,7 @@ def main() -> int:
         "A specific symptom, error indicator, or how-to question naming the device",
         "--expected-output-format",
         "One safe next diagnostic step grounded in the provided context",
-        "--include-expected-outputs",
+        "--include-expected",
         "--model",
         "gpt-4o",
         "--output-dir",

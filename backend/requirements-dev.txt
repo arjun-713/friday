@@ -3,6 +3,9 @@
 deepeval>=3.9,<4
 httpx>=0.27,<1
 mypy>=1.13,<2
+# Local-judge support (OllamaModel). Dev/eval only; the production image
+# installs requirements-runtime.txt and never sees this.
+ollama>=0.4,<1
 pytest>=8,<9
 ruff>=0.9,<1
 types-PyYAML>=6,<7

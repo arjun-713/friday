@@ -1,0 +1,54 @@
+[
+  {
+    "input": "How do I register a TP-Link ID using the web management interface for my TP-Link router?",
+    "actual_output": null,
+    "expected_output": "Visit [http://tplinkwifi.net](http://tplinkwifi.net), log in with your router password, go to Advanced > TP-Link ID, click Sign Up, and follow the instructions to register a TP-Link ID.",
+    "context": [
+      "[TP-Link Archer C6 manual, p.26 5. 1. Register a TP-Link ID]\n# 5. 1. Register a TP-Link ID\n\nIf you have skipped the registration during the Quick Setup process, you can:\n\n1. Visit [http://tplinkwifi.net](http://tplinkwifi.net), and log in with the password you set for the router.\n2. Go to Advanced > TP-Link ID or click TP-Link ID on the very top of the page.\n3. Click Sign Up and follow the instructions to register a TP-Link ID.\n4. After activating your TP-Link ID, come back to the TP-Link ID page to log in. The TP-Link ID used to log in to the router for the first time will be automatically bound as an Admin.\n\n**Note:**\n- To learn more about the Admin and User TP-Link ID, refer to Manage the Router via the TP-Link Tether App.\n- Once the router is bound to your TP-Link ID, you need to log in to the router with the TP-Link ID.\n- Once you have registered a TP-Link ID on the web management page, you can only register another TP-Link ID via the Tether APP. Please refer to Manage the Router via the TP-Link Tether App to install the app.\n- If you want to unbind the admin TP-Link ID from your router, please go to Advanced > TP-Link ID, an click Unbind in the Device Information section."
+    ],
+    "source_file": null,
+    "additional_metadata": {
+      "provenance": "synthetic-reviewed: human validated 2026-09-10, ranking-metrics only",
+      "review_note": "specific how-to, grounded"
+    }
+  },
+  {
+    "input": "How do I configure static routes on the TP-Link Archer C6 to improve network access?",
+    "actual_output": null,
+    "expected_output": "One safe next diagnostic step grounded in the provided context is to access the TP-Link Archer C6's web management page and navigate to the static routing section to configure the necessary static routes for improved network access.",
+    "context": [
+      "[TP-Link Archer C6 manual, p.62 12. 5. Create Static Routes > I want to:]\n## I want to:\n\nVisit multiple networks and servers at the same time.\n\n|||Company\u2019s server|\n|---|---|---|\n|Router A|Router B|WAN: 172.30.30.100|\n|LAN: 192.168.0.1|Switch|LAN: 192.168.0.2 172.30.30.1|\n||192.168.0.100|PC|\n\nFor example, in a small office, my PC can surf the internet through Router A, but I also want to visit my company\u2019s network. Now I have a switch and Router B. I connect the devices as shown in the following figure so that the physical connection between my PC and my company\u2019s server is established. To surf the internet and visit my company\u2019s\nnetwork at the same time, I need to configure the static routing."
+    ],
+    "source_file": null,
+    "additional_metadata": {
+      "provenance": "synthetic-reviewed: human validated 2026-09-10, ranking-metrics only",
+      "review_note": "specific how-to, usable"
+    }
+  },
+  {
+    "input": "How do I activate the LED Night Mode on my TP-Link Archer C6 router for scheduled illumination control?",
+    "actual_output": null,
+    "expected_output": "Visit [http://tplinkwifi.net](http://tplinkwifi.net), log in with your TP-Link ID or password, go to Advanced > System > LED Control, enable Night Mode, specify the LED off time, and click SAVE.",
+    "context": [
+      "[TP-Link Archer C6 manual, p.81 13. 10. Control the LED]\n# 13. 10. Control the LED\n\nThe LED of the router indicates its activities and status. You can enable the Night Mode feature to specify a time period during which the LED is off.\n\n1. Visit [http://tplinkwifi.net](http://tplinkwifi.net), and log in with your TP-Link ID or the password you set for the router.\n2. Go to Advanced > System > LED Control.\n3. Enable Night Mode.\n4. Specify the LED off time, and the LED will be off during this period every day.\n5. Click SAV E.\n\n**FAQ**"
+    ],
+    "source_file": null,
+    "additional_metadata": {
+      "provenance": "synthetic-reviewed: human validated 2026-09-10, ranking-metrics only",
+      "review_note": "specific setting, grounded"
+    }
+  },
+  {
+    "input": "How do I enable the SPI Firewall on my TP-Link Archer C6 router to ensure its protection using default settings?",
+    "actual_output": null,
+    "expected_output": "One safe next diagnostic step grounded in the provided context is to visit [http://tplinkwifi.net](http://tplinkwifi.net), log in with your TP-Link ID or the password you set for the router, and go to Advanced > Security > Firewall to ensure the SPI Firewall is enabled with default settings.",
+    "context": [
+      "[TP-Link Archer C6 manual, p.45 10. 1. Protect the Network from Cyber Attacks]\n# 10. 1. Protect the Network from Cyber Attacks\n\nThe SPI (Stateful Packet Inspection) Firewall protects the router from cyber attacks and validate the traffic that is passing through the router based on the protocol. This function is enabled by default.\n\n**1.** Visit [http://tplinkwifi.net](http://tplinkwifi.net), and log in with your TP-Link ID or the password you set for the router.\n**2.** Go to Advanced > Security > Firewall. It\u2019s recommended to keep the default settings."
+    ],
+    "source_file": null,
+    "additional_metadata": {
+      "provenance": "synthetic-reviewed: human validated 2026-09-10, ranking-metrics only",
+      "review_note": "specific setting, usable"
+    }
+  }
+]

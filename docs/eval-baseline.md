@@ -95,8 +95,7 @@ make. Recorded as borderline/watch, not a defect. No thresholds touched.
   deterministic guardrails identical (recall 0.988, MRR 0.740, abstention
   0.914, same 3 unanswerable-class failures; policy 30/30). No regressions.
 
-## Round 3: full-sweep verification (harness fixes, no app changes)
-- RAG fast: **8/8** (baseline was 4/8). Conversation fast: **2/2**.
+## Round 3: full-sweep verification (harness fixes, no app changes)- RAG fast: **8/8** (baseline was 4/8). Conversation fast: **2/2**.
 - Agent 1/3 → two harness bugs found, both verified by experiment:
   - `TaskCompletionMetric` without a task definition demands full resolution
     and fails correct one-step answers (0.4). Fixed by passing Friday's
@@ -126,3 +125,19 @@ Verified outcomes:
   (short answers, restart→WAN IP→0.0.0.0→cable→MAC Clone, results remembered,
   no repeats). Confirms the earlier 0.33 was the missing-scope harness bug,
   not app behavior. Full 4-persona run in flight (`friday-sim-full`).
+- Simulator full (`friday-sim-full`): **4/4 pass**. Impatient Archer 1.0/0.86,
+  vague ASUS 1.0/0.9, already-tried repeat-stress 1.0/0.82, Brother
+  error-code 0.5/0.8 (relevancy exactly at threshold — watch item). The
+  repeat-suppression stress persona passes with no repeated completed checks.
+- Dedup-vs-eval finding (printer-004): the expected chunk's text was present
+  via its identical duplicate, but 4 judges failed the turn anyway — the
+  shared text is an overview without the enumerated controls, and Friday
+  hedged honestly ("the retrieved excerpt does not identify each individual
+  control") instead of asking a discriminating clarification. Text-aware
+  matching now honors received evidence; the residual failure is
+  evidence-thinness for enumeration questions, not planner dishonesty.
+  Known limitation, watch across runs. No code change.
+- Full-tier rerun was invalidated by 429s (25/29 failures infra). Suite now
+  paces full-tier cases 60 s apart. Paced rerun in flight (`friday-full-rag2`).
+- Paced full-tier rerun (`friday-full-rag2`) ABORTED by operator decision:
+  killed mid-run for token cost. No partial scores are quoted from it.

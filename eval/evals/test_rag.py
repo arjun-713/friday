@@ -70,6 +70,15 @@ def select_goldens(all_goldens: list[Golden], fast: bool) -> list[Golden]:
 
 def run_case(golden: Golden, *, fast: bool):
     require_openai_key()
+    # Full-tier pacing: 35 cases x (Luna turns + 8 judge calls) exceeds the
+    # shared 30k TPM pool without gaps. Fast tier is small enough to skip.
+    if not fast:
+        import os
+        import time
+
+        pace = float(os.getenv("FRIDAY_CASE_PACE_SECONDS", "60"))
+        if pace > 0:
+            time.sleep(pace)
     meta = golden.additional_metadata or {}
     adapter = get_adapter()
     result = adapter.run_turn_sync(
@@ -90,6 +99,20 @@ def run_case(golden: Golden, *, fast: bool):
         acceptable = set(meta.get("acceptable_chunk_ids", [])) or expected
         retrieved = set(result.chunk_ids)
         overlap = acceptable & retrieved
+        if not overlap and expected:
+            # Text-aware fallback: the app dedups textually identical
+            # parent/child chunks (pinned deterministic behavior), so an
+            # expected chunk may be represented by its duplicate's words.
+            # This honors the evidence the user actually received.
+            expected_texts = adapter.chunk_texts(sorted(expected))
+            retrieved_texts = {
+                " ".join(text.split()) for text in result.retrieval_context
+            }
+            overlap = {
+                chunk_id
+                for chunk_id, text in expected_texts.items()
+                if text and text in retrieved_texts
+            }
         assert overlap, (
             f"{meta.get('case_id')}: no acceptable evidence {sorted(acceptable)} "
             f"in retrieved {sorted(retrieved)} (expected {sorted(expected)})"

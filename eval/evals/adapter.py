@@ -122,6 +122,17 @@ class FridayAdapter:
         future = asyncio.run_coroutine_threadsafe(_with_context(), self._loop)
         return future.result(timeout=300)
 
+    def chunk_texts(self, chunk_ids: list[str]) -> dict[str, str]:
+        """Fetch normalized chunk texts (sync). Used for text-aware evidence
+        matching: the app dedups textually identical parent/child chunks, so
+        an expected chunk ID may be represented by its duplicate's text."""
+
+        async def _fetch() -> dict[str, str]:
+            chunks = await self.service.parent_store.fetch(chunk_ids)
+            return {chunk.chunk_id: " ".join(chunk.content.split()) for chunk in chunks}
+
+        return self._run(_fetch())
+
     def run_turn_sync(
         self,
         query: str,

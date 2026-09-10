@@ -62,7 +62,7 @@ uv pip install --index-strategy unsafe-best-match --python backend/.venv/bin/pyt
 | --- | --- |
 | `OPENAI_API_KEY` | Judge model (gpt-4o) for all DeepEval metrics. Source `backend/.env` (never commit keys). Required for every suite except dataset-contract checks. |
 | `EMBEDDING_BACKEND=onnx`, `EMBEDDING_MODEL=...`, `EMBEDDING_MODEL_FILE=...` | Same ONNX embedding setup as `make eval-retrieval-optimized`. |
-| `FRIDAY_EVAL_TIER=fast\|full` | Case selection (default `fast`). |
+| `FRIDAY_EVAL_TIER=fast\|full` | Case selection (default `fast`). Full-tier RAG paces cases ~60 s apart (`FRIDAY_CASE_PACE_SECONDS`) — 35 cases × (Luna + 8 judges) exceeds the 30 k TPM pool otherwise; expect ~40 min. |
 | `FRIDAY_EVAL_SIM=1` | Enables the simulator suite. |
 | `FRIDAY_JUDGE_MODEL` | Override the judge (default `gpt-4o`). Calibrate before trusting a cheaper judge. |
 

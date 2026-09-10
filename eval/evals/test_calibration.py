@@ -14,7 +14,7 @@ import pytest
 from deepeval.test_case import LLMTestCase
 
 from . import friday_metrics
-from .config import datasets_dir, require_openai_key
+from .config import datasets_dir, require_judge_key
 
 DATASET = datasets_dir() / "calibration.json"
 
@@ -41,7 +41,7 @@ def params() -> list[tuple[str, str, object]]:
 
 @pytest.mark.parametrize("case_id,metric_name,expected", params())
 def test_judge_calibration(case_id: str, metric_name: str, expected: object) -> None:
-    require_openai_key()
+    require_judge_key()
     case = next(item for item in load_cases() if item["id"] == case_id)
     metric = METRIC_BY_NAME[metric_name]()
     test_case = LLMTestCase(

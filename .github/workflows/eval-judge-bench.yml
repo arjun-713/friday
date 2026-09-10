@@ -1,0 +1,59 @@
+name: Judge benchmark (local Ollama)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bench:
+    name: bench (${{ matrix.model }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        model:
+          - qwen2.5:1.5b
+          - llama3.2:latest
+          - qwen2.5:3b
+          - qwen3:4b
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+
+      - name: Install Ollama
+        run: curl -fsSL https://ollama.com/install.sh | sh
+
+      - name: Start Ollama and pull judge model
+        run: |
+          ollama serve > /tmp/ollama.log 2>&1 &
+          sleep 5
+          ollama pull "${{ matrix.model }}"
+          ollama list
+
+      - name: Install backend development dependencies
+        run: python -m pip install --quiet -e "./backend[dev]"
+
+      - name: Run calibration with local judge
+        run: >
+          FRIDAY_JUDGE_PROVIDER=ollama
+          FRIDAY_JUDGE_MODEL=${{ matrix.model }}
+          OLLAMA_BASE_URL=http://localhost:11434
+          deepeval test run eval/evals/test_calibration.py
+          --identifier judge-bench-ci
+
+      - name: Upload run report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: judge-bench-${{ matrix.model }}
+          path: .deepeval/.latest_test_run.json
