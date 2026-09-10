@@ -10,12 +10,12 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-# Judge provider: "openai" (default, gpt-4o) or "ollama" (local, no API key).
-# Local judges score without logprob weighting (DeepEval falls back to
-# schema-extracted scores), so verdict agreement — not raw scores — is the
-# comparison basis. See docs/eval-deepeval.md "Local judges".
-JUDGE_PROVIDER = os.getenv("FRIDAY_JUDGE_PROVIDER", "openai")
-JUDGE_MODEL = os.getenv("FRIDAY_JUDGE_MODEL", "gpt-4o")
+# Judge provider: "groq" (default, free tier via LiteLLM), "openai", or
+# "ollama" (local, no key, no logprob-weighted scoring — verdict agreement,
+# not raw scores, is the comparison basis). OpenAI is never the default:
+# judge spend must be opt-in, never accidental.
+JUDGE_PROVIDER = os.getenv("FRIDAY_JUDGE_PROVIDER", "groq")
+JUDGE_MODEL = os.getenv("FRIDAY_JUDGE_MODEL", "groq/openai/gpt-oss-120b")
 JUDGE_TEMPERATURE = 0.0
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
@@ -44,8 +44,8 @@ def datasets_dir() -> Path:
 FAST_RAG_CASES = 8
 FULL_RAG_CASES = 30
 # Simulator user-model: NOT the judge. Personas just need plausible users;
-# scoring stays on gpt-4o. Mini has a separate, roomier TPM budget, which
-# matters because Friday's own Luna turns share the gpt-4o pool.
+# scoring uses the configured judge. gpt-4o-mini default is stale while
+# OpenAI credit is exhausted; override per run (local Ollama or Groq).
 SIMULATOR_MODEL = os.getenv("FRIDAY_SIMULATOR_MODEL", "gpt-4o-mini")
 # Pacing between simulated turns (seconds). The account TPM ceiling covers
 # Luna turns + simulator + judges combined; without pacing, bursts 429.
@@ -68,14 +68,17 @@ def require_app_key() -> str:
 
 
 def require_judge_key() -> str:
-    """Judge key gate. Only the OpenAI judge provider needs a key; local
-    (Ollama) judges run fully offline."""
+    """Judge key gate per provider. OpenAI and Groq judges need their keys;
+    local (Ollama) judges run fully offline."""
 
     import pytest
 
-    if JUDGE_PROVIDER != "openai":
+    if JUDGE_PROVIDER == "ollama":
         return ""
-    return require_app_key()
+    env_var = "GROQ_API_KEY" if JUDGE_PROVIDER == "groq" else "OPENAI_API_KEY"
+    if not os.getenv(env_var):
+        pytest.skip(f"{env_var} is not set (never commit keys)")
+    return ""
 
 
 def require_openai_key() -> str:
@@ -92,6 +95,14 @@ def judge_model():
 
         return OllamaModel(
             model=JUDGE_MODEL, base_url=OLLAMA_BASE_URL, temperature=JUDGE_TEMPERATURE
+        )
+    if JUDGE_PROVIDER == "groq":
+        from deepeval.models import LiteLLMModel
+
+        return LiteLLMModel(
+            model=JUDGE_MODEL,
+            api_key=os.getenv("GROQ_API_KEY"),
+            temperature=JUDGE_TEMPERATURE,
         )
     from deepeval.models import GPTModel
 

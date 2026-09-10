@@ -60,19 +60,22 @@ Calibrated-judge agreement on the 22-check `test_calibration.py` set
 
 | Judge | Agreement | Time | Cost | Verdict |
 | --- | --- | --- | --- | --- |
-| gpt-4o (reference) | 22/22 (100%) | ~2 min | API | Trusted baseline; nightly + local full runs |
-| gpt-4o-mini | 20/22 (91%) | ~2 min | ~20x cheaper API | PR gate. Misses: correct-abstention grounding (0.25), ungrounded-options (0.98 pass — dangerous direction) |
+| gpt-4o (reference) | 22/22 (100%) | ~2 min | API (exhausted) | Trusted but UNAVAILABLE; nightly paused |
+| gpt-4o-mini | 20/22 (91%) | ~2 min | API (exhausted) | UNAVAILABLE |
+| groq gpt-oss-120b | 19/22 (fails honest E702 abstention as hallucination) | ~3 min + 429 retries | free/8k TPM | Not trusted on the abstention contract |
+| groq gpt-oss-20b | 16/22 (same abstention flaw + more) | ~3.5 min | free/8k TPM | Rejected |
+| groq qwen3.6-27b | 0/22 (persistent 429s, 12 min) | — | free (starved) | Unusable on this tier |
 | qwen2.5:1.5b (local) | 13/22 (59%, systematic inversions incl. passing hallucinations) | ~4 min | free | Rejected |
 | qwen2.5:3b (local) | 12/22 (55%, over-strict pedantry) | ~7 min | free | Rejected |
 | llama3.2:3b (local) | 9/22 (41%) | ~6.5 min | free | Rejected |
 | qwen3:4b (local) | 0/22 (every call timed out) | 66 min wasted | free | Infeasible on 2-core runners |
 
-No CPU-runnable local model in the 1.5–4B range judges acceptably; the best
-local score (59%) fails in the dangerous direction. So there is no local PR
-judge — cost control is mini (documented misses above) with two mitigations:
-deterministic button-grounding unit tests gate every PR alongside it, and the
-gpt-4o nightly catches what mini misses. Revisit if a larger local model or a
-GPU runner becomes available (`eval-judge-bench.yml` reruns the comparison).
+Conclusion at $0 budget: no judge qualifies, so LLM-judged suites are
+paused, not gated. CI runs deterministic tests + dataset contracts +
+suite collection only. `FRIDAY_JUDGE_PROVIDER` defaults to groq (free,
+mechanical path works) for ad-hoc informational runs, but its scores are
+NOT ground truth — verdicts require a trusted judge. Revisit when model
+access changes (`eval-judge-bench.yml` reruns the comparison).
 
 ## Installation
 

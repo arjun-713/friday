@@ -81,12 +81,11 @@ jobs:
         run: mypy
 
   deepeval-calibration:
-    # Judge-only eval gate: no Qdrant, models, or indexed data needed
-    # (calibration makes zero app calls). Skips cleanly without a key.
-    # App-dependent suites (RAG/conversation/agent/voice/simulator) need the
-    # gitignored manual corpus, embedding artifact, and indexed collection,
-    # so they run manually/nightly — see docs/eval-deepeval.md.
-    name: deepeval-calibration
+    # Zero-spend contract gate: dataset integrity + suite collectability.
+    # LLM-judged suites are paused — no trusted judge exists at $0 spend
+    # (see docs/eval-deepeval.md "Local-judge benchmark"). They resume when
+    # model access changes; deterministic guardrails remain authoritative.
+    name: deepeval-contracts
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -99,15 +98,10 @@ jobs:
           cache-dependency-path: backend/pyproject.toml
       - name: Install backend development dependencies
         run: python -m pip install --quiet -e ".[dev]"
-      - name: Validate eval judges and dataset contracts
-        # Cost-controlled judge: mini agrees with gpt-4o on 20/22 calibration
-        # checks; its one blind spot (ungrounded observation options) is
-        # covered by deterministic button-grounding unit tests in this same
-        # pipeline and by the gpt-4o nightly run. See docs/eval-deepeval.md.
-        run: deepeval test run eval/evals/test_calibration.py eval/evals/test_rag.py::test_dataset_contract --identifier ci-calibration
-        env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          FRIDAY_JUDGE_MODEL: gpt-4o-mini
+      - name: Dataset contracts (no judge, no keys)
+        run: deepeval test run eval/evals/test_rag.py::test_dataset_contract --identifier ci-contracts
+      - name: Collect eval suites (import + parametrization integrity)
+        run: python -m pytest eval/evals/ --collect-only -q
 
   frontend:
     name: frontend

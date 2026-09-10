@@ -1,12 +1,13 @@
 name: Eval nightly (strong judge)
 
-# Judge-drift detection + contract checks with the trusted gpt-4o judge.
-# App-turn suites (RAG/conversation/agent/voice/simulator) stay manual/local:
+# PAUSED: no trusted judge exists at $0 spend (see docs/eval-deepeval.md
+# "Local-judge benchmark"). Schedule disabled; manual dispatch only, for use
+# when model access returns. App-turn suites stay manual/local regardless:
 # they need the gitignored manual corpus, embedding artifact, and indexed
-# collection, which free runners cannot reconstruct. See docs/eval-deepeval.md.
+# collection, which free runners cannot reconstruct.
 on:
-  schedule:
-    - cron: "0 3 * * *"
+  # schedule:
+  #   - cron: "0 3 * * *"
   workflow_dispatch:
 
 permissions:
