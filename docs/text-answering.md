@@ -19,7 +19,7 @@ The response is either:
   `turn` (`solve`/`advance`/`clarify`/`abstain`), evidence, citations, and images; or
 - `status: "abstained"` with a reason and missing device observations.
 
-The default answer path uses LiteLLM (`openai/gpt-5.6-luna` via `OPENAI_API_KEY`, temperature `0.1`).
+The default answer path uses LiteLLM (`openai/gpt-6-luna` via `OPENAI_API_KEY`, temperature `0.1`, reasoning off).
 `EvidenceOnlyAnswerGenerator` remains only as a fallback when `llm.enabled` is false.
 Streaming emits `retrieval`, optional `tool`, `token`, and `complete` SSE events; citations are rendered
 in a separate source row and stripped from chat/TTS text by the frontend.
@@ -51,7 +51,7 @@ latency can be measured separately from retrieval.
 
 Supported providers (config-only switch in `backend/config.yml`):
 
-- OpenAI-compatible Luna (`openai/gpt-5.6-luna`, `OPENAI_API_KEY`) — default.
+- OpenAI GPT-6 Luna (`openai/gpt-6-luna`, `OPENAI_API_KEY`) — default.
 - Groq OpenAI-compatible models via `GROQ_API_KEY`.
 - Any LiteLLM OpenAI-compatible model via `llm.model`, `llm.api_base`, `llm.api_key_env`.
 - Sarvam conversation models are supported but have no prompt-cache contract.

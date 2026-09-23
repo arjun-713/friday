@@ -52,7 +52,7 @@ def test_runtime_yaml_contains_non_secret_provider_settings() -> None:
     stt = SarvamRealtimeSettings.from_env()
     tts = SarvamTTSSettings.from_env()
 
-    assert llm.model == "openai/gpt-5.6-luna"
+    assert llm.model == "openai/gpt-6-luna"
     assert llm.api_base is None
     assert llm.api_key_env == "OPENAI_API_KEY"
     assert llm.reasoning_effort == "none"
