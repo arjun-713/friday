@@ -1,5 +1,6 @@
 # Python virtualenvs, bytecode, and packaging metadata.
 .venv/
+venv/
 __pycache__/
 *.py[cod]
 *.egg-info/
@@ -7,6 +8,12 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.tox/
+.nox/
+.hypothesis/
+build/
+dist/
+pip-wheel-metadata/
 
 # Frontend build output and dependencies.
 node_modules/
@@ -15,11 +22,14 @@ node_modules/
 playwright-report/
 test-results/
 .turbo/
+.vercel/
+out/
 .npm/
 
 # Secrets stay local; only the example is committed.
 .env
 *.env
+.env.*
 !.env.example
 
 # DeepEval local run cache and last-run reports (regenerable).
@@ -61,3 +71,4 @@ tmp/
 
 # OS noise.
 .DS_Store
+Thumbs.db
